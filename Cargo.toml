@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vestige-core",
+    "crates/vestige-store",
+    "crates/vestige-config",
+    "crates/vestige-cli",
+    "crates/vestige-mcp",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/conorluddy/vestige"
+authors = ["Conor Luddy"]
+
+[workspace.dependencies]
+# Internal
+vestige-core = { path = "crates/vestige-core" }
+vestige-store = { path = "crates/vestige-store" }
+vestige-config = { path = "crates/vestige-config" }
+vestige-mcp = { path = "crates/vestige-mcp" }
+
+# External
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+ulid = { version = "1", features = ["serde"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite_migration = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+sha2 = "0.10"
+hex = "0.4"
+directories = "5"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
