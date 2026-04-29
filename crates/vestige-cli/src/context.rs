@@ -1,11 +1,12 @@
 //! Shared CLI helpers for resolving the active Vestige project from cwd.
 
 use anyhow::{Context, Result};
-use vestige_config::discover_config;
+use vestige_config::{discover_config, VestigeConfig};
 use vestige_core::ProjectId;
 use vestige_store::Store;
 
 pub struct ProjectContext {
+    pub config: VestigeConfig,
     pub project_id: ProjectId,
     pub store: Store,
 }
@@ -18,5 +19,9 @@ pub fn load() -> Result<ProjectContext> {
     let project_id = config.project_id()?;
     let storage_path = config.resolved_storage_path()?;
     let store = Store::open(&storage_path).context("opening project store")?;
-    Ok(ProjectContext { project_id, store })
+    Ok(ProjectContext {
+        config,
+        project_id,
+        store,
+    })
 }

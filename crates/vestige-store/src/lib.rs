@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use vestige_core::{
     FetchedMemory, ListFilter, Memory, MemoryBundle, MemoryId, MemoryStatus, MemoryType, ProjectId,
-    ProjectRecord, RepresentationDepth, RepresentationRow, SourceRow,
+    ProjectRecord, RepresentationDepth, RepresentationRow, SearchFilter, SearchHit, SourceRow,
 };
 
 #[derive(Debug, Error)]
@@ -299,6 +299,90 @@ impl Store {
             });
         }
         Ok(out)
+    }
+
+    /// FTS5-backed search over the project's active memories. Returns the
+    /// best-matching representation's bm25 score per memory; lower bm25 is a
+    /// better match. Composite ranking (importance / type / recency) is
+    /// applied by `vestige-core` so the rules stay in pure code.
+    pub fn search_memories(
+        &self,
+        project_id: &ProjectId,
+        fts_query: &str,
+        filter: &SearchFilter,
+    ) -> Result<Vec<SearchHit>> {
+        if fts_query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // bm25() can only be used in queries that directly MATCH the FTS
+        // table without intervening JOINs/CTEs in some SQLite builds. We
+        // run the FTS pass in isolation and apply project/status/type
+        // filters client-side. Project DBs are per-project (PRD §9), so the
+        // candidate set is already scoped.
+        // bm25() can only be called once per row and not inside aggregates
+        // in some SQLite builds. Pull raw row scores, dedupe + filter in
+        // Rust. Project DBs are per-project (PRD §9), so scoping is local.
+        let candidate_limit = filter
+            .limit
+            .map(|n| n.saturating_mul(8).max(50))
+            .unwrap_or(200);
+        let mut stmt = self.conn.prepare(
+            "SELECT memory_id, bm25(memory_fts) AS score
+             FROM memory_fts
+             WHERE memory_fts MATCH ?1
+             ORDER BY score ASC
+             LIMIT ?2",
+        )?;
+        let raw: Vec<(String, f64)> = stmt
+            .query_map(
+                rusqlite::params![fts_query, candidate_limit as i64],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)),
+            )?
+            .collect::<std::result::Result<_, _>>()?;
+
+        // Best (lowest bm25) per memory_id, preserving sort order.
+        use std::collections::HashMap;
+        let mut best: HashMap<String, f64> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+        for (id, score) in raw {
+            match best.get(&id) {
+                Some(prev) if *prev <= score => {}
+                _ => {
+                    if !best.contains_key(&id) {
+                        order.push(id.clone());
+                    }
+                    best.insert(id, score);
+                }
+            }
+        }
+
+        let mut hits = Vec::new();
+        for id_str in order {
+            let bm25 = best[&id_str];
+            let id = MemoryId::from_str(&id_str).map_err(invalid_id_to_sqlite)?;
+            let fetched = match self.get_memory(&id)? {
+                Some(f) => f,
+                None => continue,
+            };
+            if fetched.memory.project_id != *project_id
+                || fetched.memory.status != MemoryStatus::Active
+            {
+                continue;
+            }
+            if let Some(t) = &filter.r#type {
+                if fetched.memory.r#type != *t {
+                    continue;
+                }
+            }
+            hits.push(SearchHit { fetched, bm25 });
+            if let Some(limit) = filter.limit {
+                if hits.len() as u32 >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(hits)
     }
 
     /// Soft-delete (`forget`) a memory: flip status, set `deleted_at`. The
