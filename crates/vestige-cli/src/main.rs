@@ -39,6 +39,8 @@ enum Command {
     Search(commands::search::SearchArgs),
     /// Recall — like search, opinionated for agent/user retrieval.
     Recall(commands::recall::RecallArgs),
+    /// Render the project context pack (summary + decisions + questions + recent).
+    Context(commands::context::ContextArgs),
     /// Show a memory at the given depth.
     Show(commands::show::ShowArgs),
     /// Soft-delete a memory.
@@ -68,6 +70,7 @@ fn main() -> Result<()> {
         Command::List(args) => commands::list::run(args),
         Command::Search(args) => commands::search::run(args),
         Command::Recall(args) => commands::recall::run(args),
+        Command::Context(args) => commands::context::run(args),
         Command::Show(args) => commands::show::run(args),
         Command::Forget(args) => commands::forget::run(args),
         Command::Restore(args) => commands::restore::run(args),

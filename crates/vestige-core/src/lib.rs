@@ -1,9 +1,14 @@
+pub mod context;
 pub mod error;
 pub mod ids;
 pub mod memory;
 pub mod representations;
 pub mod types;
 
+pub use context::{
+    build_pack, ContextOptions, ContextPack, ContextSections, ContextSources,
+    APPROX_CHARS_PER_TOKEN,
+};
 pub use error::{CoreError, Result};
 pub use ids::{MemoryId, ProjectId};
 pub use memory::{
