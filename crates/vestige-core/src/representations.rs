@@ -27,7 +27,7 @@ pub fn derive(body: &str) -> DerivedRepresentations {
     }
 }
 
-pub fn depth_pick<'a>(d: RepresentationDepth, r: &'a DerivedRepresentations) -> &'a str {
+pub fn depth_pick(d: RepresentationDepth, r: &DerivedRepresentations) -> &str {
     match d {
         RepresentationDepth::OneLiner => &r.one_liner,
         RepresentationDepth::Summary => &r.summary,

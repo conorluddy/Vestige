@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use clap::Args;
@@ -7,6 +7,7 @@ use vestige_config::{
     build_init_config, discover_repo_root, display_name_from_path, git_remote_url, read_config,
     resolve_project_id, storage_path_for, write_config, CONFIG_DIR, CONFIG_FILE,
 };
+use vestige_core::{build_bundle, ListFilter, MemoryType, NewMemory};
 use vestige_store::Store;
 
 #[derive(Debug, Args)]
@@ -15,9 +16,8 @@ pub struct InitArgs {
     #[arg(long)]
     pub name: Option<String>,
 
-    /// Optional one-line project summary stored as a `project_summary` memory.
-    /// (Stored on first M1 milestone — accepted now and persisted in the
-    /// init event payload so nothing is lost.)
+    /// Optional one-line project summary persisted as a `project_summary`
+    /// memory. Idempotent: re-running `init` won't duplicate it.
     #[arg(long)]
     pub summary: Option<String>,
 
@@ -53,7 +53,13 @@ pub fn run(args: InitArgs) -> Result<()> {
     let cfg = build_init_config(&project_id, &project_name, &storage_path);
 
     if args.dry_run {
-        print_plan(&repo_root, &config_path, &storage_path, &cfg, args.summary.as_deref());
+        print_plan(
+            &repo_root,
+            &config_path,
+            &storage_path,
+            &cfg,
+            args.summary.as_deref(),
+        );
         return Ok(());
     }
 
@@ -76,27 +82,66 @@ pub fn run(args: InitArgs) -> Result<()> {
         "repo_root": repo_root.to_string_lossy(),
     });
     store
-        .record_event(&project_id, "project.initialised", Some(&payload.to_string()))
+        .record_event(
+            &project_id,
+            "project.initialised",
+            Some(&payload.to_string()),
+        )
         .context("recording init event")?;
 
-    println!("Initialised Vestige project `{project_name}` ({})", project_id.as_str());
+    if let Some(summary) = args.summary.as_deref() {
+        if !summary_already_recorded(&store, &project_id)? {
+            let bundle = build_bundle(
+                &project_id,
+                NewMemory {
+                    r#type: MemoryType::ProjectSummary,
+                    body: summary,
+                    importance: 0.9,
+                    source: None,
+                },
+            )?;
+            store.record_memory(&bundle)?;
+        }
+    }
+
+    println!(
+        "Initialised Vestige project `{project_name}` ({})",
+        project_id.as_str()
+    );
     println!("  Config:   {}", config_path.display());
     println!("  Memory:   {}", storage_path.display());
     if let Some(s) = args.summary {
         println!("  Summary:  {s}");
-        println!("  (Summary will be persisted as a project_summary memory in M1.)");
     }
     Ok(())
 }
 
+fn summary_already_recorded(
+    store: &Store,
+    project_id: &vestige_core::ProjectId,
+) -> anyhow::Result<bool> {
+    let existing = store.list_memories(
+        project_id,
+        &ListFilter {
+            include_deleted: false,
+            r#type: Some(MemoryType::ProjectSummary),
+            limit: Some(1),
+        },
+    )?;
+    Ok(!existing.is_empty())
+}
+
 fn print_plan(
-    repo_root: &PathBuf,
-    config_path: &PathBuf,
-    storage_path: &PathBuf,
+    repo_root: &Path,
+    config_path: &Path,
+    storage_path: &Path,
     cfg: &vestige_config::VestigeConfig,
     summary: Option<&str>,
 ) {
-    println!("[dry-run] would initialise Vestige in {}", repo_root.display());
+    println!(
+        "[dry-run] would initialise Vestige in {}",
+        repo_root.display()
+    );
     println!("  project_id:    {}", cfg.project_id);
     println!("  project_name:  {}", cfg.project_name);
     println!("  config:        {}", config_path.display());
