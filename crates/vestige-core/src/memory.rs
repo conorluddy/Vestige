@@ -106,6 +106,95 @@ pub struct ListFilter {
     pub limit: Option<u32>,
 }
 
+/// Filter passed to `search_memories`.
+#[derive(Debug, Clone, Default)]
+pub struct SearchFilter {
+    pub r#type: Option<MemoryType>,
+    pub limit: Option<u32>,
+}
+
+/// Raw search result from the store: a fetched memory plus the best matching
+/// representation's bm25 score (lower = better, as SQLite returns it).
+#[derive(Debug, Clone)]
+pub struct SearchHit {
+    pub fetched: FetchedMemory,
+    pub bm25: f64,
+}
+
+/// A search result projected for display: compact card + composite score.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoredCard {
+    #[serde(flatten)]
+    pub card: MemoryCard,
+    pub score: f64,
+}
+
+/// Sanitize a free-text query for FTS5 MATCH. Collapses to alphanumeric
+/// tokens (plus `-` and `_`), joined by whitespace (FTS5 implicit AND with
+/// the porter stemmer doing the rest). Returns empty string when the query
+/// has no usable tokens — callers should skip the search in that case.
+pub fn sanitize_fts_query(raw: &str) -> String {
+    raw.split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect::<String>()
+        })
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+// ========================================
+// === RANKING ===
+// ========================================
+
+/// Composite ranking from PRD §14.2:
+///
+/// ```text
+/// score = fts_norm + 0.3 * importance + type_boost + recency_boost
+/// ```
+///
+/// Where:
+/// * `fts_norm = -bm25 / 10.0` (SQLite returns negative bm25 with lower =
+///   better; flipping makes higher = better in a roughly [0, 3] range).
+/// * `type_boost`: decisions and project_summary get +0.15 each.
+/// * `recency_boost = 0.2 * exp(-days_since_updated / 30.0)`.
+pub fn composite_score(hit: &SearchHit, now: OffsetDateTime) -> f64 {
+    let fts_norm = (-hit.bm25) / 10.0;
+    let importance_term = 0.3 * hit.fetched.memory.importance;
+    let type_boost = match hit.fetched.memory.r#type {
+        MemoryType::Decision | MemoryType::ProjectSummary => 0.15,
+        _ => 0.0,
+    };
+    let age = now - hit.fetched.memory.updated_at;
+    let days = (age.whole_seconds() as f64) / 86_400.0;
+    let recency_boost = 0.2 * (-(days.max(0.0)) / 30.0).exp();
+    fts_norm + importance_term + type_boost + recency_boost
+}
+
+/// Project a list of search hits into ScoredCards, sorted by composite score
+/// (highest first).
+pub fn rank_hits(hits: Vec<SearchHit>) -> Vec<ScoredCard> {
+    let now = OffsetDateTime::now_utc();
+    let mut scored: Vec<ScoredCard> = hits
+        .into_iter()
+        .map(|hit| {
+            let score = composite_score(&hit, now);
+            ScoredCard {
+                card: project_card(&hit.fetched),
+                score,
+            }
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored
+}
+
 // ========================================
 // === BUNDLE BUILDING ===
 // ========================================
@@ -362,6 +451,62 @@ mod tests {
         let (cut, truncated) = truncate_at_utf8_boundary("hello", 100);
         assert!(!truncated);
         assert_eq!(cut, "hello");
+    }
+
+    #[test]
+    fn sanitize_strips_fts_specials() {
+        assert_eq!(sanitize_fts_query("MCP adapter!"), "MCP adapter");
+        assert_eq!(
+            sanitize_fts_query("  (foo) \"bar\" baz-qux "),
+            "foo bar baz-qux"
+        );
+        assert_eq!(sanitize_fts_query("***"), "");
+        assert_eq!(sanitize_fts_query(""), "");
+    }
+
+    #[test]
+    fn ranking_boosts_decisions_over_notes_at_equal_match() {
+        // Two memories with identical bm25 + importance + recency — the
+        // decision should come out ahead via type boost.
+        let now = OffsetDateTime::now_utc();
+        let project = project();
+        let bundle_d = build_bundle(
+            &project,
+            NewMemory {
+                r#type: MemoryType::Decision,
+                body: "Use SQLite",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+        let bundle_n = build_bundle(
+            &project,
+            NewMemory {
+                r#type: MemoryType::Note,
+                body: "Use SQLite",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+        let hit_d = SearchHit {
+            fetched: FetchedMemory {
+                memory: bundle_d.memory,
+                representations: bundle_d.representations,
+                sources: vec![],
+            },
+            bm25: -10.0,
+        };
+        let hit_n = SearchHit {
+            fetched: FetchedMemory {
+                memory: bundle_n.memory,
+                representations: bundle_n.representations,
+                sources: vec![],
+            },
+            bm25: -10.0,
+        };
+        assert!(composite_score(&hit_d, now) > composite_score(&hit_n, now));
     }
 
     #[test]

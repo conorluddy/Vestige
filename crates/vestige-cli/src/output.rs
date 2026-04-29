@@ -5,7 +5,9 @@
 
 use anyhow::Result;
 use serde::Serialize;
-use vestige_core::{MemoryCard, MemoryDetail, MemoryStatus, RepresentationDepth, SourceRow};
+use vestige_core::{
+    MemoryCard, MemoryDetail, MemoryStatus, RepresentationDepth, ScoredCard, SourceRow,
+};
 
 pub enum OutputFormat {
     Text,
@@ -26,6 +28,20 @@ pub fn emit_json<T: Serialize>(value: &T) -> Result<()> {
     let s = serde_json::to_string_pretty(value)?;
     println!("{s}");
     Ok(())
+}
+
+pub fn print_scored(scored: &ScoredCard) {
+    let status_marker = match scored.card.status {
+        MemoryStatus::Active => "",
+        MemoryStatus::Deleted => " [deleted]",
+    };
+    println!(
+        "{:<28} {:<14} {:>6.3}  {}{}",
+        scored.card.id, scored.card.r#type, scored.score, scored.card.title, status_marker
+    );
+    if !scored.card.one_liner.is_empty() && scored.card.one_liner != scored.card.title {
+        println!("    {}", scored.card.one_liner);
+    }
 }
 
 pub fn print_card(card: &MemoryCard) {
