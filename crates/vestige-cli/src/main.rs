@@ -3,9 +3,15 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 mod commands;
+mod context;
+mod output;
 
 #[derive(Parser)]
-#[command(name = "vestige", version, about = "Repo-pinned memory layer for coding agents")]
+#[command(
+    name = "vestige",
+    version,
+    about = "Repo-pinned memory layer for coding agents"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -17,6 +23,24 @@ enum Command {
     Init(commands::init::InitArgs),
     /// Show current Vestige project state.
     Status,
+    /// Capture a free-form memory (default type: note).
+    Remember(commands::remember::RememberArgs),
+    /// Capture a note.
+    Note(commands::note::NoteArgs),
+    /// Capture a project decision.
+    Decision(commands::decision::DecisionArgs),
+    /// Capture a project preference.
+    Preference(commands::preference::PreferenceArgs),
+    /// Capture an open question.
+    Question(commands::question::QuestionArgs),
+    /// List active project memories.
+    List(commands::list::ListArgs),
+    /// Show a memory at the given depth.
+    Show(commands::show::ShowArgs),
+    /// Soft-delete a memory.
+    Forget(commands::forget::ForgetArgs),
+    /// Restore a soft-deleted memory.
+    Restore(commands::restore::RestoreArgs),
     /// Start the MCP server (M5 — not implemented yet).
     Mcp(commands::mcp::McpArgs),
 }
@@ -32,6 +56,15 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Init(args) => commands::init::run(args),
         Command::Status => commands::status::run(),
+        Command::Remember(args) => commands::remember::run(args),
+        Command::Note(args) => commands::note::run(args),
+        Command::Decision(args) => commands::decision::run(args),
+        Command::Preference(args) => commands::preference::run(args),
+        Command::Question(args) => commands::question::run(args),
+        Command::List(args) => commands::list::run(args),
+        Command::Show(args) => commands::show::run(args),
+        Command::Forget(args) => commands::forget::run(args),
+        Command::Restore(args) => commands::restore::run(args),
         Command::Mcp(args) => commands::mcp::run(args),
     }
 }

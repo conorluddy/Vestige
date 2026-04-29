@@ -1,3 +1,13 @@
+pub mod decision;
+pub mod forget;
 pub mod init;
+pub mod list;
 pub mod mcp;
+pub mod note;
+pub mod preference;
+pub mod question;
+pub mod record;
+pub mod remember;
+pub mod restore;
+pub mod show;
 pub mod status;

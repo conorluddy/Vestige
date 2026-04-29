@@ -224,7 +224,11 @@ pub fn git_remote_url(repo_root: &Path) -> Option<String> {
         return None;
     }
     let s = String::from_utf8(output.stdout).ok()?.trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 /// Find the git root by walking up from `start`. Falls back to `start`.
@@ -261,9 +265,9 @@ fn short_hash(bytes: &[u8]) -> String {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from).or_else(|| {
-        directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
-    })
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()))
 }
 
 fn expand_tilde(s: &str) -> Result<PathBuf> {
