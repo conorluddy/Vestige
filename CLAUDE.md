@@ -95,6 +95,35 @@ These flow from the PRD and are enforced by `CODESTYLE.md`:
 - **CLI output**: text by default, `--json` for scripting. Stdout is reserved for command output; logs go to stderr (`tracing` + `VESTIGE_LOG` env filter).
 - **Tests**: unit tests inline (`#[cfg(test)] mod tests`); cross-crate behaviour goes in `crates/<crate>/tests/`. Use `tempfile::TempDir` over mocks — real SQLite in a tmpdir is fast.
 
+## Testing
+
+First-class, but earning their seat. Tests follow the trophy in `CODESTYLE.md`: mostly integration, some unit, a few smokes at the top.
+
+**Where tests carry their weight**
+
+- **Integration against real SQLite in a `TempDir`** is the primary line of defence. Vestige is mostly a thin layer over SQLite + FTS5 triggers; mocking the DB would test the mock. Pattern is established in `crates/vestige-store/src/lib.rs` tests.
+- **Unit tests for pure logic** with interesting branching: representation derivation, ranking math, ID parsing, source-snippet truncation at UTF-8 boundaries.
+- **CLI smoke tests** under `crates/vestige-cli/tests/` — spawn the built binary against a tmpdir; drive `init → remember → search → forget → restore → context`; assert exit codes and `--json` output.
+- **MCP smoke tests** — in-process stdio harness sending JSON-RPC frames and asserting the structured `{code, message, retryable}` shape on errors. The MCP surface is the agent contract; silent drift breaks the product.
+
+**Where tests would be waste**
+
+Trivial getters, serde round-trips already covered by a single happy-path test, "does clap parse my args" (clap's job), per-command coverage when the integration smoke already exercises it.
+
+**Invariants that deserve dedicated tests** (these bite if they break)
+
+1. Soft-delete excludes from search (FTS trigger sync).
+2. Restore re-indexes (the inverse trigger).
+3. `init` is idempotent — re-running doesn't rotate `project_id` or duplicate the project row.
+4. Project-scope boundary: a search in project A returns nothing from project B even when both DBs exist.
+5. Migrations validate (`rusqlite_migration::validate`) and apply cleanly to an empty DB.
+6. 2 KiB source cap truncates at a UTF-8 codepoint boundary.
+7. `MemoryId`/`ProjectId` parsers reject the wrong prefix.
+
+**Per-milestone bar**
+
+Each milestone (M0 → M5) ships with the integration tests that prove its PRD §19 acceptance criteria, plus unit tests for any non-trivial logic. PRs are not done until `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` is green.
+
 ## Open questions resolved (PRD §21)
 
 All 14 PRD open questions are resolved in `~/.claude/plans/lets-flesh-out-the-dazzling-meadow.md`. Headlines: Rust, ULIDs with `mem_`/`proj_` prefixes, `.vestige/config.toml` is committed, opt-in `--source` capped at 2 KiB, soft-delete is restorable, embeddings deferred to V0.1, global preferences deferred to V0.6.
