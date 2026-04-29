@@ -9,7 +9,10 @@ pub struct McpArgs {
 }
 
 pub fn run(args: McpArgs) -> Result<()> {
-    vestige_mcp::run(vestige_mcp::McpOptions {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(vestige_mcp::run(vestige_mcp::McpOptions {
         read_only: args.read_only,
-    })
+    }))
 }

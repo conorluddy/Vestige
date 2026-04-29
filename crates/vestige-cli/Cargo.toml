@@ -16,6 +16,7 @@ vestige-core.workspace = true
 vestige-store.workspace = true
 vestige-config.workspace = true
 vestige-mcp.workspace = true
+tokio.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde.workspace = true
