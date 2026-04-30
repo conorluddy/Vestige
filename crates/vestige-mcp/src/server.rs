@@ -212,6 +212,7 @@ impl VestigeServer {
                     &SearchFilter {
                         r#type,
                         limit: Some(p.limit),
+                        ..Default::default()
                     },
                 )
                 .map_err(|e| err("STORE_FAILED", e.to_string(), true))?;

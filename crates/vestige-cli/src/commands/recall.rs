@@ -47,6 +47,7 @@ pub fn run(args: RecallArgs) -> Result<()> {
             &SearchFilter {
                 r#type,
                 limit: Some(limit),
+                ..Default::default()
             },
         )?;
         rank_hits(hits)

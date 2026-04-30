@@ -1,6 +1,8 @@
 # Vestige
 
 > Local-first, repo-pinned memory for coding agents.
+>
+> Landing page: <https://conorluddy.github.io/Vestige/>
 
 > **vestige** *noun*  ˈve-stij
 >

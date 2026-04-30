@@ -1,0 +1,228 @@
+/* ─────────────────────────────────────────────────────────────
+ * styles.css — page-level CSS for the Vestige landing page.
+ * Tokens-driven; no magic numbers below this comment.
+ * ───────────────────────────────────────────────────────────── */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--vt-bg);
+  color: var(--vt-ink);
+  font-family: var(--vt-font-sans);
+  font-size: var(--vt-fs-16);
+  line-height: var(--vt-lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: inherit; text-decoration: none; }
+
+::-webkit-scrollbar      { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--vt-rule); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Page ─────────────────────────────────────────────────── */
+.vt-page { background: var(--vt-bg); color: var(--vt-ink); }
+
+/* ── Bar / nav ────────────────────────────────────────────── */
+.vt-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--vt-s-3) var(--vt-s-8);
+  border-bottom: var(--vt-border-hard);
+  background: var(--vt-bg);
+  font-family: var(--vt-font-mono);
+  font-size: var(--vt-fs-12);
+  position: sticky; top: 0; z-index: 10;
+}
+.vt-bar-l, .vt-bar-r { display: flex; align-items: center; gap: var(--vt-s-6); }
+.vt-bar-r { gap: var(--vt-s-5); color: var(--vt-ink-soft); }
+.vt-bar a:hover { color: var(--vt-accent); }
+.vt-bar .vt-brand-name { font-weight: 600; color: var(--vt-ink); letter-spacing: 0.5px; font-size: var(--vt-fs-13); }
+.vt-bar .vt-brand-meta { color: var(--vt-muted); }
+.vt-bar .vt-cta-gh {
+  color: var(--vt-bg); background: var(--vt-ink);
+  padding: 6px 12px; transition: background var(--vt-dur-fast) var(--vt-ease);
+}
+.vt-bar .vt-cta-gh:hover { background: var(--vt-accent); }
+
+/* ── Section scaffolding ──────────────────────────────────── */
+.vt-section {
+  padding: var(--vt-s-16) var(--vt-s-8);
+  border-bottom: var(--vt-border-hard);
+  background: var(--vt-bg);
+}
+.vt-section.is-aside {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: var(--vt-s-8);
+}
+.vt-fig-num {
+  font-family: var(--vt-font-mono);
+  font-size: var(--vt-fs-10);
+  color: var(--vt-accent);
+  letter-spacing: 0.6px;
+  margin-bottom: var(--vt-s-2);
+  text-transform: uppercase;
+}
+.vt-section h2 {
+  margin: 0;
+  font-size: var(--vt-fs-22);
+  font-weight: 600;
+  color: var(--vt-ink);
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+}
+.vt-section .vt-lede {
+  margin-top: var(--vt-s-3);
+  font-size: var(--vt-fs-13);
+  line-height: var(--vt-lh-body);
+  color: var(--vt-muted);
+}
+
+/* ── Hero ─────────────────────────────────────────────────── */
+.vt-hero {
+  padding: var(--vt-s-16) var(--vt-s-8);
+  border-bottom: var(--vt-border-hard);
+  background: var(--vt-bg);
+}
+.vt-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: 56px;
+}
+.vt-hero h1 {
+  margin: 0;
+  font-size: var(--vt-fs-64);
+  line-height: 1.0;
+  letter-spacing: -1.6px;
+  font-weight: 600;
+  color: var(--vt-ink);
+}
+.vt-hero h1 em { font-style: normal; color: var(--vt-accent); }
+.vt-hero p {
+  margin-top: var(--vt-s-7, 28px);
+  font-size: var(--vt-fs-16);
+  line-height: var(--vt-lh-body);
+  color: var(--vt-ink-soft);
+  max-width: 540px;
+}
+.vt-kicker {
+  font-family: var(--vt-font-mono);
+  font-size: var(--vt-fs-11);
+  color: var(--vt-accent);
+  letter-spacing: 0.6px;
+  margin-bottom: 18px;
+}
+
+/* ── Install bar ──────────────────────────────────────────── */
+.vt-install {
+  margin-top: 36px;
+  display: flex;
+  align-items: stretch;
+  border: var(--vt-border-hard);
+  background: var(--vt-bg);
+  max-width: 480px;
+}
+.vt-install-cmd {
+  padding: 14px 18px;
+  flex: 1;
+  font-family: var(--vt-font-mono);
+  font-size: var(--vt-fs-14);
+  color: var(--vt-ink);
+}
+.vt-install-cmd .vt-prompt { color: var(--vt-accent); }
+.vt-install-copy {
+  appearance: none; border: none;
+  border-left: var(--vt-border-hard);
+  background: var(--vt-ink); color: var(--vt-bg);
+  padding: 0 18px;
+  font-family: var(--vt-font-mono); font-size: var(--vt-fs-12);
+  cursor: pointer; letter-spacing: 0.4px;
+  transition: background var(--vt-dur-fast) var(--vt-ease);
+}
+.vt-install-copy:hover { background: var(--vt-accent); }
+.vt-install-aux {
+  margin-top: 14px;
+  font-family: var(--vt-font-mono); font-size: var(--vt-fs-11);
+  color: var(--vt-muted); letter-spacing: 0.4px;
+}
+
+/* ── Stat grid ────────────────────────────────────────────── */
+.vt-statgrid {
+  margin-top: var(--vt-s-12);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: var(--vt-border-hard);
+  border-left: var(--vt-border-hard);
+}
+.vt-stat {
+  padding: 12px 14px;
+  border-right: var(--vt-border-hard);
+  border-bottom: var(--vt-border-hard);
+  font-family: var(--vt-font-mono);
+}
+.vt-stat-k { font-size: var(--vt-fs-9); color: var(--vt-muted); letter-spacing: 0.6px; text-transform: uppercase; }
+.vt-stat-v { font-size: var(--vt-fs-13); color: var(--vt-ink); margin-top: 4px; }
+
+/* ── Frame (bordered card) ───────────────────────────────── */
+.vt-frame { border: var(--vt-border-soft); background: var(--vt-bg); }
+.vt-frame.hard { border: var(--vt-border-hard); }
+.vt-frame.panel { background: var(--vt-panel); }
+
+/* ── Mono code ────────────────────────────────────────────── */
+.vt-mono { font-family: var(--vt-font-mono); }
+.vt-pre {
+  margin: 0; padding: 12px 14px;
+  font-family: var(--vt-font-mono); font-size: var(--vt-fs-11);
+  line-height: 1.55; color: var(--vt-ink);
+  background: var(--vt-panel);
+  border: var(--vt-border-soft); border-radius: var(--vt-r-1);
+  white-space: pre-wrap;
+}
+
+/* ── Pill / badge ────────────────────────────────────────── */
+.vt-pill {
+  display: inline-block;
+  font-family: var(--vt-font-mono); font-size: var(--vt-fs-10);
+  letter-spacing: 0.5px; text-transform: uppercase;
+  padding: 2px 8px; border-radius: var(--vt-r-pill);
+  border: 1px solid var(--vt-rule);
+}
+.vt-pill.is-pos    { background: var(--vt-mint-bg);  color: var(--vt-pos);    border-color: var(--vt-pos); }
+.vt-pill.is-accent { background: var(--vt-accent-bg); color: var(--vt-accent); border-color: var(--vt-accent); }
+
+/* ── Hard rule ───────────────────────────────────────────── */
+.vt-rule { height: 0; border: 0; border-top: var(--vt-border-hard); margin: 0; }
+.vt-rule.soft { border-top: var(--vt-border-soft); }
+
+/* ── Footer ──────────────────────────────────────────────── */
+.vt-footer {
+  padding: var(--vt-s-10) var(--vt-s-8);
+  background: var(--vt-ink);
+  color: var(--vt-ink-mute);
+  font-family: var(--vt-font-mono);
+  font-size: var(--vt-fs-12);
+}
+.vt-footer-row {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: var(--vt-s-6);
+}
+.vt-footer-brand { display: flex; align-items: center; gap: var(--vt-s-3); color: var(--vt-bg); font-family: var(--vt-font-sans); font-size: var(--vt-fs-16); font-weight: 600; }
+.vt-footer-meta { margin-top: var(--vt-s-3); color: #9a9087; }
+.vt-footer-links { display: flex; gap: var(--vt-s-7, 28px); }
+.vt-footer-links a { color: #bcb3a8; }
+.vt-footer-links a:hover { color: var(--vt-mint); }
+.vt-footer-links a.is-mint { color: var(--vt-mint); }
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .vt-hero-grid { grid-template-columns: 1fr; gap: var(--vt-s-12); }
+  .vt-hero h1 { font-size: 48px; letter-spacing: -1.2px; }
+  .vt-section.is-aside { grid-template-columns: 1fr; gap: var(--vt-s-6); }
+  .vt-bar-r { display: none; }
+}
+@media (max-width: 720px) {
+  .vt-hero h1 { font-size: 36px; }
+  .vt-statgrid { grid-template-columns: repeat(2, 1fr); }
+}

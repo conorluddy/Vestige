@@ -43,6 +43,7 @@ pub fn run(args: SearchArgs) -> Result<()> {
             &SearchFilter {
                 r#type,
                 limit: Some(args.limit),
+                ..Default::default()
             },
         )?;
         rank_hits(hits)

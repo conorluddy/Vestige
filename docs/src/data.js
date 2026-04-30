@@ -1,0 +1,119 @@
+// data.js — content for the Vestige landing page.
+// Edit copy here without touching markup.
+
+const VESTIGE = {
+  meta: {
+    name:   'Vestige',
+    tag:    'memory infrastructure for coding agents',
+    repo:   'https://github.com/conorluddy/Vestige',
+    version:'v0.0.1-α',
+    license:'MIT',
+  },
+
+  // Sample memories used by the disclosure ladder + recall demo.
+  memories: [
+    { id: 'mem_01', type: 'decision', importance: 0.9, title: 'SQLite as canonical store',
+      L1: 'SQLite stores durable memory; vector indexes remain replaceable.',
+      L2: 'The project uses SQLite as the canonical local store for memories, with embeddings and vector indexes treated as rebuildable retrieval infrastructure rather than the source of truth.',
+      L3: 'Decision: SQLite canonical store. Vector layer non-authoritative/rebuildable. Rationale: durability, migrations, provenance, local-first portability. Indexes: FTS5, sqlite-vec, LanceDB/Qdrant later.',
+      L4: 'Decision: SQLite is the canonical local store for all derived memories and source events. Embeddings and vector indexes are a disposable acceleration layer, not the source of truth. We can rebuild the entire vector index from SQLite at any time, swap providers without data loss, and ship V0 without any embedding infrastructure.\n\nRationale: durability, migration story, provenance, local-first portability, and the ability to use SQLite\'s FTS5 for V0 search without extra dependencies.',
+      L5: 'prd.md §4 · prd.md §11.5 · session 2026-04-12T14:22Z' },
+    { id: 'mem_02', type: 'decision', importance: 0.85, title: 'MCP as thin adapter',
+      L1: 'MCP wraps memory operations without owning storage or lifecycle.',
+      L2: 'MCP is a thin agent-facing adapter over Vestige memory operations. It exposes high-level tools, not raw SQL or unrestricted database mutation.',
+      L3: 'Decision: MCP thin adapter. Storage/lifecycle owned by Vestige core. Tools: search/expand/context/record_*. No raw SQL.',
+      L4: 'MCP is a thin agent-facing adapter over Vestige memory operations. It exposes high-level tools — search, expand, get_project_context, record_observation, record_decision — not raw SQL or unrestricted database mutation. Storage and lifecycle logic remain in the core; MCP is purely the wire.',
+      L5: 'prd.md §13.1' },
+    { id: 'mem_03', type: 'note', importance: 0.7, title: 'Progressive disclosure is mandatory',
+      L1: 'Every promoted memory exposes L0 handle through L5 source evidence.',
+      L2: 'Memory retrieval returns compact handles first, not full blobs. Each promoted memory supports several representations and agents explicitly expand depth when needed.',
+      L3: 'Required: title, one_liner, summary, compressed_body, full_body, sources. Default recall returns L1.',
+      L4: 'Memory retrieval should return compact handles first, not full blobs. Each promoted memory must support several representations:\n  L0: handle\n  L1: title / one-liner\n  L2: summary\n  L3: compressed body\n  L4: full body\n  L5: source evidence\n\nAgents should explicitly expand memory depth when needed. This keeps token budgets predictable and makes memory inspectable at human scale.',
+      L5: 'prd.md §5.2' },
+    { id: 'mem_04', type: 'open_question', importance: 0.6, title: 'Embeddings: V0 or V0.1?',
+      L1: 'Should V0 ship with embeddings, or wait until V0.1?',
+      L2: 'V0 search is FTS5 + metadata filtering. The open question is whether embeddings should be added in V0 alongside FTS, or deferred to V0.1 once the core capture/recall loop is proven.',
+      L3: 'OPEN: embeddings V0 vs V0.1. Tradeoff: hybrid quality vs scope. Lean: defer to V0.1.',
+      L4: 'V0 search is planned as SQLite FTS5 + metadata filtering. The open question is whether embeddings should be added in V0 alongside FTS, or deferred to V0.1.\n\nThe lean is to defer: prove the loop first, add embeddings behind a replaceable provider interface in V0.1, and keep skeleton V0 free of embedding infrastructure.',
+      L5: 'prd.md §21' },
+    { id: 'mem_05', type: 'decision', importance: 0.7, title: 'No daemon in V0',
+      L1: 'V0 is CLI + MCP + SQLite. No background service required.',
+      L2: 'V0 should not require a background daemon. Runtime is the CLI, the MCP server process, and the project SQLite store. A daemon arrives in V0.4.',
+      L3: 'Decision: no daemon V0. Runtime = CLI + MCP + SQLite. Daemon deferred to V0.4.',
+      L4: 'V0 should not require a background daemon. The initial runtime is just three things: the vestige CLI, the vestige MCP server, and the project SQLite store. The MCP process may read/write the project SQLite store directly in V0.\n\nA daemon (vestiged) is introduced in V0.4 once background indexing, lifecycle scheduling, concurrency control, and a cross-project registry become valuable.',
+      L5: 'prd.md §8 · prd.md §V0.4' },
+    { id: 'mem_06', type: 'preference', importance: 0.65, title: 'Repo-pinned by default',
+      L1: 'Memory created in one repo never affects another repo.',
+      L2: 'Vestige defaults to project-pinned memory. Global memory exists only for durable user/tooling preferences and must be explicitly included in recall.',
+      L3: 'Default scope: project. Cross-project federation opt-in only (V0.7). Global preferences explicit-include only.',
+      L4: 'Vestige defaults to project-pinned memory. A memory created inside one repo should not automatically affect another repo. Project memory stores remain authoritative and isolated. A later federation layer (V0.7) may index compact representations across projects, but it should not merge or pollute individual project stores by default.',
+      L5: 'prd.md §5.1 · prd.md §5.7' },
+  ],
+
+  // Six representations.
+  layers: [
+    { id: 'L0', name: 'handle',     tokens: 4,   desc: 'Opaque ID. Cheap to pass between tools.',     key: 'id' },
+    { id: 'L1', name: 'one-liner',  tokens: 24,  desc: 'Single sentence — enough to judge relevance.',key: 'L1' },
+    { id: 'L2', name: 'summary',    tokens: 80,  desc: 'Human-friendly paragraph.',                   key: 'L2' },
+    { id: 'L3', name: 'compressed', tokens: 140, desc: 'Dense, agent-friendly. Filler removed.',      key: 'L3' },
+    { id: 'L4', name: 'full body',  tokens: 600, desc: 'Complete content with rationale and nuance.', key: 'L4' },
+    { id: 'L5', name: 'sources',    tokens: 40,  desc: 'Raw evidence: commits, sessions, files cited.',key: 'L5' },
+  ],
+
+  // Pill colors per memory type.
+  typeStyle: {
+    decision:      { fg: '#1d6b5e', bg: '#7de2d133', dot: '#339989' },
+    note:          { fg: '#3a4a5a', bg: '#3a5a7a22', dot: '#3a5a7a' },
+    preference:    { fg: '#4a5a3a', bg: '#dbe4cc',   dot: '#5a7a3a' },
+    observation:   { fg: '#3a4a5a', bg: '#d6dde4',   dot: '#3a5a7a' },
+    open_question: { fg: '#7a5a20', bg: '#efe2c1',   dot: '#c08a2a' },
+  },
+
+  mcpTools: [
+    { name: 'vestige_bootstrap',           role: 'read',  desc: 'Compact standing context for the current project.' },
+    { name: 'vestige_search',              role: 'read',  desc: 'Search project memory; returns compact cards.' },
+    { name: 'vestige_expand',              role: 'read',  desc: 'Expand a selected memory by depth.' },
+    { name: 'vestige_get_project_context', role: 'read',  desc: 'Token-budgeted project context pack.' },
+    { name: 'vestige_record_observation',  role: 'write', desc: 'Low-to-medium confidence observation.' },
+    { name: 'vestige_record_decision',     role: 'write', desc: 'Explicit project decision.' },
+  ],
+
+  features: [
+    { k: '01', t: 'Repo-pinned by default',  b: 'Memories never leak across projects. Global preferences must be explicitly included in recall.' },
+    { k: '02', t: 'Progressive disclosure',  b: 'Search returns one-liners. Agents expand to summary, compressed, or full only when needed.' },
+    { k: '03', t: 'Local SQLite, your data', b: 'Canonical store on disk under ~/.vestige/projects/. No cloud, no telemetry.' },
+    { k: '04', t: 'CLI + MCP, nothing else', b: 'A binary and an MCP server. Pipe-friendly output. No GUI, no daemon to babysit.' },
+    { k: '05', t: 'Source-linked',           b: 'Every memory carries provenance: who recorded it, what evidence it came from, when.' },
+    { k: '06', t: 'Forget is first-class',   b: 'Soft-delete from the CLI. Forgotten memories must not regenerate from old summaries.' },
+  ],
+
+  roadmap: [
+    { v: 'V0',   title: 'Skeleton',            status: 'now',     items: 'init · SQLite · explicit capture · progressive disclosure · FTS recall · context pack · MCP' },
+    { v: 'V0.1', title: 'Embeddings',          status: 'next',    items: 'provider interface · embeddings on summary/compressed · hybrid search · reindex' },
+    { v: 'V0.2', title: 'Assimilation inbox',  status: 'planned', items: 'raw event capture · candidate memories · approve / reject' },
+    { v: 'V0.3', title: 'Provenance',          status: 'planned', items: 'vestige why · vestige sources · query trace logs' },
+    { v: 'V0.4', title: 'Daemon runtime',      status: 'planned', items: 'vestige serve · local API · concurrency · LaunchAgent' },
+    { v: 'V0.5', title: 'Dream-lite',          status: 'planned', items: 'project summary refresh · clustering · review-first consolidation' },
+    { v: 'V0.6', title: 'Global preferences',  status: 'planned', items: '~/.vestige/global.sqlite · explicit include · project wins' },
+    { v: 'V0.7', title: 'Federation',          status: 'planned', items: 'project registry · cross-project search · related memories' },
+    { v: 'V1',   title: 'Long-lived memory',   status: 'planned', items: 'all of the above, hardened' },
+  ],
+
+  commands: [
+    { cmd: 'vestige init',                          desc: 'Bootstrap memory into the current repo.' },
+    { cmd: 'vestige status',                        desc: 'Show project, scope, DB path, memory counts.' },
+    { cmd: 'vestige remember "..."',                desc: 'Generic memory capture (default: note).' },
+    { cmd: 'vestige decision add "..."',            desc: 'Record a project decision.' },
+    { cmd: 'vestige note add "..."',                desc: 'Record a note.' },
+    { cmd: 'vestige question add "..."',            desc: 'Record an open question.' },
+    { cmd: 'vestige preference add "..."',          desc: 'Record a preference.' },
+    { cmd: 'vestige list --type decision',          desc: 'List active memories, optionally by type.' },
+    { cmd: 'vestige search "MCP adapter"',          desc: 'FTS over project memory; returns one-liners.' },
+    { cmd: 'vestige recall "architecture"',         desc: 'Opinionated recall for agent/user context.' },
+    { cmd: 'vestige show mem_01 --depth full',      desc: 'Expand a memory by depth.' },
+    { cmd: 'vestige forget mem_01',                 desc: 'Soft-delete a memory.' },
+    { cmd: 'vestige mcp',                           desc: 'Start the MCP server bound to the current repo.' },
+  ],
+};
+
+window.VESTIGE = VESTIGE;

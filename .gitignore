@@ -6,3 +6,4 @@ Cargo.lock.bak
 # .vestige/ itself IS committed (config only); local overrides are not:
 .vestige/local.toml
 .env
+pages-seed/
