@@ -1,6 +1,16 @@
-//! Hybrid search orchestration. Single source of truth for lexical / semantic /
-//! hybrid retrieval; CLI and MCP call into here so the three legs aren't
-//! duplicated three times. Reuses ranking + normalisation primitives from
+//! Hybrid search orchestration — single source of truth for all three retrieval
+//! modes. Both `vestige-cli` and `vestige-mcp` delegate here so the fallback
+//! logic, score normalisation, and candidate merging are never duplicated.
+//!
+//! # Mode summary
+//!
+//! | Mode | Requires | Fallback |
+//! |------|----------|---------|
+//! | Lexical | FTS5 index (always available) | — |
+//! | Semantic | Active embeddings + matching provider | Hard error (`EngineError`) |
+//! | Hybrid | Active embeddings + matching provider | Lexical + warning |
+//!
+//! Reuses ranking and normalisation primitives from
 //! `vestige_core::memory::{search, scoring}`.
 
 use std::collections::HashSet;
@@ -19,21 +29,44 @@ use crate::error::Result;
 
 // === TYPES ===
 
-/// What every search variant returns.
+/// Return value for all three search variants.
 ///
-/// `effective_mode` may differ from the caller's request when `Hybrid` falls
-/// back to `Lexical` (no embeddings, or provider mismatch).
+/// Callers should always inspect `effective_mode` — it may differ from the
+/// requested mode when `Hybrid` falls back to `Lexical` because:
+/// - no embeddings have been generated yet (`vestige embed --all` has not
+///   been run), or
+/// - the stored embeddings were produced by a different provider/model/
+///   dimensions than the current runtime configuration.
+///
+/// When a fallback occurs, a human-readable explanation is appended to
+/// `warnings`; an empty `warnings` vec means the requested mode ran as-is.
 #[derive(Debug, Clone, Serialize)]
 pub struct HybridOutcome {
+    /// Ranked results, compact cards (handle + one_liner + score).
     pub scored: Vec<ScoredCard>,
+    /// Non-fatal messages for the caller to surface to the user or agent.
+    /// Populated on fallback or when the query was sanitised to empty.
     pub warnings: Vec<String>,
+    /// The mode that actually ran. May differ from the requested mode; see
+    /// the struct-level doc for when that happens.
     pub effective_mode: SearchMode,
 }
 
 // === PUBLIC API ===
 
-/// FTS5 keyword search. Empty or whitespace-only query returns an empty result
-/// without a warning — the caller decides whether to surface that to the user.
+/// FTS5 keyword search (BM25).
+///
+/// Sanitises the query via [`sanitize_fts_query`] before handing it to the
+/// store — FTS5 special characters are stripped per-token so the caller does
+/// not need to pre-escape input.
+///
+/// An empty or whitespace-only query returns an empty [`HybridOutcome`]
+/// without a warning. The caller decides whether to surface that fact to
+/// the user or agent.
+///
+/// # Errors
+///
+/// Returns [`EngineError::Store`] on SQLite failure.
 pub fn search_lexical(
     store: &Store,
     project_id: &ProjectId,
@@ -64,9 +97,22 @@ pub fn search_lexical(
     })
 }
 
-/// Vector nearest-neighbour search. When no embeddings exist, returns an empty
-/// result with a warning rather than hard-erroring — agents can act on the
-/// warning and retry after running `vestige embed --all`.
+/// Vector nearest-neighbour search (cosine similarity).
+///
+/// Embeds the query string using `provider`, then queries the store's vector
+/// index for the `limit` nearest neighbours, hydrating each result into a
+/// [`ScoredCard`].
+///
+/// **No fallback.** When no embeddings exist for the project this function
+/// returns an empty result with a warning — agents can act on the warning by
+/// running `vestige embed --all` and retrying. The choice not to hard-error
+/// matches the pattern in MCP's semantic tool path (it checks first and
+/// surfaces `EMBEDDINGS_UNAVAILABLE` before calling here).
+///
+/// # Errors
+///
+/// Returns [`EngineError::Embed`] when the provider fails to embed the query,
+/// or [`EngineError::Store`] on SQLite failure.
 pub fn search_semantic(
     store: &Store,
     project_id: &ProjectId,
@@ -114,13 +160,25 @@ pub fn search_semantic(
 
 /// Merged lexical + semantic search.
 ///
-/// Falls back to lexical (with a warning) when:
-/// - No embeddings exist for the project, or
-/// - The configured provider/model/dimensions don't match what's stored.
+/// # Fallback chain
 ///
-/// When both legs are available, over-fetches each by `hybrid_per_leg_limit`,
-/// deduplicates the candidate set, and delegates to `merge_hits` for weighted
-/// score combination.
+/// 1. If no embeddings exist for the project, or the stored provider/model/
+///    dimensions don't match the runtime provider, this function **falls back
+///    to lexical search** and records a human-readable explanation in
+///    `HybridOutcome::warnings`. `effective_mode` is set to `Lexical` so the
+///    caller / agent knows what actually ran.
+/// 2. When both legs are available, each leg over-fetches by
+///    [`HYBRID_OVERFETCH_MULTIPLIER`] (floor [`HYBRID_OVERFETCH_FLOOR`]) so
+///    the merger has a wide enough candidate set. Results are deduplicated
+///    by [`MemoryId`], FTS BM25 scores and cosine similarities are
+///    independently normalised to [0, 1], and [`merge_hits`] combines them
+///    using the weights in [`HybridOpts::default`].
+///
+/// # Errors
+///
+/// Returns [`EngineError::Embed`] when the provider fails to embed the query,
+/// or [`EngineError::Store`] on SQLite failure. Provider mismatch and missing
+/// embeddings are surfaced as warnings, not errors.
 pub fn search_hybrid(
     store: &Store,
     project_id: &ProjectId,
@@ -217,13 +275,17 @@ pub fn search_hybrid(
 
 // === PRIVATE HELPERS ===
 
-/// Over-fetch factor for each leg of hybrid search before merging.
+/// Over-fetch factor applied to each leg of a hybrid search before merging.
 ///
-/// The merger deduplicates and re-ranks, so each leg retrieves more than the
-/// final requested limit to give the merger enough candidates to work with.
+/// Deduplication and weighted re-ranking require more raw candidates than the
+/// final `limit`. Each leg retrieves `limit * HYBRID_OVERFETCH_MULTIPLIER`
+/// results (minimum [`HYBRID_OVERFETCH_FLOOR`]).
 const HYBRID_OVERFETCH_MULTIPLIER: u32 = 4;
+
+/// Minimum per-leg candidate count regardless of the requested `limit`.
 const HYBRID_OVERFETCH_FLOOR: u32 = 32;
 
+/// Compute how many results each leg should retrieve before merging.
 fn hybrid_per_leg_limit(limit: u32) -> u32 {
     limit
         .saturating_mul(HYBRID_OVERFETCH_MULTIPLIER)
