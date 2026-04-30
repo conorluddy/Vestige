@@ -32,7 +32,7 @@ function Bar() {
 function Hero() {
   const [copied, setCopied] = sUseState(false);
   const copy = () => {
-    try { navigator.clipboard?.writeText('brew install vestige'); } catch (_) {}
+    try { navigator.clipboard?.writeText('cargo install vestige'); } catch (_) {}
     setCopied(true); setTimeout(() => setCopied(false), 1500);
   };
   return (
@@ -49,11 +49,11 @@ function Hero() {
             Vestige is a local-first, repo-pinned memory layer for coding agents — built around a SQLite canonical store, a six-layer disclosure protocol, and a minimal MCP surface. No daemon, no cloud, no global vector soup.
           </p>
           <div className="vt-install">
-            <div className="vt-install-cmd"><span className="vt-prompt">$</span> brew install vestige</div>
+            <div className="vt-install-cmd"><span className="vt-prompt">$</span> cargo install vestige</div>
             <button className="vt-install-copy" onClick={copy}>{copied ? 'COPIED' : 'COPY'}</button>
           </div>
           <div className="vt-install-aux">
-            also: cargo install vestige
+            also: brew tap conorluddy/vestige && brew install vestige
           </div>
 
           <div className="vt-statgrid">

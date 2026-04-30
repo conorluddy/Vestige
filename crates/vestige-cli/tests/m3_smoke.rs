@@ -84,11 +84,12 @@ fn search_and_recall_roundtrip() {
         "question add",
     );
 
-    // === search returns scored cards ===
+    // === search returns scored cards in envelope {mode, results, warnings} ===
     let out = vestige(&repo, &["search", "SQLite", "--json"]);
     assert_ok(&out, "search SQLite");
-    let hits = parse_json(&out, "search json");
-    let arr = hits.as_array().unwrap();
+    let envelope = parse_json(&out, "search json");
+    assert_eq!(envelope["mode"].as_str().unwrap(), "lexical");
+    let arr = envelope["results"].as_array().unwrap();
     assert_eq!(arr.len(), 1, "expected one match for SQLite");
     let hit = &arr[0];
     assert_eq!(hit["type"].as_str().unwrap(), "decision");
@@ -109,8 +110,8 @@ fn search_and_recall_roundtrip() {
     );
     let out = vestige(&repo, &["search", "SQLite", "--json"]);
     assert_ok(&out, "search SQLite again");
-    let hits = parse_json(&out, "search json 2");
-    let arr = hits.as_array().unwrap();
+    let envelope2 = parse_json(&out, "search json 2");
+    let arr = envelope2["results"].as_array().unwrap();
     assert!(arr.len() >= 2, "expected at least 2 hits");
     // The decision (boosted) should still be at or near the top.
     assert_eq!(
@@ -122,15 +123,15 @@ fn search_and_recall_roundtrip() {
     // === type filter narrows search ===
     let out = vestige(&repo, &["search", "SQLite", "--type", "note", "--json"]);
     assert_ok(&out, "search type=note");
-    let hits = parse_json(&out, "search type=note json");
-    let arr = hits.as_array().unwrap();
+    let env_note = parse_json(&out, "search type=note json");
+    let arr = env_note["results"].as_array().unwrap();
     assert!(arr.iter().all(|h| h["type"].as_str() == Some("note")));
 
     // === recall behaves like search ===
     let out = vestige(&repo, &["recall", "MCP adapter", "--json"]);
     assert_ok(&out, "recall");
-    let hits = parse_json(&out, "recall json");
-    let arr = hits.as_array().unwrap();
+    let env_recall = parse_json(&out, "recall json");
+    let arr = env_recall["results"].as_array().unwrap();
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["type"].as_str().unwrap(), "note");
 
@@ -144,9 +145,10 @@ fn search_and_recall_roundtrip() {
 
     let out = vestige(&repo, &["search", "SQLite", "--json"]);
     assert_ok(&out, "search after forget");
-    let hits = parse_json(&out, "search after forget json");
+    let env_af = parse_json(&out, "search after forget json");
     assert!(
-        hits.as_array()
+        env_af["results"]
+            .as_array()
             .unwrap()
             .iter()
             .all(|h| h["id"].as_str() != Some(id.as_str())),
@@ -157,8 +159,8 @@ fn search_and_recall_roundtrip() {
     assert_ok(&vestige(&repo, &["restore", &id]), "restore");
     let out = vestige(&repo, &["search", "SQLite", "--json"]);
     assert_ok(&out, "search after restore");
-    let hits = parse_json(&out, "search after restore json");
-    assert!(hits
+    let env_ar = parse_json(&out, "search after restore json");
+    assert!(env_ar["results"]
         .as_array()
         .unwrap()
         .iter()

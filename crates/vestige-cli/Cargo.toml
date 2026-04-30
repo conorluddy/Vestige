@@ -20,6 +20,7 @@ path = "src/main.rs"
 vestige-core.workspace = true
 vestige-store.workspace = true
 vestige-config.workspace = true
+vestige-embed.workspace = true
 vestige-mcp.workspace = true
 tokio.workspace = true
 clap.workspace = true
@@ -29,6 +30,9 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 time.workspace = true
+rusqlite.workspace = true
+ulid.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
