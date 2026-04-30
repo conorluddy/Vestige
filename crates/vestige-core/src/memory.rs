@@ -918,7 +918,7 @@ mod tests {
     fn merge_hits_lexical_only() {
         let hit = make_search_hit(MemoryType::Decision, 0.8, -8.0);
         let id = hit.fetched.memory.id.clone();
-        let fts_scores = normalise_fts(&[hit.clone()]);
+        let fts_scores = normalise_fts(std::slice::from_ref(&hit));
         let vector_scores = HashMap::new();
         let opts = HybridOpts::default();
         let results = merge_hits(vec![hit], &fts_scores, &vector_scores, &opts);
