@@ -89,7 +89,11 @@ pub fn embed_memory_representations(
 
         // Check for an existing active embedding (skip the check in dry-run).
         if !dry_run
-            && store.has_active_embedding(&repr_id, provider.provider_name(), provider.model_name())?
+            && store.has_active_embedding(
+                &repr_id,
+                provider.provider_name(),
+                provider.model_name(),
+            )?
         {
             results.push(EmbedResult {
                 memory_id: memory_id.clone(),

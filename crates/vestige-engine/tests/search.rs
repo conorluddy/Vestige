@@ -4,6 +4,7 @@
 //! or model downloads are required.
 
 use tempfile::TempDir;
+use vestige_core::RepresentationDepth;
 use vestige_core::{build_bundle, MemoryType, NewMemory, ProjectId, SearchMode};
 use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 use vestige_engine::search::{search_hybrid, search_lexical, search_semantic};
@@ -45,15 +46,10 @@ fn embed_memory(
     provider: &FakeEmbeddingProvider,
     text: &str,
 ) {
-    // Use the summary representation (first one).
-    let repr_id: String = store
-        .connection()
-        .query_row(
-            "SELECT id FROM memory_representations WHERE memory_id = ?1 AND representation_type = 'summary' LIMIT 1",
-            rusqlite::params![memory_id.as_str()],
-            |r| r.get(0),
-        )
-        .unwrap();
+    let repr_id = store
+        .repr_id_for_depth(memory_id, RepresentationDepth::Summary)
+        .unwrap()
+        .expect("summary representation must exist");
 
     let vector = provider.embed(text).unwrap();
     store
