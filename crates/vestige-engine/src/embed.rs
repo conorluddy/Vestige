@@ -18,6 +18,8 @@ use vestige_core::{FetchedMemory, ListFilter, MemoryId, ProjectId, Representatio
 use vestige_embed::EmbeddingProvider;
 use vestige_store::{NewEmbedding, Store};
 
+#[allow(unused_imports)] // referenced by intra-doc-links
+use crate::error::EngineError;
 use crate::error::Result;
 
 // === TYPES ===

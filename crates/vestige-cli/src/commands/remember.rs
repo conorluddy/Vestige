@@ -2,7 +2,7 @@
 //!
 //! Convenience alias for `vestige note add`. Accepts `--source`, `--source-content`,
 //! and `--importance`. JSON output: `{ "id", "type", "truncated" }`.
-//! Delegates to [`record::record`] via [`CaptureInput`].
+//! Delegates to `super::record::record` via `CaptureInput`.
 
 use anyhow::Result;
 use clap::Args;

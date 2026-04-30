@@ -16,7 +16,7 @@ use super::projection::FetchedMemory;
 ///
 /// `Lexical` uses FTS5 only (default, always available).
 /// `Semantic` uses vector nearest-neighbours only (requires embeddings).
-/// `Hybrid` merges both sides via [`merge_hits`] with [`HybridOpts`] weights.
+/// `Hybrid` merges both sides via [`crate::merge_hits`] with [`HybridOpts`] weights.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
@@ -132,8 +132,8 @@ pub struct SearchFilter {
     pub limit: Option<u32>,
     /// Search strategy. Default: `SearchMode::Lexical` (FTS5 only).
     pub mode: SearchMode,
-    /// When `true`, [`ScoredCard::score_parts`] will be populated by the hybrid
-    /// merge path. The lexical-only path always leaves it `None`.
+    /// When `true`, the hybrid merge path will populate the `score_parts` field
+    /// on each [`crate::ScoredCard`]. The lexical-only path always leaves it `None`.
     pub include_score_parts: bool,
 }
 

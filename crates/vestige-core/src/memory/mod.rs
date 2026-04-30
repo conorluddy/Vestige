@@ -1,10 +1,10 @@
 //! Memory engine — pure functions for capture, projection, search, and ranking.
 //!
 //! Sub-modules:
-//! - [`bundle`] — assembles [`MemoryBundle`]s from [`NewMemory`] input.
-//! - [`projection`] — converts raw store rows into [`MemoryCard`] / [`MemoryDetail`].
-//! - [`search`] — query types, FTS sanitisation, and mode resolution.
-//! - [`scoring`] — composite score, hybrid merge, and normalisation helpers.
+//! - `bundle` — assembles [`MemoryBundle`]s from [`NewMemory`] input.
+//! - `projection` — converts raw store rows into [`MemoryCard`] / [`MemoryDetail`].
+//! - `search` — query types, FTS sanitisation, and mode resolution.
+//! - `scoring` — composite score, hybrid merge, and normalisation helpers.
 //!
 //! All persistence and SQL live in `vestige-store`; nothing here touches I/O.
 

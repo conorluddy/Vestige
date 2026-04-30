@@ -42,7 +42,7 @@ pub const PREFERENCE: CaptureKind = CaptureKind {
 #[derive(Debug, Args)]
 pub struct CaptureAddArgs {
     pub body: String,
-    /// Decision-only: appended to the body as "Rationale: <text>".
+    /// Decision-only: appended to the body as `"Rationale: <text>"`.
     #[arg(long)]
     pub rationale: Option<String>,
     #[arg(long)]

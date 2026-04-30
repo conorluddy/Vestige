@@ -30,8 +30,9 @@ pub enum CoreError {
     #[error("project not found: {0}")]
     ProjectNotFound(String),
 
-    /// A string failed the prefix check in [`MemoryId::from_str`],
-    /// [`ProjectId::from_str`], or [`EmbeddingId::from_str`](crate::EmbeddingId).
+    /// A string failed the prefix check during `FromStr` parsing of a
+    /// [`MemoryId`](crate::MemoryId), [`ProjectId`](crate::ProjectId), or
+    /// [`EmbeddingId`](crate::EmbeddingId).
     #[error("invalid id: {0}")]
     InvalidId(String),
 

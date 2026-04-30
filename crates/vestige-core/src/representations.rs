@@ -11,14 +11,14 @@ use crate::types::RepresentationDepth;
 /// Title is capped at 60 chars to fit in list views and agent summaries.
 const MAX_TITLE_CHARS: usize = 60;
 
-/// Output of [`derive`] — the four text representations and a derived title.
+/// Output of [`derive()`] — the four text representations and a derived title.
 ///
 /// The title is a display-only label (≤ 60 chars) and is **not** one of the
 /// four [`RepresentationDepth`] variants. Use [`depth_pick`] to get the content
 /// for a given depth.
 pub struct DerivedRepresentations {
-    /// Short display label, ≤ [`MAX_TITLE_CHARS`] chars, truncated at a word
-    /// boundary. Derived from the first sentence of the body.
+    /// Short display label, ≤ 60 chars, truncated at a word boundary.
+    /// Derived from the first sentence of the body.
     pub title: String,
     /// First sentence of the body, trimmed. Maps to [`RepresentationDepth::OneLiner`].
     pub one_liner: String,
@@ -51,7 +51,7 @@ pub fn derive(body: &str) -> DerivedRepresentations {
 }
 
 /// Select the text for a given [`RepresentationDepth`] from a
-/// [`DerivedRepresentations`] value. Companion to [`derive`].
+/// [`DerivedRepresentations`] value. Companion to [`derive()`].
 pub fn depth_pick(d: RepresentationDepth, r: &DerivedRepresentations) -> &str {
     match d {
         RepresentationDepth::OneLiner => &r.one_liner,

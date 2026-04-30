@@ -24,7 +24,7 @@ pub struct HybridScore {
     pub vector: f64,
     /// Importance contribution (importance is already [0, 1] in this schema).
     pub importance: f64,
-    /// Memory-type boost (see [`type_boost`]).
+    /// Memory-type boost (private `type_boost` helper).
     pub type_boost: f64,
     /// Weighted total: `fts_w*fts + vec_w*vector + imp_w*importance + type_w*type_boost`.
     pub total: f64,
@@ -33,8 +33,8 @@ pub struct HybridScore {
 /// A search result projected for display: compact card + composite score.
 ///
 /// `score_parts` is `Some` only when hybrid/semantic merging was performed
-/// with `include_score_parts = true` in the [`SearchFilter`]. The lexical-only
-/// path (`rank_hits`) always sets it to `None`.
+/// with `include_score_parts = true` in the [`crate::SearchFilter`]. The
+/// lexical-only path (`rank_hits`) always sets it to `None`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoredCard {
     #[serde(flatten)]

@@ -25,6 +25,8 @@ use vestige_core::{
 use vestige_embed::EmbeddingProvider;
 use vestige_store::{EmbeddingStatus, Store, VectorFilter};
 
+#[allow(unused_imports)] // referenced by intra-doc-links
+use crate::error::EngineError;
 use crate::error::Result;
 
 // === TYPES ===
@@ -167,9 +169,8 @@ pub fn search_semantic(
 ///    to lexical search** and records a human-readable explanation in
 ///    `HybridOutcome::warnings`. `effective_mode` is set to `Lexical` so the
 ///    caller / agent knows what actually ran.
-/// 2. When both legs are available, each leg over-fetches by
-///    [`HYBRID_OVERFETCH_MULTIPLIER`] (floor [`HYBRID_OVERFETCH_FLOOR`]) so
-///    the merger has a wide enough candidate set. Results are deduplicated
+/// 2. When both legs are available, each leg over-fetches by a fixed
+///    multiplier (with a floor) so the merger has a wide enough candidate set. Results are deduplicated
 ///    by [`MemoryId`], FTS BM25 scores and cosine similarities are
 ///    independently normalised to [0, 1], and [`merge_hits`] combines them
 ///    using the weights in [`HybridOpts::default`].
