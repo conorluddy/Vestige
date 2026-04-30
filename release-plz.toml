@@ -1,0 +1,14 @@
+[workspace]
+# One tag for the whole workspace, matching the existing v0.1.0 scheme so
+# release-tap.yml keeps firing on the same trigger.
+git_tag_name = "v{{ version }}"
+git_release_name = "v{{ version }}"
+release_always = false
+git_tag_enable = true
+# cargo-dist owns the GitHub Release (it builds binaries and attaches them
+# in the same job that creates the release). release-plz just pushes the tag;
+# the release.yml workflow takes over from the tag.
+git_release_enable = false
+# Conventional Commits drive the bump; release-plz computes publish order
+# from the workspace dep graph.
+semver_check = true
