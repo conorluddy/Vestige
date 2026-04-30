@@ -3,6 +3,7 @@
 //! no SQL, no destructive defaults, no cross-project access.
 
 mod server;
+mod tools;
 
 use std::path::PathBuf;
 
