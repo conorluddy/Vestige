@@ -1,7 +1,16 @@
-//! Embedding ingest orchestration. Iterates active memories or a single
-//! memory's representations, asking an `EmbeddingProvider` to embed each
-//! one and writing the result via `Store`. CLI's `vestige embed` is a thin
-//! shell over this.
+//! Embedding ingest orchestration.
+//!
+//! Iterates active memories (or a single memory's representations), asks an
+//! [`EmbeddingProvider`] to embed each one, and persists the result via
+//! [`Store`]. `vestige-cli`'s `embed` subcommand and `vestige-mcp`'s future
+//! embed tool are both thin shells over the public functions here.
+//!
+//! # Idempotency
+//!
+//! Both [`embed_memory_representations`] and [`embed_all`] skip any
+//! (memory, representation) pair that already has an active, current embedding
+//! for the same provider/model, returning [`EmbedOutcome::Unchanged`]. Re-running
+//! the ingest pipeline after adding new memories is safe and cheap.
 
 use serde::Serialize;
 
@@ -14,27 +23,38 @@ use crate::error::Result;
 // === TYPES ===
 
 /// What happened to a single (memory, representation) during an embed run.
+///
+/// Serialises as `snake_case` in the `--json` output of `vestige embed`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbedOutcome {
-    /// Vector was generated and persisted.
+    /// A new vector was generated and persisted to the store.
     Embedded,
-    /// An active, current embedding already exists — skipped.
+    /// An active embedding for this provider/model already exists — skipped.
+    /// Re-running is safe; this variant means no work was needed.
     Unchanged,
-    /// Memory has no representation of this depth — skipped.
+    /// The memory has no representation at the requested depth — nothing to embed.
     NoRepr,
-    /// Would embed (dry-run only).
+    /// Dry-run mode: would embed, but no writes were made.
     WouldEmbed,
-    /// Embedding failed; a failed job row was recorded.
+    /// The provider failed; a failed-job row was recorded for `embeddings status`.
     Failed,
 }
 
 /// Result for a single (memory, representation) embed attempt.
+///
+/// One `EmbedResult` is produced for every (memory, depth) pair processed,
+/// regardless of whether work was done. Aggregate these to build the summary
+/// shown by `vestige embed --json`.
 #[derive(Debug, Clone, Serialize)]
 pub struct EmbedResult {
+    /// The memory that was processed.
     pub memory_id: MemoryId,
+    /// The representation depth that was targeted (e.g. `"summary"`).
     pub representation_type: String,
+    /// What happened to this (memory, representation) pair.
     pub outcome: EmbedOutcome,
+    /// Set when `outcome` is [`EmbedOutcome::Failed`]; contains the provider error message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -43,12 +63,22 @@ pub struct EmbedResult {
 
 /// Embed the requested representation depths for a single fetched memory.
 ///
-/// Iterates `depths` in order, resolving the representation row's DB id via
+/// Iterates `depths` in order, resolving each representation's DB row id via
 /// `store.repr_id_for_depth`, checking for an existing active embedding via
-/// `store.has_active_embedding`, and generating a new one if absent. Dry-run
-/// mode reports `WouldEmbed` without writing.
+/// `store.has_active_embedding`, and generating a new vector if absent.
 ///
-/// Returns one `EmbedResult` per (memory, depth) pair.
+/// **Idempotent**: if an active embedding for the same provider/model already
+/// exists for a depth, that depth emits [`EmbedOutcome::Unchanged`] and no
+/// provider call is made. Dry-run mode skips all writes and reports
+/// [`EmbedOutcome::WouldEmbed`].
+///
+/// Returns one [`EmbedResult`] per `(memory, depth)` pair in `depths`.
+///
+/// # Errors
+///
+/// Returns [`EngineError::Store`] if any SQLite operation fails. Per-pair
+/// provider failures are captured as [`EmbedOutcome::Failed`] entries (not
+/// returned as `Err`) so the pipeline can continue with the remaining depths.
 pub fn embed_memory_representations(
     store: &mut Store,
     fetched: &FetchedMemory,
@@ -158,8 +188,18 @@ pub fn embed_memory_representations(
 
 /// Embed every active memory in the project for the given representation depths.
 ///
-/// Iterates `store.list_memories` (active only) and calls
-/// [`embed_memory_representations`] for each, concatenating all results.
+/// Iterates `store.list_memories` (active only, excluding soft-deleted) and
+/// calls [`embed_memory_representations`] for each, concatenating all results
+/// into a single flat list.
+///
+/// **Idempotent**: memories that already have a current embedding for each
+/// requested depth are silently skipped with [`EmbedOutcome::Unchanged`].
+/// Running this multiple times is safe; it only generates new work when new
+/// memories or new representation depths are present.
+///
+/// # Errors
+///
+/// Returns [`EngineError::Store`] if any SQLite operation fails.
 pub fn embed_all(
     store: &mut Store,
     project_id: &ProjectId,
