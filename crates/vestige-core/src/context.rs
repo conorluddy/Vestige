@@ -14,34 +14,69 @@ use crate::memory::{project_card, FetchedMemory, MemoryCard};
 /// re-render with a stricter cap.
 pub const APPROX_CHARS_PER_TOKEN: usize = 4;
 
+/// Structured sections of a context pack — the JSON-friendly form.
+///
+/// Each field mirrors one section of the rendered [`ContextPack::text`].
+/// Agents that need structured access to individual memories use this;
+/// agents that need a single token-budgeted string read `text`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSections {
+    /// Canonical project name from `.vestige/config.toml`.
     pub project_name: String,
+    /// The single [`MemoryType::ProjectSummary`](crate::MemoryType) memory, if any.
     pub summary: Option<MemoryCard>,
+    /// Active [`MemoryType::Decision`](crate::MemoryType) memories, ordered by
+    /// [`MemoryCard::importance`] descending.
     pub decisions: Vec<MemoryCard>,
+    /// Active [`MemoryType::OpenQuestion`](crate::MemoryType) memories.
     pub open_questions: Vec<MemoryCard>,
+    /// Most recently updated active memories across all types.
     pub recent: Vec<MemoryCard>,
 }
 
+/// Token-budgeted context assembled for injection into an agent's prompt.
+///
+/// Produced by [`build_pack`] from pre-fetched memories. Carry `text` to the
+/// agent; use `sections` if you need to inspect individual cards without
+/// re-parsing the rendered text.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextPack {
+    /// Structured sections — one entry per [`ContextSections`] field.
     pub sections: ContextSections,
+    /// Ready-to-inject text block. Sections are in fixed order:
+    /// project header → summary → decisions → open questions → recent.
     pub text: String,
+    /// `text.len() / APPROX_CHARS_PER_TOKEN` — rough token estimate.
     pub approx_token_count: usize,
+    /// `true` when at least one entry was dropped to stay within the budget.
+    /// The caller should inform the agent that the context is partial.
     pub truncated: bool,
 }
 
+/// Pre-fetched memories supplied to [`build_pack`] by the store layer.
+///
+/// All queries happen in the caller (`vestige-store` or a CLI command); this
+/// struct is the boundary type that carries the results into pure-domain assembly.
 #[derive(Debug, Clone)]
 pub struct ContextSources {
+    /// Canonical project name.
     pub project_name: String,
+    /// Optional project summary memory.
     pub summary: Option<FetchedMemory>,
+    /// Decision memories, ordered before passing in.
     pub decisions: Vec<FetchedMemory>,
+    /// Open-question memories.
     pub open_questions: Vec<FetchedMemory>,
+    /// Recent memories across all types.
     pub recent: Vec<FetchedMemory>,
 }
 
+/// Token budget for [`build_pack`].
 #[derive(Debug, Clone, Copy)]
 pub struct ContextOptions {
+    /// Maximum approximate tokens the assembled text may occupy.
+    /// Converted to a character budget via [`APPROX_CHARS_PER_TOKEN`].
+    /// Set to `0` to disable truncation entirely.
     pub budget_tokens: usize,
 }
 
@@ -137,6 +172,8 @@ pub fn build_pack(sources: ContextSources, opts: ContextOptions) -> ContextPack 
     }
 }
 
+/// Returns `true` if appending `addition` to `current` would exceed `budget_chars`.
+/// A zero budget means unlimited — never overflows.
 fn would_overflow(current: &str, addition: &str, budget_chars: usize) -> bool {
     if budget_chars == 0 {
         return false;

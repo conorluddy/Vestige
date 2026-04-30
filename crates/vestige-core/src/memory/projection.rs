@@ -42,6 +42,12 @@ pub struct MemoryDetail {
     pub sources: Vec<SourceRow>,
 }
 
+/// Project a [`FetchedMemory`] into a compact [`MemoryCard`] for list/search results.
+///
+/// The title is derived from the `OneLiner` representation, truncated at the
+/// first word boundary that fits within 60 chars. Missing representations yield
+/// empty strings rather than errors — callers that need a hard invariant should
+/// assert `available_depths` on the returned card.
 pub fn project_card(fetched: &FetchedMemory) -> MemoryCard {
     let title = pick_representation(fetched, RepresentationDepth::OneLiner)
         .map(|r| derive_title_from_one_liner(&r.content))
@@ -63,6 +69,9 @@ pub fn project_card(fetched: &FetchedMemory) -> MemoryCard {
     }
 }
 
+/// Project a [`FetchedMemory`] into a [`MemoryDetail`] for `vestige show` and
+/// `vestige_expand`. Includes all representations and source rows in addition
+/// to the compact card produced by [`project_card`].
 pub fn project_detail(fetched: &FetchedMemory) -> MemoryDetail {
     let card = project_card(fetched);
     let representations = fetched

@@ -1,19 +1,42 @@
+//! Deterministic representation derivation (PRD §11.3).
+//!
+//! Converts a raw memory body into the four [`RepresentationDepth`] variants
+//! without any I/O, LLM calls, or allocation beyond the returned struct. V0
+//! derivation uses sentence and word boundaries only; richer compression is
+//! deferred to a post-V0 rewrite pass. All callers are expected to re-derive
+//! when the body changes and compare against `content_hash` to detect drift.
+
 use crate::types::RepresentationDepth;
 
+/// Title is capped at 60 chars to fit in list views and agent summaries.
 const MAX_TITLE_CHARS: usize = 60;
 
-/// Deterministically derive the four required representations (PRD §11.3) from
-/// a raw memory body. V0 derivation is intentionally simple — no LLM, no
-/// heuristics beyond sentence/word boundary slicing. Authors can edit any
-/// individual representation later.
+/// Output of [`derive`] — the four text representations and a derived title.
+///
+/// The title is a display-only label (≤ 60 chars) and is **not** one of the
+/// four [`RepresentationDepth`] variants. Use [`depth_pick`] to get the content
+/// for a given depth.
 pub struct DerivedRepresentations {
+    /// Short display label, ≤ [`MAX_TITLE_CHARS`] chars, truncated at a word
+    /// boundary. Derived from the first sentence of the body.
     pub title: String,
+    /// First sentence of the body, trimmed. Maps to [`RepresentationDepth::OneLiner`].
     pub one_liner: String,
+    /// Full trimmed body. Maps to [`RepresentationDepth::Summary`].
     pub summary: String,
+    /// V0: same as `summary`. Reserved for LLM-compressed form in a later pass.
+    /// Maps to [`RepresentationDepth::Compressed`].
     pub compressed: String,
+    /// Full trimmed body without any modification. Maps to [`RepresentationDepth::Full`].
     pub full: String,
 }
 
+/// Derive all four representations from a raw memory body. Pure — no I/O.
+///
+/// Body is trimmed before processing. The first sentence (up to `.`, `!`, `?`,
+/// or `\n`) becomes `one_liner`. A ≤ 60-char word-boundary truncation of that
+/// sentence becomes `title`. All three `summary`, `compressed`, and `full` hold
+/// the full trimmed body in V0 — later milestones will differentiate them.
 pub fn derive(body: &str) -> DerivedRepresentations {
     let trimmed = body.trim();
     let title = derive_title(trimmed);
@@ -27,6 +50,8 @@ pub fn derive(body: &str) -> DerivedRepresentations {
     }
 }
 
+/// Select the text for a given [`RepresentationDepth`] from a
+/// [`DerivedRepresentations`] value. Companion to [`derive`].
 pub fn depth_pick(d: RepresentationDepth, r: &DerivedRepresentations) -> &str {
     match d {
         RepresentationDepth::OneLiner => &r.one_liner,
@@ -36,6 +61,10 @@ pub fn depth_pick(d: RepresentationDepth, r: &DerivedRepresentations) -> &str {
     }
 }
 
+// === PRIVATE HELPERS ===
+
+/// Produce a title ≤ `MAX_TITLE_CHARS` chars from the body's first sentence,
+/// truncating at the last word boundary that fits.
 fn derive_title(body: &str) -> String {
     let candidate = first_sentence(body);
     if candidate.chars().count() <= MAX_TITLE_CHARS {
@@ -44,6 +73,9 @@ fn derive_title(body: &str) -> String {
     truncate_at_word(candidate, MAX_TITLE_CHARS)
 }
 
+/// Return a borrow of the text up to (but not including) the first sentence
+/// terminator (`.`, `!`, `?`, or `\n`), trimmed of surrounding whitespace.
+/// Returns the full string when no terminator is found.
 fn first_sentence(body: &str) -> &str {
     if let Some(end) = body.find(['.', '!', '?', '\n']) {
         body[..end].trim()
@@ -52,6 +84,9 @@ fn first_sentence(body: &str) -> &str {
     }
 }
 
+/// Truncate `s` at the last complete word boundary that keeps the result
+/// ≤ `max_chars` Unicode codepoints. Falls back to a hard codepoint cut for
+/// a single oversized word.
 fn truncate_at_word(s: &str, max_chars: usize) -> String {
     let mut out = String::new();
     let mut count = 0usize;

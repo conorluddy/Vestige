@@ -1,8 +1,12 @@
-//! Memory engine — pure functions that build persistable bundles from user
-//! input and project bundles back into agent-friendly cards / details.
+//! Memory engine — pure functions for capture, projection, search, and ranking.
 //!
-//! All persistence and SQL lives in `vestige-store`. This module owns the
-//! shape of the data and the derivation rules.
+//! Sub-modules:
+//! - [`bundle`] — assembles [`MemoryBundle`]s from [`NewMemory`] input.
+//! - [`projection`] — converts raw store rows into [`MemoryCard`] / [`MemoryDetail`].
+//! - [`search`] — query types, FTS sanitisation, and mode resolution.
+//! - [`scoring`] — composite score, hybrid merge, and normalisation helpers.
+//!
+//! All persistence and SQL live in `vestige-store`; nothing here touches I/O.
 
 mod bundle;
 mod projection;
