@@ -1,12 +1,13 @@
-//! `vestige recall` — same retrieval engine as `search`, opinionated for
-//! agent / user recall flows. PRD §12.6: "may apply more opinionated
-//! ranking/filtering than raw search." For V0 the ranking is identical
-//! (PRD §14.2) and the only difference is the default `--limit`, which
-//! follows `recall.max_results` from `.vestige/config.toml`.
+//! `vestige recall` — agent-friendly memory retrieval. Same engine as
+//! `search` (`vestige_engine::search_*`); the only difference is `--limit`
+//! defaults to `[recall] max_results` from `.vestige/config.toml` (PRD §12.6),
+//! whereas `search`'s default is fixed in clap. Keep both: agents pin a
+//! per-project recall budget via config; humans pass `--limit` explicitly.
 //!
-//! V0.1 adds the same `--mode` / `--lexical` / `--semantic` / `--hybrid`
-//! flags as `search`. The mode defaults to `lexical` (matching `search`),
-//! respecting `[search] default_mode` in a future config extension (PR8).
+//! V0 ranking is identical to `search` (PRD §14.2). V0.1 adds the same
+//! `--mode` / `--lexical` / `--semantic` / `--hybrid` flags, defaulting to
+//! `lexical` (matching `search`). More opinionated ranking/filtering deferred
+//! to a later milestone per PRD §12.6.
 
 use std::str::FromStr;
 

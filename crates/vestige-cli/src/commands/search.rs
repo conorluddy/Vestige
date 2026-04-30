@@ -2,7 +2,8 @@
 //!
 //! Default mode is `lexical` (FTS5, always available) unless the caller
 //! supplies `--mode`, `--semantic`, or `--hybrid`, or config sets
-//! `[search] default_mode`.
+//! `[search] default_mode`. The `--limit` default is fixed in clap (8).
+//! For a config-budgeted limit per project, use `vestige recall` (PRD §12.6).
 
 use std::str::FromStr;
 

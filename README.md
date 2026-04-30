@@ -80,7 +80,8 @@ vestige note add     "MCP should be a thin adapter over the memory engine."
 vestige question add "Should embeddings ship in V0.1 or V0?"
 
 vestige status                              # shows project + DB path
-vestige search "architecture"               # one-liner cards, ranked
+vestige search "architecture"               # one-liner cards, ranked (fixed --limit 8)
+vestige recall "architecture"               # same engine; --limit from [recall] max_results in config
 vestige list --type decision --json         # machine-readable
 vestige show mem_01HXXXXXXXXXXXXXXXXXX --depth full
 vestige context --budget-tokens 1200        # the full project pack
