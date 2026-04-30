@@ -273,7 +273,7 @@ function Roadmap() {
           <span>ver</span><span>title</span><span>scope</span><span style={{ textAlign: 'right' }}>state</span>
         </div>
         {roadmap.map((r) => {
-          const sc = r.status === 'now' ? 'var(--vt-accent)' : r.status === 'next' ? 'var(--vt-info)' : 'var(--vt-muted)';
+          const sc = r.status === 'now' ? 'var(--vt-accent)' : r.status === 'next' ? 'var(--vt-info)' : r.status === 'done' ? 'var(--vt-mint)' : 'var(--vt-muted)';
           const rowBg = r.status === 'now' ? 'var(--vt-accent-bg)' : 'transparent';
           return (
             <div key={r.v} style={{ display: 'grid', gridTemplateColumns: '60px 180px 1fr 80px', padding: '11px 14px', borderTop: '1px solid var(--vt-rule)', alignItems: 'baseline', background: rowBg }}>
