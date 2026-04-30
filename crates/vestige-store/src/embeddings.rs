@@ -20,9 +20,9 @@ use time::OffsetDateTime;
 use tracing::warn;
 use ulid::Ulid;
 
-use vestige_core::{EmbeddingId, MemoryId, MemoryType, ProjectId};
+use vestige_core::{EmbeddingId, MemoryId, MemoryType, ProjectId, RepresentationDepth};
 
-use crate::{Result, StoreError};
+use crate::{Result, Store, StoreError};
 
 // === TYPES ===
 
@@ -494,6 +494,79 @@ fn query_dominant_provider(
 #[allow(dead_code)] // used by CLI (PR4)
 pub(crate) fn new_job_id() -> String {
     format!("job_{}", Ulid::new())
+}
+
+// === STORE METHODS: EMBEDDING HELPERS ===
+
+impl Store {
+    /// Fetch the `memory_representations.id` column for a given (memory, depth) pair.
+    ///
+    /// Returns `Some(id)` when a row exists for the requested depth, `None` otherwise.
+    #[allow(dead_code)] // Wave 3 will wire CLI callers
+    pub fn repr_id_for_depth(
+        &self,
+        memory_id: &MemoryId,
+        depth: RepresentationDepth,
+    ) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM memory_representations
+             WHERE memory_id = ?1 AND representation_type = ?2",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![memory_id.as_str(), depth.as_str()])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Return `true` if an active embedding already exists for the given
+    /// `(representation_id, provider, model)` triple.
+    #[allow(dead_code)] // Wave 3 will wire CLI callers
+    pub fn has_active_embedding(&self, repr_id: &str, provider: &str, model: &str) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM memory_embeddings
+             WHERE representation_id = ?1
+               AND provider = ?2
+               AND model = ?3
+               AND status = 'active'",
+            rusqlite::params![repr_id, provider, model],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Insert a failed `embedding_jobs` row so `embeddings status` can surface it.
+    #[allow(dead_code)] // Wave 3 will wire CLI callers
+    pub fn record_failed_embedding_job(
+        &mut self,
+        memory_id: &MemoryId,
+        repr_id: &str,
+        depth: RepresentationDepth,
+        provider: &str,
+        model: &str,
+        error: &str,
+    ) -> Result<()> {
+        let job_id = format!("job_{}", Ulid::new());
+        let now_str = rfc3339_now()?;
+        self.conn.execute(
+            "INSERT INTO embedding_jobs
+                (id, memory_id, representation_id, representation_type,
+                 provider, model, status, error, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'failed', ?7, ?8, ?8)",
+            rusqlite::params![
+                job_id,
+                memory_id.as_str(),
+                repr_id,
+                depth.as_str(),
+                provider,
+                model,
+                error,
+                now_str,
+            ],
+        )?;
+        Ok(())
+    }
 }
 
 // === TESTS ===
