@@ -315,8 +315,8 @@ fn search_hybrid_falls_back_lexical_with_warning() {
 
     assert_eq!(
         envelope["mode"].as_str(),
-        Some("hybrid"),
-        "mode must remain 'hybrid' even on fallback: {envelope}"
+        Some("lexical"),
+        "mode must be 'lexical' after hybrid falls back: {envelope}"
     );
     let warnings = envelope["warnings"].as_array().unwrap();
     assert!(
@@ -512,8 +512,8 @@ fn hybrid_mismatched_provider_falls_back_to_lexical_with_warning() {
 
     assert_eq!(
         envelope["mode"].as_str(),
-        Some("hybrid"),
-        "envelope mode must remain hybrid: {envelope}"
+        Some("lexical"),
+        "envelope mode must be 'lexical' after hybrid falls back: {envelope}"
     );
     let warnings = envelope["warnings"].as_array().unwrap();
     assert!(
