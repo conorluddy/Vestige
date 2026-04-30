@@ -2,6 +2,13 @@
 
 > Local-first, repo-pinned memory for coding agents.
 
+> **vestige** *noun*  ˈve-stij
+>
+> 1. *(a)* a trace, mark, or visible sign left by something (such as an ancient city or a condition or practice) vanished or lost; the smallest quantity or trace.
+> 2. *(b)* a footprint.
+>
+> — *Merriam-Webster*
+
 Modern coding agents lose useful context between sessions. They re-discover the same project decisions, naming conventions, architecture constraints, and open questions every time you start a new conversation. Most "memory" approaches collapse everything into a global vector soup — stale recall, context pollution, no trust.
 
 Vestige fixes this by giving each repo its own durable, inspectable memory store, exposed to agents through MCP and to humans through a CLI.
