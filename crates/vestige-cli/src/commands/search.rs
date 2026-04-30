@@ -72,7 +72,7 @@ pub fn run(args: SearchArgs) -> Result<()> {
         .map(MemoryType::from_str)
         .transpose()?;
 
-    let mode = resolve_mode(&args)?;
+    let mode = resolve_mode(&args, &ctx)?;
     let include_parts = args.score_parts || mode == SearchMode::Hybrid;
 
     match mode {
@@ -298,8 +298,9 @@ fn run_hybrid(
 // === HELPERS ===
 
 /// Resolve the search mode from args, with aliases taking priority over
-/// `--mode`, then falling back to `lexical`.
-fn resolve_mode(args: &SearchArgs) -> Result<SearchMode> {
+/// `--mode`, then falling back to `[search] default_mode` from config,
+/// then `lexical`.
+fn resolve_mode(args: &SearchArgs, ctx: &context::ProjectContext) -> Result<SearchMode> {
     if args.lexical {
         return Ok(SearchMode::Lexical);
     }
@@ -311,6 +312,16 @@ fn resolve_mode(args: &SearchArgs) -> Result<SearchMode> {
     }
     if let Some(ref mode_str) = args.mode {
         return SearchMode::from_str(mode_str).map_err(anyhow::Error::from);
+    }
+    if let Some(mode) = ctx
+        .config
+        .search
+        .as_ref()
+        .and_then(|s| s.default_mode.as_deref())
+        .map(SearchMode::from_str)
+        .transpose()?
+    {
+        return Ok(mode);
     }
     Ok(SearchMode::Lexical)
 }

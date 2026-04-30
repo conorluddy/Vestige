@@ -220,6 +220,14 @@ impl VestigeServer {
             .map(SearchMode::from_str)
             .transpose()
             .map_err(|e| err("INVALID_MODE", e.to_string(), false))?
+            .or_else(|| {
+                inner
+                    .config
+                    .search
+                    .as_ref()
+                    .and_then(|s| s.default_mode.as_deref())
+                    .and_then(|m| SearchMode::from_str(m).ok())
+            })
             .unwrap_or(SearchMode::Lexical);
 
         let type_filter = p
