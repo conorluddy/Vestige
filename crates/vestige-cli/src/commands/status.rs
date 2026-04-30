@@ -1,8 +1,14 @@
+//! `vestige status` — show the active project state.
+//!
+//! Prints the project name, ID, scope, config and memory-DB paths, and a
+//! brief count of active vs. deleted memories. No `--json` flag (text only).
+
 use anyhow::{Context, Result};
 
 use vestige_config::discover_config;
 use vestige_store::Store;
 
+/// Print a project status overview to stdout.
 pub fn run() -> Result<()> {
     let cwd = std::env::current_dir().context("reading current directory")?;
     let (config_path, cfg) = discover_config(&cwd).context(

@@ -1,3 +1,10 @@
+//! `vestige init` — pin Vestige memory to the current repository.
+//!
+//! Creates `.vestige/config.toml` and opens (or migrates) the per-project
+//! SQLite store at `~/.vestige/projects/<project_id>/memory.sqlite`.
+//! **Idempotent**: re-running never rotates `project_id` or duplicates the
+//! project row. `--dry-run` prints the planned actions without writing anything.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -10,6 +17,7 @@ use vestige_config::{
 use vestige_core::{build_bundle, ListFilter, MemoryType, NewMemory};
 use vestige_store::Store;
 
+/// Arguments for `vestige init`.
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Human-readable project name. Also used to derive a stable project id.
@@ -26,6 +34,7 @@ pub struct InitArgs {
     pub dry_run: bool,
 }
 
+/// Initialise (or re-confirm) Vestige for the current repository.
 pub fn run(args: InitArgs) -> Result<()> {
     let cwd = std::env::current_dir().context("reading current directory")?;
     let repo_root = discover_repo_root(&cwd);
@@ -116,6 +125,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     Ok(())
 }
 
+/// Return `true` if a `project_summary` memory already exists (so we don't duplicate).
 fn summary_already_recorded(
     store: &Store,
     project_id: &vestige_core::ProjectId,
@@ -131,6 +141,7 @@ fn summary_already_recorded(
     Ok(!existing.is_empty())
 }
 
+/// Print the dry-run plan without writing any files.
 fn print_plan(
     repo_root: &Path,
     config_path: &Path,
