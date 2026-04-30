@@ -1,4 +1,4 @@
-//! M9 smoke tests — `[search] default_mode` config wiring.
+//! Smoke tests for `[search] default_mode` config wiring.
 //!
 //! Verifies that when `.vestige/config.toml` contains `[search] default_mode`
 //! the search and recall commands honour it without a `--mode` flag. Because
@@ -11,6 +11,7 @@ use std::process::Command;
 
 use serde_json::Value;
 use tempfile::TempDir;
+use toml::Value as TomlValue;
 
 fn binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_vestige"))
@@ -62,20 +63,33 @@ fn parse_json(out: &std::process::Output, ctx: &str) -> Value {
     serde_json::from_str(stdout).unwrap_or_else(|e| panic!("{ctx} not JSON: {e}\n{stdout}"))
 }
 
-/// Initialise the repo and append `[search] default_mode = "hybrid"` to the
-/// generated config.
+/// Initialise the repo, then parse the generated config and insert/replace
+/// `[search] default_mode = "<value>"` before writing it back. Using
+/// parse-modify-reserialise avoids duplicate `[search]` tables if `init` ever
+/// emits that section by default.
 fn setup_with_search_mode(default_mode: &str) -> Repo {
     let repo = fresh_repo();
     let init = vestige(&repo, &["init", "--name", "test-project"]);
     assert_ok(&init, "init");
 
     let config_path = repo.repo.join(".vestige").join("config.toml");
-    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let raw = std::fs::read_to_string(&config_path).unwrap_or_default();
+
+    let mut doc: toml::map::Map<String, TomlValue> =
+        toml::from_str(&raw).expect("config.toml produced by init must be valid TOML");
+
+    let mut search_table = toml::map::Map::new();
+    search_table.insert(
+        "default_mode".to_string(),
+        TomlValue::String(default_mode.to_string()),
+    );
+    doc.insert("search".to_string(), TomlValue::Table(search_table));
+
     std::fs::write(
         &config_path,
-        format!("{existing}\n[search]\ndefault_mode = \"{default_mode}\"\n"),
+        toml::to_string(&doc).expect("reserialise config"),
     )
-    .unwrap();
+    .expect("write updated config");
 
     repo
 }

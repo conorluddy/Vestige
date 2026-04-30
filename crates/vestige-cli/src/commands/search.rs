@@ -10,8 +10,8 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use clap::Args;
 use vestige_core::{
-    merge_hits, normalise_cosine, normalise_fts, rank_hits, sanitize_fts_query, HybridOpts,
-    MemoryType, SearchFilter, SearchHit, SearchMode, SemanticHit,
+    merge_hits, normalise_cosine, normalise_fts, rank_hits, resolve_default_mode,
+    sanitize_fts_query, HybridOpts, MemoryType, SearchFilter, SearchHit, SearchMode, SemanticHit,
 };
 use vestige_embed::build_provider;
 use vestige_store::VectorFilter;
@@ -297,9 +297,10 @@ fn run_hybrid(
 
 // === HELPERS ===
 
-/// Resolve the search mode from args, with aliases taking priority over
-/// `--mode`, then falling back to `[search] default_mode` from config,
-/// then `lexical`.
+/// Resolve the search mode from args.
+///
+/// Alias flags (`--lexical` / `--semantic` / `--hybrid`) take priority, then
+/// `--mode`, then `[search] default_mode` from config, then `Lexical`.
 fn resolve_mode(args: &SearchArgs, ctx: &context::ProjectContext) -> Result<SearchMode> {
     if args.lexical {
         return Ok(SearchMode::Lexical);
@@ -310,20 +311,12 @@ fn resolve_mode(args: &SearchArgs, ctx: &context::ProjectContext) -> Result<Sear
     if args.hybrid {
         return Ok(SearchMode::Hybrid);
     }
-    if let Some(ref mode_str) = args.mode {
-        return SearchMode::from_str(mode_str).map_err(anyhow::Error::from);
-    }
-    if let Some(mode) = ctx
+    let config_default = ctx
         .config
         .search
         .as_ref()
-        .and_then(|s| s.default_mode.as_deref())
-        .map(SearchMode::from_str)
-        .transpose()?
-    {
-        return Ok(mode);
-    }
-    Ok(SearchMode::Lexical)
+        .and_then(|s| s.default_mode.as_deref());
+    resolve_default_mode(args.mode.as_deref(), config_default).map_err(anyhow::Error::from)
 }
 
 /// Build an embedding provider from the project config, or fall back to `fake`
