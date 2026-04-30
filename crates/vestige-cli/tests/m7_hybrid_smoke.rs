@@ -267,7 +267,9 @@ fn hybrid_falls_back_lexical_with_warning() {
     let out = vestige(&repo, &["search", "store", "--mode", "hybrid", "--json"]);
     assert_ok(&out, "hybrid fallback exits 0");
     let envelope = parse_json(&out, "hybrid fallback json");
-    assert_eq!(envelope["mode"].as_str().unwrap(), "hybrid");
+    // Engine sets effective_mode = Lexical on fallback; the emitted mode reflects what
+    // actually ran, not the requested mode.
+    assert_eq!(envelope["mode"].as_str().unwrap(), "lexical");
 
     let warnings = envelope["warnings"].as_array().unwrap();
     assert!(
@@ -349,7 +351,8 @@ fn convenience_aliases_work() {
     let out_hybrid = vestige(&repo, &["search", "store", "--hybrid", "--json"]);
     assert_ok(&out_hybrid, "search --hybrid alias exits 0");
     let env_hybrid = parse_json(&out_hybrid, "hybrid alias json");
-    assert_eq!(env_hybrid["mode"].as_str().unwrap(), "hybrid");
+    // Engine sets effective_mode = Lexical on fallback.
+    assert_eq!(env_hybrid["mode"].as_str().unwrap(), "lexical");
     // Without embeddings the warnings array must be non-empty.
     assert!(
         !env_hybrid["warnings"].as_array().unwrap().is_empty(),
