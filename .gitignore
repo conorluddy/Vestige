@@ -5,3 +5,4 @@ Cargo.lock.bak
 # Vestige private memory should never live in repo (V0 stores under ~/.vestige).
 # .vestige/ itself IS committed (config only); local overrides are not:
 .vestige/local.toml
+.env

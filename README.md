@@ -27,7 +27,13 @@ There's no Homebrew formula or crates.io release yet — install from source.
 - Rust 1.80+ (`rustup update stable` if needed)
 - A C toolchain (Xcode CLI tools on macOS, `build-essential` on Debian) — `rusqlite` bundles SQLite and needs to compile it once.
 
-**Build and install the binary**
+**Install from crates.io**
+
+```bash
+cargo install vestige
+```
+
+**Or build from source**
 
 ```bash
 git clone https://github.com/conorluddy/Vestige.git
@@ -35,7 +41,7 @@ cd Vestige
 cargo install --path crates/vestige-cli
 ```
 
-That puts `vestige` in `~/.cargo/bin/`. Make sure that directory is on your `PATH` (rustup adds it by default).
+Either route puts `vestige` in `~/.cargo/bin/`. Make sure that directory is on your `PATH` (rustup adds it by default).
 
 **Sanity check**
 
@@ -44,7 +50,7 @@ vestige --version
 vestige --help
 ```
 
-To upgrade later, `git pull` in this repo and re-run `cargo install --path crates/vestige-cli` (cargo will overwrite the existing binary).
+To upgrade later, `cargo install vestige` (cargo overwrites the existing binary), or `git pull && cargo install --path crates/vestige-cli` if you're tracking source.
 
 ## Try it (CLI demo)
 

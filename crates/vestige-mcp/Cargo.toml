@@ -1,11 +1,16 @@
 [package]
 name = "vestige-mcp"
+description = "Internal crate for Vestige — MCP server adapter (rmcp 0.16, stdio transport). Public API is unstable; use the `vestige` binary."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 
 [dependencies]
 vestige-core.workspace = true

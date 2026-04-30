@@ -1423,8 +1423,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "vestige-cli"
-version = "0.0.1"
+name = "vestige"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-config"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "directories",
  "hex",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "hex",
  "serde",
@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-mcp"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "rmcp",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-store"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rusqlite",
  "rusqlite_migration",
