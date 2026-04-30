@@ -3481,6 +3481,7 @@ dependencies = [
  "vestige-config",
  "vestige-core",
  "vestige-embed",
+ "vestige-engine",
  "vestige-mcp",
  "vestige-store",
 ]
@@ -3558,6 +3559,7 @@ dependencies = [
  "vestige-config",
  "vestige-core",
  "vestige-embed",
+ "vestige-engine",
  "vestige-store",
 ]
 

@@ -1,3 +1,6 @@
+//! Subcommand modules. Each module owns one `run` entry point; shared capture
+//! logic lives in [`capture`] and [`record`].
+
 pub mod capture;
 pub mod context;
 pub mod decision;

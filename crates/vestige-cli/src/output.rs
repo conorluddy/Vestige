@@ -9,12 +9,20 @@ use vestige_core::{
     MemoryCard, MemoryDetail, MemoryStatus, RepresentationDepth, ScoredCard, SearchMode, SourceRow,
 };
 
+/// Selects between human-readable text and machine-parseable JSON output.
+///
+/// Every command that accepts `--json` constructs this via [`OutputFormat::pick`]
+/// and branches on it. Stdout is reserved for structured output; warnings and
+/// logs always go to stderr.
 pub enum OutputFormat {
+    /// Human-readable text, suitable for terminal display.
     Text,
+    /// Pretty-printed JSON, suitable for scripting and agent consumers.
     Json,
 }
 
 impl OutputFormat {
+    /// Select `Json` when `json` is `true`, otherwise `Text`.
     pub fn pick(json: bool) -> Self {
         if json {
             Self::Json
@@ -24,6 +32,7 @@ impl OutputFormat {
     }
 }
 
+/// Serialise `value` to pretty-printed JSON and write it to stdout.
 pub fn emit_json<T: Serialize>(value: &T) -> Result<()> {
     let s = serde_json::to_string_pretty(value)?;
     println!("{s}");
@@ -53,6 +62,7 @@ pub fn emit_search_json(
     })
 }
 
+/// Print a compact scored card without score-parts breakdown.
 #[allow(dead_code)] // kept for stability; PR4 commands may import this
 pub fn print_scored(scored: &ScoredCard) {
     print_scored_opts(scored, false);
@@ -82,6 +92,7 @@ pub fn print_scored_opts(scored: &ScoredCard, include_parts: bool) {
     }
 }
 
+/// Print a compact memory card: `<id>  <type>  <title>  [deleted]`.
 pub fn print_card(card: &MemoryCard) {
     let status_marker = match card.status {
         MemoryStatus::Active => "",
@@ -96,6 +107,8 @@ pub fn print_card(card: &MemoryCard) {
     }
 }
 
+/// Print a memory at the requested representation depth, optionally including
+/// attached source rows. Used by `vestige show`.
 pub fn print_detail(detail: &MemoryDetail, depth: RepresentationDepth, show_sources: bool) {
     let card = &detail.card;
     println!("{} ({})", card.id, card.r#type);
@@ -123,6 +136,7 @@ pub fn print_detail(detail: &MemoryDetail, depth: RepresentationDepth, show_sour
     }
 }
 
+/// Print a single source attachment row (`[type] ref\n  content`).
 fn print_source(src: &SourceRow) {
     let r = src.source_ref.as_deref().unwrap_or("-");
     println!("  [{}] {}", src.source_type, r);

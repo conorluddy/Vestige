@@ -1,3 +1,10 @@
+//! `vestige` — repo-pinned memory layer for coding agents.
+//!
+//! Entry point for the `vestige` binary. Parses the top-level [`Command`] enum
+//! with clap, initialises the `tracing` subscriber (stderr, `VESTIGE_LOG` env
+//! filter, default level `warn`), then dispatches to the relevant command
+//! handler. No business logic lives here.
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -6,6 +13,7 @@ mod commands;
 mod context;
 mod output;
 
+/// Top-level clap entry-point.
 #[derive(Parser)]
 #[command(
     name = "vestige",
@@ -17,6 +25,7 @@ struct Cli {
     command: Command,
 }
 
+/// All top-level subcommands. Each variant's `///` comment becomes the clap `--help` line.
 #[derive(Subcommand)]
 enum Command {
     /// Initialise Vestige memory in the current repo.
@@ -57,6 +66,7 @@ enum Command {
     Mcp(commands::mcp::McpArgs),
 }
 
+/// Initialise the tracing subscriber and dispatch to the resolved subcommand.
 fn main() -> Result<()> {
     let filter = EnvFilter::try_from_env("VESTIGE_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
     tracing_subscriber::fmt()
