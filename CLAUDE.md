@@ -105,6 +105,7 @@ These flow from the PRD and are enforced by `CODESTYLE.md`:
 - **CLI output**: text by default, `--json` for scripting. Stdout is reserved for command output; logs go to stderr (`tracing` + `VESTIGE_LOG` env filter).
 - **Tests**: unit tests inline (`#[cfg(test)] mod tests`); cross-crate behaviour goes in `crates/<crate>/tests/`. Use `tempfile::TempDir` over mocks — real SQLite in a tmpdir is fast.
 - **Embeddings** are optional + rebuildable. The `fake` provider (default) is for tests; use `--features fastembed` for real semantic recall. `EmbeddingId` uses `emb_<ULID>` prefix. All embedding ops scope by project just like memories.
+- **Vestige is dogfooded on itself.** Run `vestige status` from the repo root to see the project pin. The MCP server can be wired into your agent via `claude mcp add vestige -s project -- vestige mcp` for full self-recall.
 
 ## Testing
 
