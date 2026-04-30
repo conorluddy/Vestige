@@ -47,6 +47,12 @@ enum Command {
     Forget(commands::forget::ForgetArgs),
     /// Restore a soft-deleted memory.
     Restore(commands::restore::RestoreArgs),
+    /// Embed memory representations using an embedding provider.
+    Embed(commands::embed::EmbedArgs),
+    /// Manage embedding indexes (status, and future clear/stale).
+    Embeddings(commands::embeddings::EmbeddingsArgs),
+    /// Rebuild the FTS and/or embedding indexes.
+    Reindex(commands::reindex::ReindexArgs),
     /// Start the MCP server (M5 — not implemented yet).
     Mcp(commands::mcp::McpArgs),
 }
@@ -74,6 +80,9 @@ fn main() -> Result<()> {
         Command::Show(args) => commands::show::run(args),
         Command::Forget(args) => commands::forget::run(args),
         Command::Restore(args) => commands::restore::run(args),
+        Command::Embed(args) => commands::embed::run(args),
+        Command::Embeddings(args) => commands::embeddings::run(args),
+        Command::Reindex(args) => commands::reindex::run(args),
         Command::Mcp(args) => commands::mcp::run(args),
     }
 }

@@ -1,5 +1,7 @@
 pub mod context;
 pub mod decision;
+pub mod embed;
+pub mod embeddings;
 pub mod forget;
 pub mod init;
 pub mod list;
@@ -9,6 +11,7 @@ pub mod preference;
 pub mod question;
 pub mod recall;
 pub mod record;
+pub mod reindex;
 pub mod remember;
 pub mod restore;
 pub mod search;

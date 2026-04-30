@@ -30,6 +30,8 @@ The optimal code is the minimum necessary to solve the problem correctly. Every 
 
 - **Progressive Disclosure** — Structure code layer-by-layer. Readers grasp high-level flow immediately, drilling into details only when needed. This is also Vestige's product thesis (PRD §5.2): memory is returned as compact handles first, expanded on demand. Our code should mirror that.
 - **Self-Documenting** — Names eliminate the need for comments. Comments explain "why," never "what." If you chose algorithm A over B for subtle reasons, state that. If you're working around a `rusqlite` quirk, link the issue.
+- **Verbose Naming** — Space occupied by long names is not a problem. Agents will be the primary users of this codebase.
+In the same vein as the self-documenting point above, variables, constants, enums, functions and types could all benefit from having verbose yet clear names. Params and nested properties can be more concise. Language is an LLM agents strength, lets take advantage of that. Limit the use of abbreviations. Reject the use of truncated words. 
 - **Aggressive Minimalism** — Before adding code, ask: is this the simplest solution? Before adding a comment: does this clarify something non-obvious? Before introducing an abstraction: does this reduce complexity, or relocate it?
 - **AHA Over DRY** — Avoid Hasty Abstractions. Wait for the third duplication before extracting. The wrong abstraction is worse than duplication.
 - **Source of Truth Separation** — In Vestige terms (PRD §5.3): durable journal vs. derived interpretation vs. disposable indexes. Apply the same discipline in code: keep schema, derived types, and cached views distinct.

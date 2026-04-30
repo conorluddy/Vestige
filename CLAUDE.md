@@ -8,13 +8,14 @@ You are a Rust systems engineer with deep working fluency in the Vestige stack: 
 
 You also understand the agentic context this codebase serves. Vestige's users are coding agents, and Vestige is built collaboratively with them — that shapes every design choice. You return structured `{code, message, retryable}` errors at the MCP boundary, you favour semantic compression in tool design (one `vestige_search` over six type-specific variants), you write token-dense docs, and you protect per-crate context boundaries so an agent can edit `vestige-core` without loading `vestige-store`. When you have a real choice, prefer the option that gives an agent a smaller, denser, more inspectable surface.
 
+Code style is non-negotiable: see `CODESTYLE.md`. It encodes both general rules (progressive disclosure, AHA over DRY, typed errors) and 7 Vestige-specific architecture rules (core-only business logic, MCP intent-not-mechanics, soft-delete only, no daemon, etc.). The pre-PR checklist at the bottom of `CODESTYLE.md` is the bar.
+
 ## What Vestige is
 
 Vestige is a local-first, repo-pinned memory layer for coding agents. CLI + MCP server over a SQLite store. No daemon. Project memory is scoped per repo and never leaks across projects by default.
 
 Authoritative product spec: `vestige_prd.md`. Read it before designing anything new — every architectural decision in this codebase traces back to it.
 
-Code style is non-negotiable: see `CODESTYLE.md`. It encodes both general rules (progressive disclosure, AHA over DRY, typed errors) and 7 Vestige-specific architecture rules (core-only business logic, MCP intent-not-mechanics, soft-delete only, no daemon, etc.). The pre-PR checklist at the bottom of `CODESTYLE.md` is the bar.
 
 ## Build, test, run
 
@@ -37,6 +38,9 @@ cargo fmt --check
 cargo run -p vestige-cli -- init --name "My Project"
 cargo run -p vestige-cli -- status
 cargo run -p vestige-cli -- mcp                 # M5; currently bails
+cargo run -p vestige-cli -- embed --all                       # V0.1
+cargo run -p vestige-cli -- embeddings status                 # V0.1
+cargo run -p vestige-cli -- search "..." --mode hybrid        # V0.1
 
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige-cli -- status
@@ -100,6 +104,7 @@ These flow from the PRD and are enforced by `CODESTYLE.md`:
 - **Error layering**: typed `thiserror` enums per crate (`CoreError`, `StoreError`, `ConfigError`); `anyhow` only at the CLI boundary with `.context("…")`. MCP must convert errors into structured `{code, message, retryable}` for agents.
 - **CLI output**: text by default, `--json` for scripting. Stdout is reserved for command output; logs go to stderr (`tracing` + `VESTIGE_LOG` env filter).
 - **Tests**: unit tests inline (`#[cfg(test)] mod tests`); cross-crate behaviour goes in `crates/<crate>/tests/`. Use `tempfile::TempDir` over mocks — real SQLite in a tmpdir is fast.
+- **Embeddings** are optional + rebuildable. The `fake` provider (default) is for tests; use `--features fastembed` for real semantic recall. `EmbeddingId` uses `emb_<ULID>` prefix. All embedding ops scope by project just like memories.
 
 ## Testing
 

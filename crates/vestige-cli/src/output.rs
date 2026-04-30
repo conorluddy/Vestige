@@ -6,7 +6,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use vestige_core::{
-    MemoryCard, MemoryDetail, MemoryStatus, RepresentationDepth, ScoredCard, SourceRow,
+    MemoryCard, MemoryDetail, MemoryStatus, RepresentationDepth, ScoredCard, SearchMode, SourceRow,
 };
 
 pub enum OutputFormat {
@@ -30,7 +30,37 @@ pub fn emit_json<T: Serialize>(value: &T) -> Result<()> {
     Ok(())
 }
 
+/// Emit the search result envelope per PRD §12.6.
+///
+/// ```json
+/// { "mode": "hybrid", "results": [...], "warnings": [...] }
+/// ```
+pub fn emit_search_json(
+    mode: SearchMode,
+    results: &[ScoredCard],
+    warnings: &[String],
+) -> Result<()> {
+    #[derive(Serialize)]
+    struct Envelope<'a> {
+        mode: &'a str,
+        results: &'a [ScoredCard],
+        warnings: &'a [String],
+    }
+    emit_json(&Envelope {
+        mode: mode.as_str(),
+        results,
+        warnings,
+    })
+}
+
+#[allow(dead_code)] // kept for stability; PR4 commands may import this
 pub fn print_scored(scored: &ScoredCard) {
+    print_scored_opts(scored, false);
+}
+
+/// Print a compact scored card. When `include_parts` is true and `score_parts`
+/// is populated, a second line with the breakdown is printed.
+pub fn print_scored_opts(scored: &ScoredCard, include_parts: bool) {
     let status_marker = match scored.card.status {
         MemoryStatus::Active => "",
         MemoryStatus::Deleted => " [deleted]",
@@ -41,6 +71,14 @@ pub fn print_scored(scored: &ScoredCard) {
     );
     if !scored.card.one_liner.is_empty() && scored.card.one_liner != scored.card.title {
         println!("    {}", scored.card.one_liner);
+    }
+    if include_parts {
+        if let Some(parts) = &scored.score_parts {
+            println!(
+                "    [fts={:.3} vec={:.3} imp={:.3} type={:.3}]",
+                parts.fts, parts.vector, parts.importance, parts.type_boost
+            );
+        }
     }
 }
 

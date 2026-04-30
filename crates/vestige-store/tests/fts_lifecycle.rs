@@ -159,6 +159,7 @@ fn type_filter_narrows_results() {
             &SearchFilter {
                 r#type: Some(MemoryType::Decision),
                 limit: None,
+                ..Default::default()
             },
         )
         .unwrap();

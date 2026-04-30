@@ -56,6 +56,39 @@ pub struct VestigeConfig {
     pub recall: RecallConfig,
     #[serde(default)]
     pub mcp: McpConfig,
+
+    #[serde(default)]
+    pub embeddings: Option<EmbeddingsConfigSection>,
+
+    #[serde(default)]
+    pub search: Option<SearchConfigSection>,
+}
+
+/// Configuration for the embedding provider (`[embeddings]` in `.vestige/config.toml`).
+///
+/// All fields are optional — omitting the section keeps behaviour identical to V0
+/// (lexical FTS only, `"fake"` provider for tests).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+pub struct EmbeddingsConfigSection {
+    /// `"fake"` | `"fastembed"` | `"ollama"`. Default: `"fake"` (works out of the box for
+    /// tests; switch to `"fastembed"` for real semantic recall once you've installed with
+    /// `--features fastembed`).
+    pub provider: Option<String>,
+    /// Model identifier passed to the provider. Defaults to the provider's recommended model.
+    pub model: Option<String>,
+    /// Vector dimensions. Defaults to the provider's native dimensions.
+    pub dimensions: Option<usize>,
+    /// Which representations to embed by default. PRD §6.2: `["summary", "compressed"]`.
+    pub default_representations: Option<Vec<String>>,
+}
+
+/// Configuration for search behaviour (`[search]` in `.vestige/config.toml`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+pub struct SearchConfigSection {
+    /// `"lexical"` | `"semantic"` | `"hybrid"`. Default: `"lexical"` (backwards-compat with V0).
+    pub default_mode: Option<String>,
 }
 
 fn default_scope() -> String {
@@ -172,6 +205,8 @@ pub fn build_init_config(
         },
         recall: RecallConfig::default(),
         mcp: McpConfig::default(),
+        embeddings: None,
+        search: None,
     }
 }
 
@@ -330,6 +365,88 @@ mod tests {
         write_config(&path, &cfg).unwrap();
         let read = read_config(&path).unwrap();
         assert_eq!(cfg, read);
+    }
+
+    #[test]
+    fn default_config_omits_new_sections() {
+        let cfg = build_init_config(
+            &ProjectId::from_slug("vestige"),
+            "Vestige",
+            Path::new("/Users/test/.vestige/projects/proj_vestige/memory.sqlite"),
+        );
+        let toml_str = toml::to_string_pretty(&cfg).unwrap();
+        assert!(
+            !toml_str.contains("[embeddings]"),
+            "default config must not emit [embeddings]"
+        );
+        assert!(
+            !toml_str.contains("[search]"),
+            "default config must not emit [search]"
+        );
+    }
+
+    #[test]
+    fn parses_embeddings_section() {
+        let toml_str = r#"
+project_id = "proj_test"
+project_name = "Test"
+
+[embeddings]
+provider = "fastembed"
+model = "bge-small-en-v1.5"
+"#;
+        let cfg: VestigeConfig = toml::from_str(toml_str).unwrap();
+        let emb = cfg
+            .embeddings
+            .expect("embeddings section should be present");
+        assert_eq!(emb.provider.as_deref(), Some("fastembed"));
+        assert_eq!(emb.model.as_deref(), Some("bge-small-en-v1.5"));
+        assert!(emb.dimensions.is_none());
+        assert!(emb.default_representations.is_none());
+    }
+
+    #[test]
+    fn parses_search_section_default_mode() {
+        let toml_str = r#"
+project_id = "proj_test"
+project_name = "Test"
+
+[search]
+default_mode = "hybrid"
+"#;
+        let cfg: VestigeConfig = toml::from_str(toml_str).unwrap();
+        let search = cfg.search.expect("search section should be present");
+        assert_eq!(search.default_mode.as_deref(), Some("hybrid"));
+    }
+
+    #[test]
+    fn existing_v0_toml_still_parses() {
+        let toml_str = r#"
+project_id = "proj_vestige"
+project_name = "Vestige"
+scope = "project"
+
+[storage]
+mode = "user_data"
+path = "~/.vestige/projects/proj_vestige/memory.sqlite"
+
+[recall]
+default_depth = "one_liner"
+max_results = 8
+include_global_preferences = false
+
+[mcp]
+allow_record_observation = true
+allow_record_decision = true
+allow_forget = false
+"#;
+        let cfg: VestigeConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.project_id, "proj_vestige");
+        assert!(
+            cfg.embeddings.is_none(),
+            "embeddings must be None for V0 TOML"
+        );
+        assert!(cfg.search.is_none(), "search must be None for V0 TOML");
     }
 
     #[test]

@@ -1,0 +1,85 @@
+/* ─────────────────────────────────────────────────────────────
+ * tokens.css — Vestige design system tokens.
+ * Single source of truth for color, type, space, radius, motion.
+ * ───────────────────────────────────────────────────────────── */
+:root {
+  /* ── Palette ─────────────────────────────────────────────── */
+  --vt-bg:        #fffafb;
+  --vt-panel:     #f4eef0;
+  --vt-ink:       #131515;
+  --vt-ink-soft:  #2b2c28;
+  --vt-muted:     #2b2c2899;
+  --vt-faint:     #2b2c2855;
+  --vt-rule:      #13151522;
+  --vt-rule-hi:   #13151544;
+  --vt-accent:    #339989;
+  --vt-mint:      #7de2d1;
+  --vt-accent-bg: #33998917;
+  --vt-mint-bg:   #7de2d133;
+
+  /* Inverse surface (footer, dark blocks) */
+  --vt-ink-fg:    #fffafb;
+  --vt-ink-mute:  #9a9087;
+
+  /* Status colors derived from primary */
+  --vt-pos:       #339989;
+  --vt-warn:      #c08a2a;
+  --vt-info:      #3a5a7a;
+
+  /* ── Type ────────────────────────────────────────────────── */
+  --vt-font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --vt-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --vt-fs-9:   9px;
+  --vt-fs-10:  10.5px;
+  --vt-fs-11:  11px;
+  --vt-fs-12:  12px;
+  --vt-fs-13:  13px;
+  --vt-fs-14:  14.5px;
+  --vt-fs-16:  16px;
+  --vt-fs-22:  22px;
+  --vt-fs-32:  32px;
+  --vt-fs-64:  64px;
+
+  --vt-lh-tight: 1.15;
+  --vt-lh-body:  1.6;
+  --vt-lh-mono:  1.7;
+
+  --vt-tr-tight:   -0.04em;
+  --vt-tr-display: -0.025em;
+  --vt-tr-mono:    0.04em;
+
+  /* ── Space (4px grid) ────────────────────────────────────── */
+  --vt-s-1:   4px;
+  --vt-s-2:   8px;
+  --vt-s-3:   12px;
+  --vt-s-4:   16px;
+  --vt-s-5:   20px;
+  --vt-s-6:   24px;
+  --vt-s-8:   32px;
+  --vt-s-10:  40px;
+  --vt-s-12:  48px;
+  --vt-s-16:  64px;
+  --vt-s-24:  96px;
+
+  /* ── Radius ──────────────────────────────────────────────── */
+  --vt-r-0:   0;
+  --vt-r-1:   3px;
+  --vt-r-pill: 999px;
+
+  /* ── Borders ─────────────────────────────────────────────── */
+  --vt-border-hard: 1px solid var(--vt-ink);
+  --vt-border-soft: 1px solid var(--vt-rule);
+
+  /* ── Motion ──────────────────────────────────────────────── */
+  --vt-ease:        cubic-bezier(.2,.7,.3,1);
+  --vt-dur-fast:    .15s;
+  --vt-dur-mid:     .25s;
+}
+
+/* ── Keyframes ──────────────────────────────────────────────── */
+@keyframes vstg-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes vstg-blink { 50% { opacity: 0; } }
