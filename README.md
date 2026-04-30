@@ -18,12 +18,37 @@ A human can inspect and control them.
 
 **Vestige isn't** a chatbot, a note-taking app, a vector database, or an agent framework. It's the memory layer you wire your agent into.
 
+## Install (current state)
+
+There's no Homebrew formula or crates.io release yet — install from source.
+
+**Prerequisites**
+
+- Rust 1.80+ (`rustup update stable` if needed)
+- A C toolchain (Xcode CLI tools on macOS, `build-essential` on Debian) — `rusqlite` bundles SQLite and needs to compile it once.
+
+**Build and install the binary**
+
+```bash
+git clone https://github.com/conorluddy/Vestige.git
+cd Vestige
+cargo install --path crates/vestige-cli
+```
+
+That puts `vestige` in `~/.cargo/bin/`. Make sure that directory is on your `PATH` (rustup adds it by default).
+
+**Sanity check**
+
+```bash
+vestige --version
+vestige --help
+```
+
+To upgrade later, `git pull` in this repo and re-run `cargo install --path crates/vestige-cli` (cargo will overwrite the existing binary).
+
 ## Try it (CLI demo)
 
 ```bash
-# Install (until a Homebrew formula lands):
-cargo install --path crates/vestige-cli
-
 cd ~/code/my-project
 vestige init --name "My Project" --summary "An app for tracking useful things."
 
@@ -32,9 +57,11 @@ vestige decision add "Use SQLite as the canonical local store." \
 vestige note add     "MCP should be a thin adapter over the memory engine."
 vestige question add "Should embeddings ship in V0.1 or V0?"
 
-vestige search   "architecture decisions"
-vestige show     mem_01HXXXXXXXXXXXXXXXXXX --depth full
-vestige context  --budget-tokens 1200
+vestige status                              # shows project + DB path
+vestige search "architecture"               # one-liner cards, ranked
+vestige list --type decision --json         # machine-readable
+vestige show mem_01HXXXXXXXXXXXXXXXXXX --depth full
+vestige context --budget-tokens 1200        # the full project pack
 ```
 
 Soft-delete and restore are first-class:
@@ -44,24 +71,43 @@ vestige forget   mem_01HXXXXXXXXXXXXXXXXXX
 vestige restore  mem_01HXXXXXXXXXXXXXXXXXX
 ```
 
-Every command supports `--json` for scripting.
+Every command supports `--json` for scripting. `VESTIGE_LOG=debug` turns on structured stderr logs.
 
 ## Plug it into Claude Code (MCP)
 
-Vestige speaks MCP over stdio. After running `vestige init` in a repo:
+Vestige speaks MCP over stdio. From inside a repo where you've already run `vestige init`:
 
 ```bash
-claude mcp add vestige -- vestige mcp
+# Add Vestige as an MCP server, scoped to this project:
+claude mcp add vestige -s project -- vestige mcp
 ```
 
-The agent now has six tools: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision`. Recommended agent flow:
+`-s project` writes the entry to the project's `.mcp.json` so it's only active in this repo. Drop `-s project` for a user-scoped install (active everywhere). Use `-- vestige mcp --read-only` if you want browsing-only (no `record_*` tools).
+
+Verify it's wired:
+
+```bash
+claude mcp list                 # vestige should appear
+```
+
+Then start a session in that repo and the six tools are available: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision`.
+
+Recommended agent flow:
 
 1. At session start, call `vestige_get_project_context` to pull the project pack.
 2. Use `vestige_search` to find relevant memories during work.
 3. Use `vestige_expand` to read selected memories at higher fidelity.
 4. Capture new decisions with `vestige_record_decision` so the next session inherits them.
 
-`vestige mcp --read-only` disables the `record_*` tools — useful for read-only browsing or untrusted agents.
+A small CLAUDE.md hint that nudges the agent to do this:
+
+```markdown
+## Project memory
+
+This repo uses Vestige (MCP server `vestige`). At the start of each session,
+call `vestige_get_project_context` to load standing decisions and open
+questions. Use `vestige_record_decision` when you make project-level calls.
+```
 
 ## Where things live
 
