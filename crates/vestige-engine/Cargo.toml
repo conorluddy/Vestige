@@ -1,0 +1,21 @@
+[package]
+name = "vestige-engine"
+description = "Vestige orchestration layer — hybrid search and embed ingest over Store + EmbeddingProvider."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[dependencies]
+vestige-core.workspace = true
+vestige-store.workspace = true
+vestige-embed.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+tracing.workspace = true
