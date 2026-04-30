@@ -3532,6 +3532,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vestige-engine"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "vestige-core",
+ "vestige-embed",
+ "vestige-store",
+]
+
+[[package]]
 name = "vestige-mcp"
 version = "0.2.0"
 dependencies = [

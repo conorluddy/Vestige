@@ -19,3 +19,12 @@ vestige-embed.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 tracing.workspace = true
+
+[features]
+default = []
+fastembed = ["vestige-embed/fastembed"]
+ollama = ["vestige-embed/ollama"]
+
+[dev-dependencies]
+tempfile.workspace = true
+vestige-embed = { path = "../vestige-embed" }
