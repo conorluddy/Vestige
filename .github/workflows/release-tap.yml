@@ -1,0 +1,109 @@
+name: Release tap formula
+
+# Renders Formula/vestige.rb with the version + tarball SHA256 of the latest
+# tagged release and pushes the result to conorluddy/homebrew-vestige.
+#
+# Trigger: any `v*.*.*` tag push, or a manual `workflow_dispatch` with an
+# explicit version (used to backfill v0.1.0 since this workflow didn't exist
+# at tag time).
+#
+# Requires: a `HOMEBREW_TAP_TOKEN` repo secret — a fine-grained PAT with
+# `Contents: write` on conorluddy/homebrew-vestige.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to release (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve version tag
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::tag $TAG does not look like vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=${TAG#v}"
+
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Compute tarball SHA256
+        id: sha
+        run: |
+          URL="https://github.com/conorluddy/Vestige/archive/refs/tags/${{ steps.ver.outputs.tag }}.tar.gz"
+          # Tag tarballs are usually addressable within seconds, but allow a
+          # short retry window in case of mirror lag.
+          for i in 1 2 3 4 5 6; do
+            if curl -sLIfo /dev/null "$URL"; then
+              break
+            fi
+            echo "tarball not yet available, retry $i…"
+            sleep 5
+          done
+          curl -sLfo source.tar.gz "$URL"
+          SHA=$(sha256sum source.tar.gz | awk '{print $1}')
+          # Refuse to publish the empty-string sha256 (sha256 of zero bytes).
+          if [ -z "$SHA" ] || [ "$SHA" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then
+            echo "::error::failed to compute SHA256 from $URL (got '$SHA')"
+            exit 1
+          fi
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "SHA256=$SHA"
+
+      - name: Render formula
+        run: |
+          mkdir -p out/Formula
+          sed \
+            -e "s|__VERSION__|${{ steps.ver.outputs.version }}|g" \
+            -e "s|__TAG__|${{ steps.ver.outputs.tag }}|g" \
+            -e "s|__SHA256__|${{ steps.sha.outputs.sha256 }}|g" \
+            Formula/vestige.rb > out/Formula/vestige.rb
+          echo "--- rendered formula ---"
+          cat out/Formula/vestige.rb
+          # Sanity-check no placeholders survived.
+          if grep -E '__(VERSION|TAG|SHA256)__' out/Formula/vestige.rb; then
+            echo "::error::placeholder substitution incomplete"
+            exit 1
+          fi
+
+      - name: Push to tap repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN secret is not set on this repo"
+            exit 1
+          fi
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git clone --depth 1 \
+            "https://x-access-token:$GH_TOKEN@github.com/conorluddy/homebrew-vestige.git" tap
+          mkdir -p tap/Formula
+          cp out/Formula/vestige.rb tap/Formula/vestige.rb
+          cd tap
+          git add Formula/vestige.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date, nothing to push."
+            exit 0
+          fi
+          git commit -m "vestige ${{ steps.ver.outputs.tag }}"
+          git push origin HEAD:main

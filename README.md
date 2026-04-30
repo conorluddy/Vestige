@@ -40,6 +40,13 @@ There's no Homebrew formula or crates.io release yet — install from source.
 cargo install vestige
 ```
 
+**Or via Homebrew** (compiles from source via the `rust` formula):
+
+```bash
+brew tap conorluddy/vestige
+brew install vestige
+```
+
 **Or build from source**
 
 ```bash
@@ -48,7 +55,7 @@ cd Vestige
 cargo install --path crates/vestige-cli
 ```
 
-Either route puts `vestige` in `~/.cargo/bin/`. Make sure that directory is on your `PATH` (rustup adds it by default).
+Any route puts `vestige` in `~/.cargo/bin/` (or `$(brew --prefix)/bin/`). Make sure that directory is on your `PATH`.
 
 **Sanity check**
 
@@ -57,7 +64,7 @@ vestige --version
 vestige --help
 ```
 
-To upgrade later, `cargo install vestige` (cargo overwrites the existing binary), or `git pull && cargo install --path crates/vestige-cli` if you're tracking source.
+To upgrade later: `cargo install vestige` (cargo overwrites the existing binary), `brew upgrade vestige`, or `git pull && cargo install --path crates/vestige-cli` if you're tracking source.
 
 ## Try it (CLI demo)
 
