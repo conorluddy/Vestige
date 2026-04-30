@@ -95,6 +95,44 @@ vestige restore  mem_01HXXXXXXXXXXXXXXXXXX
 
 Every command supports `--json` for scripting. `VESTIGE_LOG=debug` turns on structured stderr logs.
 
+## Semantic recall (V0.1)
+
+V0 ships with BM25 lexical search. V0.1 adds embeddings and hybrid recall, so agents can find memories that don't share keywords with the query.
+
+```bash
+# One-time: embed all active memories with the default provider (fake; deterministic, no model download).
+vestige embed --all
+vestige embeddings status
+
+# Search modes:
+vestige search "why did we pick our store" --mode semantic
+vestige search "agent memory layer" --mode hybrid       # merges FTS + vector
+vestige search "agent memory layer" --hybrid --json    # convenience alias + score breakdown
+```
+
+### Real semantic quality (recommended)
+
+The default `fake` provider is deterministic and exists for tests — it doesn't produce semantically meaningful vectors. For real recall, build with the `fastembed` feature, which downloads BAAI/bge-small-en-v1.5 (~60MB, cached at `~/.vestige/models/`) on first use:
+
+```bash
+cargo install vestige --features fastembed
+# Then in your project's .vestige/config.toml:
+[embeddings]
+provider = "fastembed"
+```
+
+Or use Ollama (build with `--features ollama`):
+
+```toml
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
+```
+
+### Embeddings are optional and rebuildable
+
+Memories are canonical in SQLite. Embeddings are an index — delete `.vestige` and reseed, or just `vestige reindex --embeddings` to recompute. The lexical fallback always works, even with no embeddings. Hybrid mode falls back to lexical with a warning when embeddings are missing.
+
 ## Plug it into Claude Code (MCP)
 
 Vestige speaks MCP over stdio. From inside a repo where you've already run `vestige init`:

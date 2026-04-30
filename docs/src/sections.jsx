@@ -41,9 +41,9 @@ function Hero() {
         <div>
           <div className="vt-kicker">┌─ ABSTRACT ─────────────────────────</div>
           <h1>
-            A repo can leave traces.<br />
-            An agent can recall them.<br />
-            <em>A human can inspect them.</em>
+            Agents take notes,<br />
+            dream them into shape,<br />
+            <em>and recall them when it counts.</em>
           </h1>
           <p>
             Vestige is a local-first, repo-pinned memory layer for coding agents — built around a SQLite canonical store, a six-layer disclosure protocol, and a minimal MCP surface. No daemon, no cloud, no global vector soup.

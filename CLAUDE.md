@@ -37,6 +37,9 @@ cargo fmt --check
 cargo run -p vestige-cli -- init --name "My Project"
 cargo run -p vestige-cli -- status
 cargo run -p vestige-cli -- mcp                 # M5; currently bails
+cargo run -p vestige-cli -- embed --all                       # V0.1
+cargo run -p vestige-cli -- embeddings status                 # V0.1
+cargo run -p vestige-cli -- search "..." --mode hybrid        # V0.1
 
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige-cli -- status
@@ -100,6 +103,7 @@ These flow from the PRD and are enforced by `CODESTYLE.md`:
 - **Error layering**: typed `thiserror` enums per crate (`CoreError`, `StoreError`, `ConfigError`); `anyhow` only at the CLI boundary with `.context("…")`. MCP must convert errors into structured `{code, message, retryable}` for agents.
 - **CLI output**: text by default, `--json` for scripting. Stdout is reserved for command output; logs go to stderr (`tracing` + `VESTIGE_LOG` env filter).
 - **Tests**: unit tests inline (`#[cfg(test)] mod tests`); cross-crate behaviour goes in `crates/<crate>/tests/`. Use `tempfile::TempDir` over mocks — real SQLite in a tmpdir is fast.
+- **Embeddings** are optional + rebuildable. The `fake` provider (default) is for tests; use `--features fastembed` for real semantic recall. `EmbeddingId` uses `emb_<ULID>` prefix. All embedding ops scope by project just like memories.
 
 ## Testing
 

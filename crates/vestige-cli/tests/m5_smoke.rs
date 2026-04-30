@@ -230,14 +230,19 @@ fn mcp_record_search_expand_lifecycle() {
     assert!(id.starts_with("mem_"));
     assert_eq!(card["type"].as_str(), Some("decision"));
 
-    // Search for it.
+    // Search for it — result is now the { mode, results, warnings } envelope.
     let resp = call_tool(
         &mut client,
         "vestige_search",
         serde_json::json!({ "query": "MCP adapter", "limit": 5 }),
     );
-    let scored: Value = serde_json::from_str(&extract_text(&resp)).unwrap();
-    let arr = scored.as_array().unwrap();
+    let envelope: Value = serde_json::from_str(&extract_text(&resp)).unwrap();
+    assert_eq!(
+        envelope["mode"].as_str(),
+        Some("lexical"),
+        "default mode must be lexical"
+    );
+    let arr = envelope["results"].as_array().unwrap();
     assert!(!arr.is_empty(), "search should hit MCP decision");
     assert_eq!(arr[0]["id"].as_str(), Some(id.as_str()));
 

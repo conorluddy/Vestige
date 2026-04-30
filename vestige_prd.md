@@ -1157,6 +1157,8 @@ Focus:
 
 ### V0.1: Embeddings and Hybrid Search
 
+**Status: in flight on `feature/v0.1-embeddings`.** Typed `[embeddings]` + `[search]` config sections landed in PR8.
+
 Add:
 
 - Embedding provider interface.
