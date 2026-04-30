@@ -1,5 +1,21 @@
 //! TOML round-trip and filesystem path helpers.
-//! Covers config discovery, read/write, storage path resolution, and tilde expansion.
+//!
+//! Three responsibilities, kept together because they all touch the filesystem:
+//!
+//! 1. **Config discovery** — walk from a starting directory up to the root
+//!    looking for `.vestige/config.toml` ([`discover_config`]).
+//! 2. **Config read/write** — deserialise from and serialise to TOML
+//!    ([`read_config`], [`write_config`]).
+//! 3. **Storage path resolution** — derive the user-local SQLite path
+//!    `~/.vestige/projects/<id>/memory.sqlite` ([`storage_path_for`]).
+//!
+//! # In-repo vs. user-local paths
+//!
+//! `.vestige/config.toml` lives **inside the repo** and is committed. It contains
+//! only the project pin and capability flags — no private data.
+//!
+//! `~/.vestige/projects/<project_id>/memory.sqlite` lives **outside the repo**
+//! on the user's machine and is never committed. It holds the full memory journal.
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +26,18 @@ use vestige_core::ProjectId;
 use crate::schema::VestigeConfig;
 use crate::{ConfigError, Result, CONFIG_DIR, CONFIG_FILE};
 
-/// Locate a `.vestige/config.toml` by walking from `start` up to filesystem root.
+// === PUBLIC API ===
+
+/// Locate `.vestige/config.toml` by walking from `start` up to the filesystem root.
+///
+/// Returns the canonical path to the first `config.toml` found and the parsed
+/// [`VestigeConfig`]. The search mirrors how `git` locates `.git` — it works
+/// from any subdirectory within the project.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NotFound`] (containing `start`) if no config file is
+/// found before reaching the filesystem root.
 pub fn discover_config(start: &Path) -> Result<(PathBuf, VestigeConfig)> {
     let mut cursor = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
     loop {
@@ -25,14 +52,30 @@ pub fn discover_config(start: &Path) -> Result<(PathBuf, VestigeConfig)> {
     }
 }
 
-/// Read and deserialize a config file at `path`.
+/// Read and deserialise a [`VestigeConfig`] from the TOML file at `path`.
+///
+/// # Errors
+///
+/// - [`ConfigError::Io`] — file not found or not readable.
+/// - [`ConfigError::TomlDe`] — the file is not valid TOML or does not match
+///   the [`VestigeConfig`] schema.
 pub fn read_config(path: &Path) -> Result<VestigeConfig> {
     let raw = std::fs::read_to_string(path)?;
     let cfg: VestigeConfig = toml::from_str(&raw)?;
     Ok(cfg)
 }
 
-/// Serialize `cfg` and write it to `path`, creating parent directories as needed.
+/// Serialise `cfg` to pretty TOML and write it to `path`.
+///
+/// Parent directories are created with `create_dir_all` if they don't exist,
+/// so callers can pass a path inside a `.vestige/` directory that hasn't been
+/// created yet.
+///
+/// # Errors
+///
+/// - [`ConfigError::TomlSer`] — serialisation failed (should not happen for
+///   well-formed [`VestigeConfig`] values).
+/// - [`ConfigError::Io`] — write failed (permissions, disk full, etc.).
 pub fn write_config(path: &Path, cfg: &VestigeConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -43,8 +86,19 @@ pub fn write_config(path: &Path, cfg: &VestigeConfig) -> Result<()> {
     Ok(())
 }
 
-/// Resolve the SQLite storage path for a project id.
-/// PRD §9 fixes `~/.vestige/projects/<id>/memory.sqlite`.
+/// Resolve the SQLite storage path for a project.
+///
+/// Always returns `~/.vestige/projects/<project_id>/memory.sqlite` expanded to an
+/// absolute path. The home directory is resolved from `$HOME`, falling back to
+/// `directories::BaseDirs` on platforms where `HOME` may be absent.
+///
+/// The parent directory is **not** created here — the store layer creates it on
+/// first open.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NoHome`] if the home directory cannot be determined
+/// (e.g. `$HOME` is unset in a restricted environment).
 pub fn storage_path_for(project_id: &ProjectId) -> Result<PathBuf> {
     let home = home_dir().ok_or(ConfigError::NoHome)?;
     Ok(home
@@ -54,6 +108,18 @@ pub fn storage_path_for(project_id: &ProjectId) -> Result<PathBuf> {
         .join("memory.sqlite"))
 }
 
+// === PRIVATE HELPERS ===
+
+/// Expand a `~`-prefixed path string to an absolute [`PathBuf`].
+///
+/// - `"~/foo/bar"` → `<home>/foo/bar`
+/// - `"~"` → `<home>`
+/// - Anything else → treated as a literal path (no expansion).
+///
+/// # Errors
+///
+/// Returns [`ConfigError::NoHome`] if `~` is present but the home directory
+/// cannot be resolved (e.g. `$HOME` unset and `directories::BaseDirs` fails).
 pub(crate) fn expand_tilde(s: &str) -> Result<PathBuf> {
     if let Some(rest) = s.strip_prefix("~/") {
         let home = home_dir().ok_or(ConfigError::NoHome)?;
@@ -65,6 +131,11 @@ pub(crate) fn expand_tilde(s: &str) -> Result<PathBuf> {
     }
 }
 
+/// Serialise a path back to a string, replacing the home prefix with `~`.
+///
+/// Produces compact, portable representations like `~/.vestige/projects/…`
+/// suitable for storing in `config.toml`. If the home directory cannot be
+/// determined, the absolute path is returned unchanged.
 pub(crate) fn stringify_path_with_tilde(path: &Path) -> String {
     if let Some(home) = home_dir() {
         if let Ok(rest) = path.strip_prefix(&home) {
@@ -74,6 +145,10 @@ pub(crate) fn stringify_path_with_tilde(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// Resolve the current user's home directory.
+///
+/// Checks `$HOME` first; falls back to `directories::BaseDirs` for platforms
+/// where `HOME` may not be set.
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
