@@ -6,20 +6,13 @@ use time::OffsetDateTime;
 use ulid::Ulid;
 
 use vestige_core::{
-    FetchedMemory, ListFilter, Memory, MemoryBundle, MemoryId, MemoryStatus, MemoryType, ProjectId,
-    RepresentationDepth, RepresentationRow, SearchFilter, SearchHit, SourceRow,
+    FetchedMemory, ListFilter, Memory, MemoryBundle, MemoryCounts, MemoryId, MemoryStatus,
+    MemoryType, ProjectId, RepresentationDepth, RepresentationRow, SearchFilter, SearchHit,
+    SourceRow,
 };
 
 use crate::helpers::{invalid_id_to_sqlite, parse_rfc3339, rfc3339};
 use crate::{Result, Store, StoreError};
-
-// === PUBLIC TYPES ===
-
-#[derive(Debug, Clone, Copy)]
-pub struct MemoryCounts {
-    pub active: i64,
-    pub deleted: i64,
-}
 
 // === IMPL STORE ===
 
