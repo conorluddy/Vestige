@@ -10,7 +10,7 @@ mod memory_ops;
 mod project;
 
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
-pub use memory_ops::MemoryCounts;
+pub use vestige_core::MemoryCounts;
 
 use std::path::{Path, PathBuf};
 

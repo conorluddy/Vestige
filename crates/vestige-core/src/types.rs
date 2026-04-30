@@ -164,3 +164,11 @@ pub struct MemoryEvent {
     pub event_type: String,
     pub payload_json: Option<String>,
 }
+
+/// Counts of memories by status, scoped to a single project. Returned by
+/// `Store::memory_counts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryCounts {
+    pub active: i64,
+    pub deleted: i64,
+}
