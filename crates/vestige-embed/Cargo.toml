@@ -1,0 +1,29 @@
+[package]
+name = "vestige-embed"
+description = "Internal crate for Vestige — embedding provider abstraction. Deterministic fake provider always available; fastembed and ollama land in PR7 behind feature flags."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[features]
+default = []
+fastembed = []   # impl lands in PR7
+ollama = []      # impl lands in PR7
+
+[dependencies]
+vestige-core = { path = "../vestige-core" }
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

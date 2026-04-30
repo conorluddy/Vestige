@@ -39,9 +39,14 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 
 const MIGRATION_INIT: &str = include_str!("migrations/0001_init.sql");
 const MIGRATION_FTS: &str = include_str!("migrations/0002_fts.sql");
+const MIGRATION_EMBEDDINGS: &str = include_str!("migrations/0003_embeddings.sql");
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(MIGRATION_INIT), M::up(MIGRATION_FTS)])
+    Migrations::new(vec![
+        M::up(MIGRATION_INIT),
+        M::up(MIGRATION_FTS),
+        M::up(MIGRATION_EMBEDDINGS),
+    ])
 }
 
 pub struct Store {

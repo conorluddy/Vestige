@@ -1472,6 +1472,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vestige-embed"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "vestige-core",
+]
+
+[[package]]
 name = "vestige-mcp"
 version = "0.1.0"
 dependencies = [
