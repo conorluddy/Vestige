@@ -54,6 +54,8 @@ function Hero() {
           </div>
           <div className="vt-install-aux">
             also: brew tap conorluddy/vestige && brew install vestige
+            <br />
+            or: curl -sSfL https://github.com/conorluddy/Vestige/releases/latest/download/vestige-installer.sh | sh
           </div>
 
           <div className="vt-statgrid">
