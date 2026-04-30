@@ -22,19 +22,31 @@ const ALL_DEPTHS: [RepresentationDepth; 4] = [
 ];
 
 /// Caller input for a new memory. The body is the raw text the user supplied;
-/// representations are derived deterministically below.
+/// representations are derived deterministically by [`build_bundle`].
 #[derive(Debug, Clone)]
 pub struct NewMemory<'a> {
+    /// Semantic classification — drives ranking and context sections.
     pub r#type: MemoryType,
+    /// Raw memory text. Must be non-empty after trimming; max recommended size
+    /// is whatever fits in the `full` representation without loss.
     pub body: &'a str,
+    /// Signal strength in `[0.0, 1.0]`. Validated by [`build_bundle`];
+    /// returns [`CoreError::Validation`] if out of range.
     pub importance: f64,
+    /// Optional source provenance. Content is capped at
+    /// [`SOURCE_SNIPPET_MAX_BYTES`] by [`build_bundle`].
     pub source: Option<NewSource<'a>>,
 }
 
+/// Provenance for a new memory, passed inside [`NewMemory`].
 #[derive(Debug, Clone)]
 pub struct NewSource<'a> {
+    /// Category of the source — e.g. `"file"`, `"url"`, `"clipboard"`.
     pub source_type: &'a str,
+    /// Stable locator (file path, URL, etc.) — `None` if not applicable.
     pub source_ref: Option<&'a str>,
+    /// Verbatim snippet to attach. Truncated to [`SOURCE_SNIPPET_MAX_BYTES`]
+    /// (2 048 bytes) at a UTF-8 codepoint boundary before persistence.
     pub source_content: Option<&'a str>,
 }
 
@@ -46,21 +58,32 @@ pub struct MemoryBundle {
     pub source: Option<SourceRow>,
 }
 
+/// One row in `memory_representations`, ready for direct SQL insertion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepresentationRow {
+    /// Back-reference to the owning memory.
     pub memory_id: MemoryId,
+    /// Which disclosure level this row carries.
     pub depth: RepresentationDepth,
+    /// Derived text content for this depth.
     pub content: String,
+    /// SHA-256 of `content` (first 16 bytes, hex) — detects stale rows
+    /// after a body edit without re-reading the full content.
     pub content_hash: String,
 }
 
+/// One row in `memory_sources`, ready for direct SQL insertion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceRow {
+    /// Back-reference to the owning memory.
     pub memory_id: MemoryId,
+    /// Category of the source — e.g. `"file"`, `"url"`.
     pub source_type: String,
+    /// Stable locator, if provided.
     pub source_ref: Option<String>,
+    /// Stored snippet (may be shorter than the original if `truncated == true`).
     pub source_content: Option<String>,
-    /// True when `source_content` was truncated to fit `SOURCE_SNIPPET_MAX_BYTES`.
+    /// `true` when `source_content` was truncated to fit [`SOURCE_SNIPPET_MAX_BYTES`].
     pub truncated: bool,
 }
 
@@ -107,10 +130,9 @@ pub fn truncate_at_utf8_boundary(s: &str, max_bytes: usize) -> (&str, bool) {
     (&s[..cut], true)
 }
 
-// ========================================
 // === PRIVATE HELPERS ===
-// ========================================
 
+/// Build all four [`RepresentationRow`]s from a freshly derived set of representations.
 fn build_representation_rows(
     id: &MemoryId,
     derived: &DerivedRepresentations,
@@ -130,6 +152,7 @@ fn build_representation_rows(
         .collect()
 }
 
+/// Build a [`SourceRow`] from [`NewSource`] input, applying the 2 KiB content cap.
 fn build_source_row(id: &MemoryId, src: NewSource<'_>) -> SourceRow {
     let (content, truncated) = match src.source_content {
         Some(raw) => {
@@ -147,6 +170,7 @@ fn build_source_row(id: &MemoryId, src: NewSource<'_>) -> SourceRow {
     }
 }
 
+/// Validate [`NewMemory`] fields before building a bundle.
 fn validate_input(input: &NewMemory<'_>) -> Result<()> {
     if input.body.trim().is_empty() {
         return Err(CoreError::Validation(
@@ -162,6 +186,7 @@ fn validate_input(input: &NewMemory<'_>) -> Result<()> {
     Ok(())
 }
 
+/// SHA-256 of `s`, truncated to the first 16 bytes, hex-encoded (32 chars).
 fn hash(s: &str) -> String {
     let digest = Sha256::digest(s.as_bytes());
     hex::encode(&digest[..16])

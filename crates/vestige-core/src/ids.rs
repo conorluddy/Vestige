@@ -1,3 +1,14 @@
+//! Newtype ID wrappers — [`MemoryId`], [`ProjectId`], and [`EmbeddingId`].
+//!
+//! All IDs carry a mandatory prefix (`mem_`, `proj_`, `emb_`) followed by a
+//! ULID. The prefix check is enforced at parse time via [`FromStr`], so any
+//! value of these types is proof-of-validity through the type system. Never
+//! pass bare `String`s where a typed ID belongs.
+//!
+//! `ProjectId` deviates from pure ULID generation: callers may also construct
+//! one from a pre-derived slug (git remote hash or repo-path hash) via
+//! [`ProjectId::from_slug`].
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -9,19 +20,35 @@ const MEMORY_PREFIX: &str = "mem_";
 const PROJECT_PREFIX: &str = "proj_";
 const EMBEDDING_PREFIX: &str = "emb_";
 
+// === PUBLIC TYPES ===
+
+/// A validated memory identifier of the form `mem_<ULID>`.
+///
+/// Construct with [`MemoryId::new`] for new memories, or parse an existing
+/// string with [`FromStr`]. Rejects any string that lacks the `mem_` prefix;
+/// returns [`CoreError::InvalidId`] on failure.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct MemoryId(String);
 
+/// A validated project identifier of the form `proj_<slug-or-ULID>`.
+///
+/// Most code generates these via [`ProjectId::from_slug`] rather than
+/// [`ProjectId::new`], because project identity is derived from a stable
+/// source (git remote hash or repo-path hash) per PRD §9.3. Rejects any
+/// string that lacks the `proj_` prefix; returns [`CoreError::InvalidId`]
+/// on failure.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProjectId(String);
 
 impl MemoryId {
+    /// Generate a new memory ID using a fresh ULID.
     pub fn new() -> Self {
         Self(format!("{MEMORY_PREFIX}{}", Ulid::new()))
     }
 
+    /// Borrow the underlying string representation (e.g. for SQL bindings).
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -34,16 +61,22 @@ impl Default for MemoryId {
 }
 
 impl ProjectId {
+    /// Generate a new project ID using a fresh ULID. Prefer [`ProjectId::from_slug`]
+    /// when identity must be derived from a stable source (git remote hash, etc.).
     pub fn new() -> Self {
         Self(format!("{PROJECT_PREFIX}{}", Ulid::new()))
     }
 
-    /// Build a project id from an explicit, pre-validated string slug
-    /// (used when the caller derives the id from a name or hash).
+    /// Build a project ID from a pre-derived slug (name or hash). The `proj_`
+    /// prefix is prepended automatically; do not include it in `slug`.
+    ///
+    /// Used by `vestige-config` after resolving the PRD §9.3 identity chain:
+    /// explicit `--name` → git remote hash → repo-path hash.
     pub fn from_slug(slug: impl Into<String>) -> Self {
         Self(format!("{PROJECT_PREFIX}{}", slug.into()))
     }
 
+    /// Borrow the underlying string representation (e.g. for SQL bindings).
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -105,6 +138,7 @@ impl EmbeddingId {
         Self(format!("{EMBEDDING_PREFIX}{}", Ulid::new()))
     }
 
+    /// Borrow the underlying string representation (e.g. for SQL bindings).
     pub fn as_str(&self) -> &str {
         &self.0
     }

@@ -1,6 +1,9 @@
-//! Pure domain core for Vestige. No SQLite, no clap, no rmcp, no async — just
-//! types, IDs, errors, and pure derivation / scoring functions. Higher-level
-//! orchestration lives in `vestige-engine`; persistence in `vestige-store`.
+//! Pure domain core for Vestige — types, typed IDs, errors, representation
+//! derivation, search primitives, and context-pack assembly.
+//!
+//! No `rusqlite`, no `clap`, no `rmcp`, no `async`. Callers in `vestige-store`,
+//! `vestige-cli`, and `vestige-mcp` depend on this crate; it never depends on
+//! them. See the workspace `CLAUDE.md` for the one-way dependency graph.
 
 pub mod context;
 pub mod error;
