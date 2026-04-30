@@ -11,7 +11,9 @@ use anyhow::{Context, Result};
 use clap::Args;
 use serde::Serialize;
 
-use crate::commands::embed::{embed_all, EmbedSummary};
+use vestige_engine::embed;
+
+use crate::commands::embed::{build_summary, EmbedSummary, EmbedTarget};
 use crate::context;
 use crate::output::{emit_json, OutputFormat};
 
@@ -100,7 +102,10 @@ pub fn run(args: ReindexArgs) -> Result<()> {
             vestige_core::RepresentationDepth::Compressed,
         ];
 
-        let summary = embed_all(&mut ctx.store, &ctx.project_id, &*provider, &depths, false)?;
+        let results = embed::embed_all(&mut ctx.store, &ctx.project_id, &*provider, &depths, false)
+            .context("re-embedding project memories")?;
+        let targets: Vec<EmbedTarget> = results.into_iter().map(EmbedTarget::from).collect();
+        let summary = build_summary(&*provider, targets, false);
         embed_summary = Some(summary);
     }
 

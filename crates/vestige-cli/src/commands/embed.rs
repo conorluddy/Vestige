@@ -7,10 +7,9 @@
 use anyhow::{Context, Result};
 use clap::Args;
 use serde::Serialize;
-use time::OffsetDateTime;
-use ulid::Ulid;
-use vestige_core::{ListFilter, MemoryId, MemoryStatus, RepresentationDepth};
-use vestige_store::{NewEmbedding, Store};
+use std::str::FromStr;
+use vestige_core::{MemoryId, MemoryStatus, RepresentationDepth};
+use vestige_engine::embed::{self, EmbedOutcome};
 
 use crate::context;
 use crate::output::{emit_json, OutputFormat};
@@ -51,6 +50,24 @@ pub struct EmbedSummary {
     pub skipped: Vec<EmbedTarget>,
     pub failed: Vec<EmbedTarget>,
     pub dry_run: bool,
+}
+
+impl From<embed::EmbedResult> for EmbedTarget {
+    fn from(r: embed::EmbedResult) -> Self {
+        let action = match r.outcome {
+            EmbedOutcome::Embedded => EmbedAction::Embedded,
+            EmbedOutcome::Unchanged => EmbedAction::Unchanged,
+            EmbedOutcome::NoRepr => EmbedAction::NoRepr,
+            EmbedOutcome::WouldEmbed => EmbedAction::WouldEmbed,
+            EmbedOutcome::Failed => EmbedAction::Failed,
+        };
+        EmbedTarget {
+            memory_id: r.memory_id.as_str().to_owned(),
+            representation_type: r.representation_type,
+            action,
+            error: r.error,
+        }
+    }
 }
 
 // === CLI ARGS ===
@@ -103,24 +120,41 @@ pub fn run(args: EmbedArgs) -> Result<()> {
 
     let depths = resolve_depths(&args.representations)?;
 
-    let summary = if let Some(ref raw_id) = args.memory {
-        embed_single(
+    let results = if let Some(ref raw_id) = args.memory {
+        let memory_id = MemoryId::from_str(raw_id)
+            .with_context(|| format!("invalid memory id: {raw_id:?} — expected `mem_<ULID>`"))?;
+        let fetched = ctx
+            .store
+            .get_memory(&memory_id)
+            .context("fetching memory")?
+            .with_context(|| format!("memory {raw_id} not found"))?;
+        if fetched.memory.status != MemoryStatus::Active {
+            anyhow::bail!(
+                "memory {raw_id} is not active (status: {:?})",
+                fetched.memory.status
+            );
+        }
+        embed::embed_memory_representations(
             &mut ctx.store,
-            raw_id,
-            &ctx.project_id,
+            &fetched,
             &*provider,
             &depths,
             args.dry_run,
-        )?
+        )
+        .context("embedding memory representations")?
     } else {
-        embed_all(
+        embed::embed_all(
             &mut ctx.store,
             &ctx.project_id,
             &*provider,
             &depths,
             args.dry_run,
-        )?
+        )
+        .context("embedding all memories")?
     };
+
+    let targets: Vec<EmbedTarget> = results.into_iter().map(EmbedTarget::from).collect();
+    let summary = build_summary(&*provider, targets, args.dry_run);
 
     match OutputFormat::pick(args.json) {
         OutputFormat::Json => emit_json(&summary),
@@ -131,162 +165,7 @@ pub fn run(args: EmbedArgs) -> Result<()> {
     }
 }
 
-/// Embed every active memory in the project. Called by `embed --all` and
-/// `reindex --embeddings` (the shared pipeline).
-pub fn embed_all(
-    store: &mut Store,
-    project_id: &vestige_core::ProjectId,
-    provider: &dyn vestige_embed::EmbeddingProvider,
-    depths: &[RepresentationDepth],
-    dry_run: bool,
-) -> Result<EmbedSummary> {
-    let memories = store
-        .list_memories(project_id, &ListFilter::default())
-        .context("listing memories")?;
-
-    let mut targets: Vec<EmbedTarget> = Vec::new();
-
-    for fetched in &memories {
-        if fetched.memory.status != MemoryStatus::Active {
-            continue;
-        }
-        let results = embed_memory_representations(store, fetched, provider, depths, dry_run)?;
-        targets.extend(results);
-    }
-
-    Ok(build_summary(provider, targets, dry_run))
-}
-
 // === PRIVATE HELPERS ===
-
-fn embed_single(
-    store: &mut Store,
-    raw_id: &str,
-    _project_id: &vestige_core::ProjectId,
-    provider: &dyn vestige_embed::EmbeddingProvider,
-    depths: &[RepresentationDepth],
-    dry_run: bool,
-) -> Result<EmbedSummary> {
-    use std::str::FromStr;
-    let memory_id = MemoryId::from_str(raw_id)
-        .with_context(|| format!("invalid memory id: {raw_id:?} — expected `mem_<ULID>`"))?;
-
-    let fetched = store
-        .get_memory(&memory_id)
-        .context("fetching memory")?
-        .with_context(|| format!("memory {raw_id} not found"))?;
-
-    if fetched.memory.status != MemoryStatus::Active {
-        anyhow::bail!(
-            "memory {raw_id} is not active (status: {:?})",
-            fetched.memory.status
-        );
-    }
-
-    let targets = embed_memory_representations(store, &fetched, provider, depths, dry_run)?;
-    Ok(build_summary(provider, targets, dry_run))
-}
-
-fn embed_memory_representations(
-    store: &mut Store,
-    fetched: &vestige_core::FetchedMemory,
-    provider: &dyn vestige_embed::EmbeddingProvider,
-    depths: &[RepresentationDepth],
-    dry_run: bool,
-) -> Result<Vec<EmbedTarget>> {
-    let mut results = Vec::new();
-    let memory_id = &fetched.memory.id;
-
-    for &depth in depths {
-        let repr = fetched.representations.iter().find(|r| r.depth == depth);
-
-        let Some(repr) = repr else {
-            results.push(EmbedTarget {
-                memory_id: memory_id.as_str().to_owned(),
-                representation_type: depth.as_str().to_owned(),
-                action: EmbedAction::NoRepr,
-                error: None,
-            });
-            continue;
-        };
-
-        // Look up the DB row id for this representation.
-        let repr_db_id = fetch_repr_id(store, memory_id, depth)?;
-        let Some(repr_id) = repr_db_id else {
-            results.push(EmbedTarget {
-                memory_id: memory_id.as_str().to_owned(),
-                representation_type: depth.as_str().to_owned(),
-                action: EmbedAction::NoRepr,
-                error: None,
-            });
-            continue;
-        };
-
-        // Check whether an active, up-to-date embedding already exists.
-        if !dry_run && has_current_embedding(store, &repr_id, provider)? {
-            results.push(EmbedTarget {
-                memory_id: memory_id.as_str().to_owned(),
-                representation_type: depth.as_str().to_owned(),
-                action: EmbedAction::Unchanged,
-                error: None,
-            });
-            continue;
-        }
-
-        if dry_run {
-            results.push(EmbedTarget {
-                memory_id: memory_id.as_str().to_owned(),
-                representation_type: depth.as_str().to_owned(),
-                action: EmbedAction::WouldEmbed,
-                error: None,
-            });
-            continue;
-        }
-
-        // Generate and persist the embedding.
-        match provider.embed(&repr.content) {
-            Ok(vector) => {
-                let new_emb = NewEmbedding {
-                    memory_id,
-                    representation_id: &repr_id,
-                    representation_type: depth.as_str(),
-                    provider: provider.provider_name(),
-                    model: provider.model_name(),
-                    vector: &vector,
-                };
-                store
-                    .record_embedding(&new_emb)
-                    .context("recording embedding")?;
-                results.push(EmbedTarget {
-                    memory_id: memory_id.as_str().to_owned(),
-                    representation_type: depth.as_str().to_owned(),
-                    action: EmbedAction::Embedded,
-                    error: None,
-                });
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
-                // Record a failed job row so `embeddings status` can surface it.
-                let _ = record_failed_job(
-                    store,
-                    memory_id,
-                    &repr_id,
-                    depth.as_str(),
-                    provider,
-                    &error_msg,
-                );
-                results.push(EmbedTarget {
-                    memory_id: memory_id.as_str().to_owned(),
-                    representation_type: depth.as_str().to_owned(),
-                    action: EmbedAction::Failed,
-                    error: Some(error_msg),
-                });
-            }
-        }
-    }
-
-    Ok(results)
-}
 
 /// Resolve `--representation` flags (or default to `["summary", "compressed"]`).
 fn resolve_depths(raw: &[String]) -> Result<Vec<RepresentationDepth>> {
@@ -309,94 +188,7 @@ fn resolve_depths(raw: &[String]) -> Result<Vec<RepresentationDepth>> {
         .collect()
 }
 
-/// Fetch the `memory_representations.id` column for a given (memory, depth) pair.
-///
-/// We drop into raw SQL here because `RepresentationRow` does not expose the DB
-/// primary key — acceptable since this is an admin CLI operation.
-fn fetch_repr_id(
-    store: &Store,
-    memory_id: &MemoryId,
-    depth: RepresentationDepth,
-) -> Result<Option<String>> {
-    let conn = store.connection();
-    let mut stmt = conn
-        .prepare(
-            "SELECT id FROM memory_representations
-             WHERE memory_id = ?1 AND representation_type = ?2",
-        )
-        .context("preparing repr id query")?;
-    let mut rows = stmt
-        .query(rusqlite::params![memory_id.as_str(), depth.as_str()])
-        .context("querying repr id")?;
-    if let Some(row) = rows.next().context("reading repr id row")? {
-        Ok(Some(row.get(0).context("reading repr id column")?))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Return `true` if an active embedding already exists for this
-/// `(representation_id, provider, model)` triple.
-fn has_current_embedding(
-    store: &Store,
-    repr_id: &str,
-    provider: &dyn vestige_embed::EmbeddingProvider,
-) -> Result<bool> {
-    let conn = store.connection();
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM memory_embeddings
-             WHERE representation_id = ?1
-               AND provider = ?2
-               AND model = ?3
-               AND status = 'active'",
-            rusqlite::params![repr_id, provider.provider_name(), provider.model_name()],
-            |r| r.get(0),
-        )
-        .context("checking existing embedding")?;
-    Ok(count > 0)
-}
-
-/// Insert a failed `embedding_jobs` row so `embeddings status` can surface it.
-fn record_failed_job(
-    store: &mut Store,
-    memory_id: &MemoryId,
-    repr_id: &str,
-    repr_type: &str,
-    provider: &dyn vestige_embed::EmbeddingProvider,
-    error: &str,
-) -> Result<()> {
-    let job_id = format!("job_{}", Ulid::new());
-    let now_str = rfc3339_now()?;
-    store
-        .connection()
-        .execute(
-            "INSERT INTO embedding_jobs
-                (id, memory_id, representation_id, representation_type,
-                 provider, model, status, error, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'failed', ?7, ?8, ?8)",
-            rusqlite::params![
-                job_id,
-                memory_id.as_str(),
-                repr_id,
-                repr_type,
-                provider.provider_name(),
-                provider.model_name(),
-                error,
-                now_str,
-            ],
-        )
-        .context("recording failed embedding job")?;
-    Ok(())
-}
-
-fn rfc3339_now() -> Result<String> {
-    OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .context("formatting timestamp")
-}
-
-fn build_summary(
+pub(crate) fn build_summary(
     provider: &dyn vestige_embed::EmbeddingProvider,
     targets: Vec<EmbedTarget>,
     dry_run: bool,
