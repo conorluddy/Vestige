@@ -16,9 +16,10 @@ use tokio::sync::Mutex;
 use vestige_config::{EmbeddingsConfigSection, VestigeConfig};
 use vestige_core::{
     build_bundle, build_pack, merge_hits, normalise_cosine, normalise_fts, project_card,
-    project_detail, rank_hits, sanitize_fts_query, ContextOptions, ContextSources, HybridOpts,
-    ListFilter, MemoryId, MemoryType, NewMemory, NewSource, ProjectId, RepresentationDepth,
-    ScoredCard, SearchFilter, SearchHit, SearchMode, SemanticHit, SOURCE_SNIPPET_MAX_BYTES,
+    project_detail, rank_hits, resolve_default_mode, sanitize_fts_query, ContextOptions,
+    ContextSources, HybridOpts, ListFilter, MemoryId, MemoryType, NewMemory, NewSource, ProjectId,
+    RepresentationDepth, ScoredCard, SearchFilter, SearchHit, SearchMode, SemanticHit,
+    SOURCE_SNIPPET_MAX_BYTES,
 };
 use vestige_embed::{build_provider, EmbeddingProvider, EmbeddingsConfig};
 use vestige_store::{Store, VectorFilter};
@@ -214,13 +215,24 @@ impl VestigeServer {
     ) -> Result<CallToolResult, ErrorData> {
         let inner = self.inner.lock().await;
 
-        let mode = p
-            .mode
-            .as_deref()
-            .map(SearchMode::from_str)
-            .transpose()
-            .map_err(|e| err("INVALID_MODE", e.to_string(), false))?
-            .unwrap_or(SearchMode::Lexical);
+        // Explicit request param takes priority; config default is next; Lexical is the fallback.
+        // A bad request param returns INVALID_MODE; a bad config value returns INVALID_CONFIG.
+        if let Some(ref mode_str) = p.mode {
+            SearchMode::from_str(mode_str)
+                .map_err(|e| err("INVALID_MODE", e.to_string(), false))?;
+        }
+        let config_default = inner
+            .config
+            .search
+            .as_ref()
+            .and_then(|s| s.default_mode.as_deref());
+        let mode = resolve_default_mode(p.mode.as_deref(), config_default).map_err(|e| {
+            err(
+                "INVALID_CONFIG",
+                format!("invalid [search] default_mode: {e}"),
+                false,
+            )
+        })?;
 
         let type_filter = p
             .r#type

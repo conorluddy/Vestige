@@ -1,0 +1,18 @@
+project_id = "proj_vestige"
+project_name = "Vestige"
+scope = "project"
+
+[storage]
+mode = "user_data"
+path = "~/.vestige/projects/proj_vestige/memory.sqlite"
+
+[recall]
+default_depth = "one_liner"
+max_results = 8
+include_global_preferences = false
+
+# Dogfood policy: agents working on Vestige itself may record but not forget.
+[mcp]
+allow_record_observation = true
+allow_record_decision = true
+allow_forget = false

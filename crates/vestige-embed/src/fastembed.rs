@@ -104,7 +104,9 @@ impl FastembedProvider {
         }
 
         // SAFETY: we just set it above if it was absent.
-        Ok(self.inner.get().expect("model was just initialised"))
+        self.inner
+            .get()
+            .ok_or_else(|| EmbedError::Backend("model init race detected; retry".into()))
     }
 }
 

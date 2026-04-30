@@ -33,6 +33,12 @@ time.workspace = true
 rusqlite.workspace = true
 ulid.workspace = true
 
+[features]
+default = []
+fastembed = ["vestige-embed/fastembed"]
+ollama = ["vestige-embed/ollama"]
+
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true
+toml.workspace = true
