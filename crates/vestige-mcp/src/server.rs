@@ -13,7 +13,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use vestige_config::VestigeConfig;
+use vestige_config::{EmbeddingsConfigSection, VestigeConfig};
 use vestige_core::{
     build_bundle, build_pack, merge_hits, normalise_cosine, normalise_fts, project_card,
     project_detail, rank_hits, sanitize_fts_query, ContextOptions, ContextSources, HybridOpts,
@@ -219,7 +219,7 @@ impl VestigeServer {
             .as_deref()
             .map(SearchMode::from_str)
             .transpose()
-            .map_err(|e| err("invalid_mode", e.to_string(), false))?
+            .map_err(|e| err("INVALID_MODE", e.to_string(), false))?
             .unwrap_or(SearchMode::Lexical);
 
         let type_filter = p
@@ -227,7 +227,7 @@ impl VestigeServer {
             .as_deref()
             .map(MemoryType::from_str)
             .transpose()
-            .map_err(|e| err("invalid_type", e.to_string(), false))?;
+            .map_err(|e| err("INVALID_TYPE", e.to_string(), false))?;
 
         match mode {
             SearchMode::Lexical => search_lexical(&inner, &p.query, p.limit, type_filter),
@@ -358,6 +358,18 @@ impl VestigeServer {
 // === SEARCH HELPERS ===
 // ========================================
 
+/// Over-fetch each leg of hybrid search by this factor before merging — the
+/// merger drops duplicates and re-ranks, so the per-leg `limit` is
+/// `max(limit * MULTIPLIER, FLOOR)`.
+const HYBRID_OVERFETCH_MULTIPLIER: u32 = 4;
+const HYBRID_OVERFETCH_FLOOR: u32 = 32;
+
+fn hybrid_per_leg_limit(limit: u32) -> u32 {
+    limit
+        .saturating_mul(HYBRID_OVERFETCH_MULTIPLIER)
+        .max(HYBRID_OVERFETCH_FLOOR)
+}
+
 /// Result envelope for all three search modes (PRD §13.3).
 #[derive(Debug, Serialize)]
 struct SearchEnvelope<'a> {
@@ -411,16 +423,19 @@ fn search_semantic(
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))?;
     if status.embedded_representations == 0 {
         return Err(err(
-            "embeddings_unavailable",
+            "EMBEDDINGS_UNAVAILABLE",
             "No embeddings found for this project. Run `vestige embed --all` first.",
             false,
         ));
     }
 
-    let provider = build_fake_provider()?;
+    let provider = build_configured_provider(inner)?;
+    if let Some(msg) = provider_mismatch_message(&status, provider.as_ref()) {
+        return Err(err("EMBEDDINGS_UNAVAILABLE", msg, false));
+    }
     let query_vec = provider
         .embed(query)
-        .map_err(|e| err("embed_failed", e.to_string(), false))?;
+        .map_err(|e| err("EMBED_FAILED", e.to_string(), false))?;
     let filter = VectorFilter {
         provider: provider.provider_name().to_string(),
         model: provider.model_name().to_string(),
@@ -463,7 +478,9 @@ fn search_hybrid(
     type_filter: Option<MemoryType>,
     include_score_parts: Option<bool>,
 ) -> Result<CallToolResult, ErrorData> {
-    let _ = include_score_parts; // hybrid always includes score_parts (PRD §13.3)
+    // Hybrid always populates score_parts (PRD §13.3); the param is accepted
+    // for symmetry with semantic mode but ignored here.
+    let _ = include_score_parts;
 
     // Check embedding coverage; fall back to lexical with a warning if absent.
     let status = inner
@@ -471,9 +488,13 @@ fn search_hybrid(
         .embedding_status(&inner.project_id)
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))?;
 
-    if status.embedded_representations == 0 {
-        let warning =
-            "embeddings unavailable; hybrid falling back to lexical (run `vestige embed --all` to enable semantic recall)".to_string();
+    let configured_provider = build_configured_provider(inner)?;
+    let mismatch = provider_mismatch_message(&status, configured_provider.as_ref());
+    if status.embedded_representations == 0 || mismatch.is_some() {
+        let warning = match mismatch {
+            Some(msg) => format!("hybrid falling back to lexical: {msg}"),
+            None => "embeddings unavailable; hybrid falling back to lexical (run `vestige embed --all` to enable semantic recall)".to_string(),
+        };
         let cleaned = sanitize_fts_query(query);
         let scored: Vec<ScoredCard> = if cleaned.is_empty() {
             Vec::new()
@@ -513,7 +534,7 @@ fn search_hybrid(
                 &SearchFilter {
                     r#type: type_filter,
                     // Over-fetch for the merge; core applies limit after.
-                    limit: Some(limit.saturating_mul(4).max(32)),
+                    limit: Some(hybrid_per_leg_limit(limit)),
                     ..Default::default()
                 },
             )
@@ -521,10 +542,10 @@ fn search_hybrid(
     };
 
     // --- Semantic leg ---
-    let provider = build_fake_provider()?;
+    let provider = configured_provider;
     let query_vec = provider
         .embed(query)
-        .map_err(|e| err("embed_failed", e.to_string(), false))?;
+        .map_err(|e| err("EMBED_FAILED", e.to_string(), false))?;
     let vector_filter = VectorFilter {
         provider: provider.provider_name().to_string(),
         model: provider.model_name().to_string(),
@@ -536,7 +557,7 @@ fn search_hybrid(
         .nearest_neighbours(
             &inner.project_id,
             &query_vec,
-            limit.saturating_mul(4).max(32),
+            hybrid_per_leg_limit(limit),
             &vector_filter,
         )
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))?;
@@ -552,18 +573,16 @@ fn search_hybrid(
         .collect();
 
     // Build unified candidate set: lexical hits + semantic-only hydrated hits.
-    let mut seen_ids: HashSet<String> = lexical_hits
+    let mut seen_ids: HashSet<MemoryId> = lexical_hits
         .iter()
-        .map(|h| h.fetched.memory.id.as_str().to_string())
+        .map(|h| h.fetched.memory.id.clone())
         .collect();
     let mut candidates: Vec<SearchHit> = lexical_hits.clone();
 
     for sem_hit in &semantic_hits {
-        let id_str = sem_hit.memory_id.as_str().to_string();
-        if seen_ids.contains(&id_str) {
+        if !seen_ids.insert(sem_hit.memory_id.clone()) {
             continue;
         }
-        seen_ids.insert(id_str);
         if let Some(fetched) = inner
             .store
             .get_memory(&sem_hit.memory_id)
@@ -589,17 +608,60 @@ fn search_hybrid(
     ok_json(&envelope)
 }
 
-/// Construct an embedding provider.
+/// Construct an embedding provider from the project's typed `[embeddings]`
+/// config section, defaulting to `"fake"` when absent.
+fn build_configured_provider(inner: &Inner) -> Result<Box<dyn EmbeddingProvider>, ErrorData> {
+    let cfg = embeddings_config_from_section(inner.config.embeddings.as_ref());
+    build_provider(&cfg).map_err(|e| err("PROVIDER_INIT_FAILED", e.to_string(), false))
+}
+
+/// Map a typed `[embeddings]` config section onto the runtime `EmbeddingsConfig`.
+/// Mirrors `vestige_cli::context::embeddings_config_from_section` — duplicated
+/// here to avoid `vestige-mcp → vestige-cli` (cli is a binary, not a library).
+fn embeddings_config_from_section(section: Option<&EmbeddingsConfigSection>) -> EmbeddingsConfig {
+    match section {
+        Some(s) => EmbeddingsConfig {
+            provider: s.provider.clone().unwrap_or_else(|| "fake".to_string()),
+            model: s.model.clone(),
+            dimensions: s.dimensions,
+        },
+        None => EmbeddingsConfig {
+            provider: "fake".to_string(),
+            model: None,
+            dimensions: None,
+        },
+    }
+}
+
+/// Compare what's in the store against what the configured provider would query.
 ///
-/// Defaults to the `fake` provider (PR8 will wire in the typed config section
-/// from `VestigeConfig`; until then this keeps the pipeline green).
-fn build_fake_provider() -> Result<Box<dyn EmbeddingProvider>, ErrorData> {
-    let cfg = EmbeddingsConfig {
-        provider: "fake".to_string(),
-        model: None,
-        dimensions: None,
-    };
-    build_provider(&cfg).map_err(|e| err("provider_init_failed", e.to_string(), false))
+/// Returns `Some(message)` when the dominant on-disk provider/dimensions don't
+/// match the runtime — the silent-empty-results trap that bit V0.1.
+fn provider_mismatch_message(
+    status: &vestige_store::EmbeddingStatus,
+    provider: &dyn EmbeddingProvider,
+) -> Option<String> {
+    // No embeddings yet — that's the "embeddings_unavailable" case the caller
+    // already handled; nothing to mismatch against.
+    let stored_provider = status.provider.as_deref()?;
+    let stored_model = status.model.as_deref().unwrap_or("?");
+    let stored_dims = status.dimensions.unwrap_or(0);
+
+    let runtime_provider = provider.provider_name();
+    let runtime_model = provider.model_name();
+    let runtime_dims = provider.dimensions();
+
+    if stored_provider == runtime_provider
+        && stored_model == runtime_model
+        && stored_dims == runtime_dims
+    {
+        return None;
+    }
+    Some(format!(
+        "project embedded with `{stored_provider}`/{stored_model}/{stored_dims}d, \
+         server configured for `{runtime_provider}`/{runtime_model}/{runtime_dims}d — \
+         run `vestige embed --all` to re-embed under the configured provider"
+    ))
 }
 
 // ========================================

@@ -346,7 +346,9 @@ pub fn normalise_fts(hits: &[SearchHit]) -> HashMap<MemoryId, f64> {
         .zip(raw)
         .map(|(hit, r)| {
             let norm = if range == 0.0 {
-                // All scores identical — place them in the middle of the range.
+                // All scores identical — no signal to differentiate them.
+                // Midpoint (0.5) avoids over-rewarding a solitary lexical hit
+                // in hybrid: mapping to 1.0 would dominate the merged total.
                 0.5
             } else {
                 (r - min) / range

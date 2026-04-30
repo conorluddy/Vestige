@@ -17,6 +17,7 @@
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use time::OffsetDateTime;
+use tracing::warn;
 use ulid::Ulid;
 
 use vestige_core::{EmbeddingId, MemoryId, MemoryType, ProjectId};
@@ -233,15 +234,38 @@ pub(crate) fn nearest_neighbours(
 
     for (emb_id_str, mem_id_str, repr_id, repr_type, blob, type_str) in rows {
         // Apply optional memory-type filter (client-side, no extra SQL param needed).
+        // Skip rows whose stored type doesn't parse — coercing to Note would
+        // silently let unknown types pass or fail the filter inconsistently.
         if let Some(ref required_type) = filter.memory_type {
-            let row_type = MemoryType::from_str(&type_str).unwrap_or(MemoryType::Note); // unknown types treated as note; never excluded
+            let row_type = match MemoryType::from_str(&type_str) {
+                Ok(t) => t,
+                Err(_) => {
+                    warn!(
+                        memory_id = %mem_id_str,
+                        memory_type = %type_str,
+                        "skipping row with unknown memory type during semantic search"
+                    );
+                    continue;
+                }
+            };
             if row_type != *required_type {
                 continue;
             }
         }
 
-        let candidate = decode_vector(&blob);
-        let similarity = cosine_similarity(query_vec, &candidate);
+        let candidate = decode_vector(&blob)?;
+        let similarity = match cosine_similarity(query_vec, &candidate) {
+            Some(s) => s,
+            None => {
+                warn!(
+                    memory_id = %mem_id_str,
+                    query_dims = query_vec.len(),
+                    candidate_dims = candidate.len(),
+                    "skipping row: zero-norm vector or dimension mismatch"
+                );
+                continue;
+            }
+        };
 
         let embedding_id = EmbeddingId::from_str(&emb_id_str).map_err(invalid_id_err)?;
         let memory_id = MemoryId::from_str(&mem_id_str).map_err(invalid_id_err)?;
@@ -324,12 +348,24 @@ pub(crate) fn embedding_status(
         |r| r.get::<_, i64>(0),
     )? as u64;
 
+    // Distinct representations with at least one active OR stale embedding —
+    // used to compute `missing` without double-subtracting representations that
+    // happen to have both (e.g. one row from an old provider + one new).
+    let covered_representations: u64 = conn.query_row(
+        "SELECT COUNT(DISTINCT e.representation_id)
+         FROM memory_embeddings e
+         JOIN memories m ON m.id = e.memory_id
+         WHERE m.project_id = ?1
+           AND m.status = 'active'
+           AND e.status IN ('active', 'stale')",
+        rusqlite::params![project_id.as_str()],
+        |r| r.get::<_, i64>(0),
+    )? as u64;
+
     // Dominant provider + model by active embedding count.
     let (provider, model, dimensions) = query_dominant_provider(conn, project_id)?;
 
-    let missing_embeddings = embeddable_representations
-        .saturating_sub(embedded_representations)
-        .saturating_sub(stale_embeddings);
+    let missing_embeddings = embeddable_representations.saturating_sub(covered_representations);
 
     Ok(EmbeddingStatus {
         project_id: project_id.clone(),
@@ -358,36 +394,55 @@ fn encode_vector(vector: &[f32]) -> Vec<u8> {
 
 /// Decode a BLOB back into `Vec<f32>`.
 ///
-/// Truncates any trailing bytes that don't form a complete f32.
-fn decode_vector(blob: &[u8]) -> Vec<f32> {
-    blob.chunks_exact(4)
+/// Returns [`StoreError::Corruption`] if the BLOB length is not a multiple of 4.
+/// A partial trailing f32 means either a writer bug or on-disk damage — both
+/// warrant loud failure rather than a silently-truncated vector.
+fn decode_vector(blob: &[u8]) -> Result<Vec<f32>> {
+    if blob.len() % 4 != 0 {
+        return Err(StoreError::Corruption(format!(
+            "vector blob length {} is not a multiple of 4",
+            blob.len()
+        )));
+    }
+    Ok(blob
+        .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect()
+        .collect())
 }
 
 /// Cosine similarity between two float slices.
 ///
-/// Returns -1.0 if either vector has zero norm (rather than NaN/panic).
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
-    let len = a.len().min(b.len());
+/// Returns `None` when the result would be undefined: dimension mismatch or
+/// either vector has zero norm. Callers skip such rows rather than ranking
+/// them as -1.0 (which then gets clamped to 0.0 upstream and surfaces as a
+/// non-match in the result list).
+fn cosine_similarity(a: &[f32], b: &[f32]) -> Option<f64> {
+    if a.len() != b.len() || a.is_empty() {
+        return None;
+    }
     let mut dot = 0.0f64;
     let mut norm_a = 0.0f64;
     let mut norm_b = 0.0f64;
-    for i in 0..len {
-        let ai = a[i] as f64;
-        let bi = b[i] as f64;
+    for (ai, bi) in a.iter().zip(b.iter()) {
+        let ai = *ai as f64;
+        let bi = *bi as f64;
         dot += ai * bi;
         norm_a += ai * ai;
         norm_b += bi * bi;
     }
     let denom = norm_a.sqrt() * norm_b.sqrt();
     if denom == 0.0 {
-        return -1.0;
+        return None;
     }
-    dot / denom
+    Some(dot / denom)
 }
 
 /// Compute hex SHA-256 of the little-endian encoding of a vector.
+///
+/// Stored in `memory_embeddings.vector_hash` for V0.2's "vector unchanged
+/// despite content rehash" optimisation: when a representation's content_hash
+/// changes but a re-embed produces the same vector, the row can flip back to
+/// active without a vec rewrite. Currently written, not yet read.
 fn compute_vector_hash(vector: &[f32]) -> String {
     let bytes = encode_vector(vector);
     let digest = Sha256::digest(&bytes);
@@ -439,4 +494,55 @@ fn query_dominant_provider(
 #[allow(dead_code)] // used by CLI (PR4)
 pub(crate) fn new_job_id() -> String {
     format!("job_{}", Ulid::new())
+}
+
+// === TESTS ===
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_vector_rejects_partial_trailing_bytes() {
+        // 7 bytes — would silently truncate to one f32 under the old impl.
+        let blob = vec![0u8; 7];
+        let err = decode_vector(&blob).unwrap_err();
+        assert!(matches!(err, StoreError::Corruption(_)));
+    }
+
+    #[test]
+    fn decode_vector_round_trips_clean_blob() {
+        let v = vec![1.0_f32, -2.5, 3.25];
+        let blob = encode_vector(&v);
+        let back = decode_vector(&blob).expect("clean blob decodes");
+        assert_eq!(v, back);
+    }
+
+    #[test]
+    fn cosine_similarity_returns_none_on_zero_norm() {
+        assert!(cosine_similarity(&[0.0, 0.0, 0.0], &[1.0, 0.0, 0.0]).is_none());
+        assert!(cosine_similarity(&[1.0, 0.0, 0.0], &[0.0, 0.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn cosine_similarity_returns_none_on_dimension_mismatch() {
+        assert!(cosine_similarity(&[1.0, 0.0], &[1.0, 0.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn cosine_similarity_returns_none_on_empty() {
+        assert!(cosine_similarity(&[], &[]).is_none());
+    }
+
+    #[test]
+    fn cosine_similarity_orthogonal_is_zero() {
+        let s = cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]).unwrap();
+        assert!(s.abs() < 1e-9);
+    }
+
+    #[test]
+    fn cosine_similarity_identical_is_one() {
+        let s = cosine_similarity(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9);
+    }
 }

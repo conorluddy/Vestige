@@ -38,6 +38,9 @@ pub enum StoreError {
 
     #[error("time: {0}")]
     Time(#[from] time::error::Format),
+
+    #[error("data corruption: {0}")]
+    Corruption(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;

@@ -236,7 +236,7 @@ fn search_default_mode_is_lexical_backwards_compat() {
 }
 
 /// Semantic mode against a project with no embeddings must return a structured
-/// error with code "embeddings_unavailable".
+/// error with code "EMBEDDINGS_UNAVAILABLE".
 #[test]
 fn search_semantic_no_embeddings_returns_structured_error() {
     let repo = fresh_repo();
@@ -261,14 +261,14 @@ fn search_semantic_no_embeddings_returns_structured_error() {
 
     let resp_str = resp.to_string();
     assert!(
-        resp_str.contains("embeddings_unavailable"),
-        "error code must be 'embeddings_unavailable': {resp}"
+        resp_str.contains("EMBEDDINGS_UNAVAILABLE"),
+        "error code must be 'EMBEDDINGS_UNAVAILABLE': {resp}"
     );
 
     client.shutdown();
 }
 
-/// An unrecognised mode string must return a structured error with code "invalid_mode".
+/// An unrecognised mode string must return a structured error with code "INVALID_MODE".
 #[test]
 fn search_invalid_mode_returns_structured_error() {
     let repo = fresh_repo();
@@ -288,8 +288,8 @@ fn search_invalid_mode_returns_structured_error() {
 
     let resp_str = resp.to_string();
     assert!(
-        resp_str.contains("invalid_mode"),
-        "error code must be 'invalid_mode': {resp}"
+        resp_str.contains("INVALID_MODE"),
+        "error code must be 'INVALID_MODE': {resp}"
     );
 
     client.shutdown();
@@ -427,6 +427,147 @@ fn read_only_mode_still_allows_search() {
         || resp["result"]["isError"].as_bool() == Some(true)
         || resp.to_string().contains("READ_ONLY");
     assert!(blocked, "read-only must reject record_decision: {resp}");
+
+    client.shutdown();
+}
+
+/// Regression test for the V0.1 silent-empty-results trap.
+///
+/// When `.vestige/config.toml` configures a different provider/dimensions than
+/// what the project was actually embedded with, MCP semantic search must NOT
+/// silently return an empty list — it must surface a structured error so the
+/// agent knows to re-embed.
+#[test]
+fn semantic_mismatched_provider_returns_structured_error_not_empty() {
+    let repo = fresh_repo();
+    run_cli(&repo, &["init", "--name", "MismatchedProvider"]);
+    run_cli(
+        &repo,
+        &["remember", "Configured provider differs from stored."],
+    );
+
+    // Embed with fake@64 (the default).
+    run_cli(&repo, &["embed", "--all", "--provider", "fake"]);
+
+    // Now switch the configured runtime to fake@128 — same provider name but
+    // different dimensions. The dominant stored row is 64d; the runtime would
+    // build a 128d query vector, which `nearest_neighbours` filters out by
+    // dimensions and silently returned [] in V0.1 before this guard.
+    let cfg_path = repo.repo.join(".vestige/config.toml");
+    let mut cfg = std::fs::read_to_string(&cfg_path).unwrap();
+    cfg.push_str("\n[embeddings]\nprovider = \"fake\"\ndimensions = 128\n");
+    std::fs::write(&cfg_path, cfg).unwrap();
+
+    let mut client = McpClient::spawn(&repo, &[]);
+    initialize(&mut client);
+
+    let resp = call_tool(
+        &mut client,
+        "vestige_search",
+        serde_json::json!({ "query": "configured", "mode": "semantic" }),
+    );
+
+    let is_error = resp.get("error").is_some() || resp["result"]["isError"].as_bool() == Some(true);
+    assert!(
+        is_error,
+        "mismatch must return an error, not silent []: {resp}"
+    );
+
+    let resp_str = resp.to_string();
+    assert!(
+        resp_str.contains("EMBEDDINGS_UNAVAILABLE"),
+        "error code must name the mismatch case: {resp}"
+    );
+    assert!(
+        resp_str.contains("vestige embed --all"),
+        "error message must direct the agent to re-embed: {resp}"
+    );
+
+    client.shutdown();
+}
+
+/// Hybrid mode under the same mismatch must degrade to lexical-with-warning
+/// rather than error — hybrid's contract is "always return something".
+#[test]
+fn hybrid_mismatched_provider_falls_back_to_lexical_with_warning() {
+    let repo = fresh_repo();
+    run_cli(&repo, &["init", "--name", "MismatchedHybrid"]);
+    run_cli(&repo, &["remember", "Hybrid graceful fallback path."]);
+    run_cli(&repo, &["embed", "--all", "--provider", "fake"]);
+
+    let cfg_path = repo.repo.join(".vestige/config.toml");
+    let mut cfg = std::fs::read_to_string(&cfg_path).unwrap();
+    cfg.push_str("\n[embeddings]\nprovider = \"fake\"\ndimensions = 128\n");
+    std::fs::write(&cfg_path, cfg).unwrap();
+
+    let mut client = McpClient::spawn(&repo, &[]);
+    initialize(&mut client);
+
+    let resp = call_tool(
+        &mut client,
+        "vestige_search",
+        serde_json::json!({ "query": "graceful fallback", "mode": "hybrid" }),
+    );
+    let envelope = extract_envelope(&resp);
+
+    assert_eq!(
+        envelope["mode"].as_str(),
+        Some("hybrid"),
+        "envelope mode must remain hybrid: {envelope}"
+    );
+    let warnings = envelope["warnings"].as_array().unwrap();
+    assert!(
+        !warnings.is_empty(),
+        "mismatched hybrid must include a warning: {envelope}"
+    );
+    let warning_text = warnings[0].as_str().unwrap_or("");
+    assert!(
+        warning_text.contains("lexical"),
+        "warning must mention lexical fallback: {envelope}"
+    );
+    let results = envelope["results"].as_array().unwrap();
+    assert!(
+        !results.is_empty(),
+        "lexical fallback must still return results: {envelope}"
+    );
+
+    client.shutdown();
+}
+
+/// Positive: semantic search must work when the configured provider matches
+/// what the project was embedded with.
+#[test]
+fn semantic_with_matching_configured_provider_returns_hits() {
+    let repo = fresh_repo();
+    run_cli(&repo, &["init", "--name", "MatchingProvider"]);
+    run_cli(
+        &repo,
+        &["remember", "Memory body for matching provider test."],
+    );
+
+    // Configure fake explicitly, embed under that config.
+    let cfg_path = repo.repo.join(".vestige/config.toml");
+    let mut cfg = std::fs::read_to_string(&cfg_path).unwrap();
+    cfg.push_str("\n[embeddings]\nprovider = \"fake\"\n");
+    std::fs::write(&cfg_path, cfg).unwrap();
+    run_cli(&repo, &["embed", "--all"]);
+
+    let mut client = McpClient::spawn(&repo, &[]);
+    initialize(&mut client);
+
+    let resp = call_tool(
+        &mut client,
+        "vestige_search",
+        serde_json::json!({ "query": "matching provider", "mode": "semantic" }),
+    );
+    let envelope = extract_envelope(&resp);
+
+    assert_eq!(envelope["mode"].as_str(), Some("semantic"));
+    let results = envelope["results"].as_array().unwrap();
+    assert!(
+        !results.is_empty(),
+        "matching configured provider must return hits: {envelope}"
+    );
 
     client.shutdown();
 }

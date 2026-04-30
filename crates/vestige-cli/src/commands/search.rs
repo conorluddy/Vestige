@@ -13,7 +13,7 @@ use vestige_core::{
     merge_hits, normalise_cosine, normalise_fts, rank_hits, sanitize_fts_query, HybridOpts,
     MemoryType, SearchFilter, SearchHit, SearchMode, SemanticHit,
 };
-use vestige_embed::{build_provider, EmbeddingsConfig};
+use vestige_embed::build_provider;
 use vestige_store::VectorFilter;
 
 use crate::context;
@@ -321,14 +321,7 @@ fn resolve_mode(args: &SearchArgs) -> Result<SearchMode> {
 fn build_embed_provider(
     ctx: &context::ProjectContext,
 ) -> Result<Box<dyn vestige_embed::EmbeddingProvider>> {
-    // Try to read provider info from config's embeddings section if present.
-    // For now we look at the raw TOML via a best-effort approach: if the config
-    // was deserialized without an embeddings table the field won't be present.
-    // We fall back to the "fake" provider to keep CI green while PR4/PR8 land.
-    //
-    // A future PR (PR8) will add `VestigeConfig::embeddings` as a typed field;
-    // at that point callers can just use `ctx.config.embeddings`.
-    let cfg = read_embeddings_config_from_toml(ctx)?;
+    let cfg = ctx.resolve_embeddings_config();
     build_provider(&cfg).map_err(|e| {
         let hint = match &e {
             vestige_embed::EmbedError::ProviderDisabled(name) => {
@@ -338,50 +331,6 @@ fn build_embed_provider(
         };
         anyhow::anyhow!("embedding provider error: {hint}")
     })
-}
-
-/// Read the `[embeddings]` table from the raw `.vestige/config.toml` TOML,
-/// returning a sensible default (`fake`, 64 dims) if the section is absent.
-///
-/// This is a temporary shim until PR8 adds a typed `embeddings` field to
-/// `VestigeConfig`. It reads the on-disk file directly so it works even when
-/// `VestigeConfig` was loaded before the field existed.
-fn read_embeddings_config_from_toml(ctx: &context::ProjectContext) -> Result<EmbeddingsConfig> {
-    // Locate the config file by walking from cwd — same logic as context::load().
-    let cwd = std::env::current_dir().context("reading current directory")?;
-    let (config_path, _) = vestige_config::discover_config(&cwd)
-        .context("re-locating config for embeddings section")?;
-    let raw = std::fs::read_to_string(&config_path).context("reading config file")?;
-    let doc: toml::Value = toml::from_str(&raw).context("parsing config TOML")?;
-
-    let _ = ctx; // project_id is already validated by context::load()
-
-    if let Some(emb) = doc.get("embeddings") {
-        let provider = emb
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("fake")
-            .to_string();
-        let model = emb
-            .get("model")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let dimensions = emb
-            .get("dimensions")
-            .and_then(|v| v.as_integer())
-            .map(|n| n as usize);
-        Ok(EmbeddingsConfig {
-            provider,
-            model,
-            dimensions,
-        })
-    } else {
-        Ok(EmbeddingsConfig {
-            provider: "fake".to_string(),
-            model: None,
-            dimensions: None,
-        })
-    }
 }
 
 fn print_scored_list(scored: &[vestige_core::ScoredCard], include_parts: bool) {

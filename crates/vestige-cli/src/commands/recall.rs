@@ -17,7 +17,7 @@ use vestige_core::{
     merge_hits, normalise_cosine, normalise_fts, rank_hits, sanitize_fts_query, HybridOpts,
     MemoryType, SearchFilter, SearchHit, SearchMode, SemanticHit,
 };
-use vestige_embed::{build_provider, EmbeddingsConfig};
+use vestige_embed::build_provider;
 use vestige_store::VectorFilter;
 
 use crate::context;
@@ -309,7 +309,7 @@ fn resolve_mode(args: &RecallArgs) -> Result<SearchMode> {
 fn build_embed_provider(
     ctx: &context::ProjectContext,
 ) -> Result<Box<dyn vestige_embed::EmbeddingProvider>> {
-    let cfg = read_embeddings_config_from_toml(ctx)?;
+    let cfg = ctx.resolve_embeddings_config();
     build_provider(&cfg).map_err(|e| {
         let hint = match &e {
             vestige_embed::EmbedError::ProviderDisabled(name) => {
@@ -319,43 +319,6 @@ fn build_embed_provider(
         };
         anyhow::anyhow!("embedding provider error: {hint}")
     })
-}
-
-fn read_embeddings_config_from_toml(ctx: &context::ProjectContext) -> Result<EmbeddingsConfig> {
-    let cwd = std::env::current_dir().context("reading current directory")?;
-    let (config_path, _) = vestige_config::discover_config(&cwd)
-        .context("re-locating config for embeddings section")?;
-    let raw = std::fs::read_to_string(&config_path).context("reading config file")?;
-    let doc: toml::Value = toml::from_str(&raw).context("parsing config TOML")?;
-
-    let _ = ctx;
-
-    if let Some(emb) = doc.get("embeddings") {
-        let provider = emb
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("fake")
-            .to_string();
-        let model = emb
-            .get("model")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let dimensions = emb
-            .get("dimensions")
-            .and_then(|v| v.as_integer())
-            .map(|n| n as usize);
-        Ok(EmbeddingsConfig {
-            provider,
-            model,
-            dimensions,
-        })
-    } else {
-        Ok(EmbeddingsConfig {
-            provider: "fake".to_string(),
-            model: None,
-            dimensions: None,
-        })
-    }
 }
 
 fn print_scored_list(scored: &[vestige_core::ScoredCard], include_parts: bool) {

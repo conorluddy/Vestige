@@ -133,6 +133,10 @@ model = "nomic-embed-text"
 
 Memories are canonical in SQLite. Embeddings are an index — delete `.vestige` and reseed, or just `vestige reindex --embeddings` to recompute. The lexical fallback always works, even with no embeddings. Hybrid mode falls back to lexical with a warning when embeddings are missing.
 
+### Scaling note
+
+V0.1 uses a brute-force cosine scan over a `BLOB` column (no `vec0` virtual table yet). It's comfortable up to roughly 10k vectors per project; past that, semantic-mode latency starts to show. A future release will swap in an indexed implementation behind the same `Store` API.
+
 ## Plug it into Claude Code (MCP)
 
 Vestige speaks MCP over stdio. From inside a repo where you've already run `vestige init`:
