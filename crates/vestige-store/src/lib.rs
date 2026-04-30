@@ -115,7 +115,9 @@ impl Store {
             rusqlite::params![id.as_str(), name, root_path, git_remote, now_str],
         )?;
 
-        self.get_project(id).map(|opt| opt.expect("just inserted"))
+        self.get_project(id)?.ok_or_else(|| {
+            StoreError::Corruption(format!("project {id} missing immediately after upsert"))
+        })
     }
 
     pub fn get_project(&self, id: &ProjectId) -> Result<Option<ProjectRecord>> {
