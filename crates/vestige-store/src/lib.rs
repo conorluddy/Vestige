@@ -1,8 +1,32 @@
-//! SQLite-backed store for Vestige memories.
+//! SQLite-backed persistence for Vestige (PRD §9).
 //!
-//! Owns connection management and migrations. Higher-level memory operations
-//! live alongside in `vestige-core`'s engine and call into here through the
-//! `Store` API.
+//! Owns connection management, the migration runner, and FTS5 sync triggers.
+//! Higher-level business logic lives in `vestige-core`; `vestige-store` is a
+//! pure persistence adapter that never makes domain decisions.
+//!
+//! # Key invariants
+//!
+//! - **WAL mode** — every `Store::open` sets `journal_mode = WAL` and
+//!   `foreign_keys = ON` before any application code runs.
+//! - **Immutable migrations** — SQL files in `src/migrations/` are
+//!   `include_str!`'d at compile time. Never edit a shipped migration; always
+//!   add a new numbered file. Old databases in `~/.vestige/projects/*/` won't
+//!   re-run a mutated migration and will silently diverge.
+//! - **Soft-delete only** — no `DELETE FROM memories`. Status flips drive all
+//!   lifecycle transitions; FTS sync is handled by triggers in migration 0002.
+//! - **Project-scope boundary** — every query that reads memories must filter
+//!   by `project_id`. Callers are responsible for passing the correct ID;
+//!   nothing in this crate cross-project queries.
+//!
+//! # Source-of-truth layers
+//!
+//! Three layers must remain independently serviceable (PRD §9.1):
+//!
+//! 1. `memory_events` — append-only journal; never updated.
+//! 2. `memories` + `memory_representations` — derived interpretation; can be
+//!    rebuilt from events.
+//! 3. `memory_fts` / `memory_vectors` — disposable acceleration; rebuildable
+//!    from layer 2.
 
 mod embeddings;
 mod helpers;
@@ -21,30 +45,47 @@ use tracing::debug;
 
 use vestige_core::{EmbeddingId, ProjectId};
 
+/// Errors produced by the store layer.
+///
+/// Callers at the CLI boundary should wrap these with `anyhow::Context`.
+/// The MCP layer must map them to `{ code, message, retryable }` before
+/// returning to agents (PRD §14.3).
 #[derive(Debug, Error)]
 pub enum StoreError {
+    /// A filesystem operation failed (e.g. creating the store directory).
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
+    /// A `rusqlite` call returned an error, including type-conversion failures
+    /// when mapping SQLite columns to Rust types.
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
+    /// A migration failed to apply or validate.
     #[error("migration: {0}")]
     Migration(#[from] rusqlite_migration::Error),
 
+    /// RFC-3339 timestamp formatting failed (should be unreachable at runtime).
     #[error("time: {0}")]
     Time(#[from] time::error::Format),
 
+    /// Persisted data violated an internal invariant (e.g. wrong-length BLOB,
+    /// ID prefix mismatch). Indicates either a writer bug or on-disk damage.
     #[error("data corruption: {0}")]
     Corruption(String),
 }
 
+/// Crate-local `Result` alias — wraps [`StoreError`].
 pub type Result<T> = std::result::Result<T, StoreError>;
 
 const MIGRATION_INIT: &str = include_str!("migrations/0001_init.sql");
 const MIGRATION_FTS: &str = include_str!("migrations/0002_fts.sql");
 const MIGRATION_EMBEDDINGS: &str = include_str!("migrations/0003_embeddings.sql");
 
+/// Build the ordered migration set from the embedded SQL files.
+///
+/// Returns a new [`Migrations`] instance each call; cheap — no I/O, no SQLite
+/// work. Call `.validate()` in tests to confirm the SQL parses correctly.
 fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(MIGRATION_INIT),
@@ -53,14 +94,30 @@ fn migrations() -> Migrations<'static> {
     ])
 }
 
+/// Handle to the project's SQLite database.
+///
+/// Each `Store` owns a single `rusqlite::Connection` opened in WAL mode. The
+/// connection is not `Send`; callers must open a new `Store` per thread (or
+/// per CLI invocation — Vestige has no daemon, PRD §2.3).
+///
+/// Methods are split across module files by concern:
+/// - `project.rs` — upsert and fetch project rows
+/// - `memory_ops.rs` — memory CRUD, FTS search, soft-delete, event logging
+/// - `embeddings.rs` — vector insert/stale/delete, nearest-neighbour scan
 pub struct Store {
     conn: Connection,
     path: PathBuf,
 }
 
 impl Store {
-    /// Open or create the SQLite store at `path`, ensuring the parent
-    /// directory exists and migrations are applied.
+    /// Open (or create) the SQLite database at `path`.
+    ///
+    /// - Creates `path`'s parent directory tree if it does not yet exist.
+    /// - Sets `journal_mode = WAL` and `foreign_keys = ON`.
+    /// - Applies any pending migrations via `rusqlite_migration` (idempotent).
+    ///
+    /// Fails fast if the file is not a valid SQLite database or any migration
+    /// cannot be applied. This is the only constructor; there is no `new`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
@@ -77,14 +134,22 @@ impl Store {
         Ok(Self { conn, path })
     }
 
+    /// Filesystem path of the database file this `Store` was opened from.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Shared reference to the underlying `rusqlite::Connection`.
+    ///
+    /// Prefer `Store` methods over direct connection access; this escape hatch
+    /// exists for integration tests and one-off queries.
     pub fn connection(&self) -> &Connection {
         &self.conn
     }
 
+    /// Exclusive reference to the underlying `rusqlite::Connection`.
+    ///
+    /// See [`connection`][Store::connection] for usage guidance.
     pub fn connection_mut(&mut self) -> &mut Connection {
         &mut self.conn
     }

@@ -490,7 +490,7 @@ fn query_dominant_provider(
     }
 }
 
-/// Generate a ULID-based job ID for embedding_jobs.
+/// Generate a `job_<ULID>` prefixed ID for an `embedding_jobs` row.
 #[allow(dead_code)] // used by CLI (PR4)
 pub(crate) fn new_job_id() -> String {
     format!("job_{}", Ulid::new())
@@ -499,9 +499,14 @@ pub(crate) fn new_job_id() -> String {
 // === STORE METHODS: EMBEDDING HELPERS ===
 
 impl Store {
-    /// Fetch the `memory_representations.id` column for a given (memory, depth) pair.
+    /// Resolve the `memory_representations.id` for a given `(memory_id, depth)` pair.
     ///
-    /// Returns `Some(id)` when a row exists for the requested depth, `None` otherwise.
+    /// `vestige-engine` calls this to look up the opaque representation row ID
+    /// before calling [`Store::record_embedding`] or checking
+    /// [`Store::has_active_embedding`]. Keeps raw SQL out of the engine layer.
+    ///
+    /// Returns `Some(id)` when a row for that depth exists, `None` otherwise
+    /// (e.g. a memory that only has `handle` and `one_liner` so far).
     #[allow(dead_code)] // Wave 3 will wire CLI callers
     pub fn repr_id_for_depth(
         &self,
@@ -520,8 +525,14 @@ impl Store {
         }
     }
 
-    /// Return `true` if an active embedding already exists for the given
-    /// `(representation_id, provider, model)` triple.
+    /// Return `true` if an active embedding exists for `(repr_id, provider, model)`.
+    ///
+    /// Used by `vestige-engine` to skip re-embedding representations whose
+    /// vector is still current. The guard prevents redundant model calls when
+    /// `vestige embed --all` is re-run on an already-embedded project.
+    ///
+    /// Only `status = 'active'` rows count; stale embeddings return `false`
+    /// so the engine treats them as missing and re-queues them.
     #[allow(dead_code)] // Wave 3 will wire CLI callers
     pub fn has_active_embedding(&self, repr_id: &str, provider: &str, model: &str) -> Result<bool> {
         let count: i64 = self.conn.query_row(
@@ -536,7 +547,16 @@ impl Store {
         Ok(count > 0)
     }
 
-    /// Insert a failed `embedding_jobs` row so `embeddings status` can surface it.
+    /// Record a failed embedding attempt in the `embedding_jobs` table.
+    ///
+    /// `vestige-engine` calls this when an embedding provider returns an error
+    /// so the failure is visible via `vestige embeddings status` without
+    /// crashing the overall embed run. The row is inserted with `status =
+    /// 'failed'`; the `error` column carries the provider's error message.
+    ///
+    /// This does **not** affect the `memory_embeddings` table — the
+    /// representation is simply left without an active embedding and will
+    /// appear in the `missing_embeddings` count until a future run succeeds.
     #[allow(dead_code)] // Wave 3 will wire CLI callers
     pub fn record_failed_embedding_job(
         &mut self,

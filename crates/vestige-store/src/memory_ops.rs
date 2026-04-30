@@ -1,4 +1,25 @@
 //! `Store` methods for memory CRUD, FTS search, soft-delete, and event logging.
+//!
+//! # Soft-delete invariant
+//!
+//! **No `DELETE FROM memories` anywhere in this file.** Every lifecycle
+//! transition is a status flip (`active` → `deleted` or back). The FTS index
+//! stays consistent through SQLite triggers defined in migration 0002:
+//! soft-delete fires `memory_after_soft_delete` (drops FTS rows) and restore
+//! fires `memory_after_restore` (re-inserts them).
+//!
+//! # Event journal
+//!
+//! Every mutating operation appends a row to `memory_events`. The journal is
+//! append-only — no event row is ever updated or deleted. It is the canonical
+//! audit trail and can reconstruct `memories` if that table were wiped.
+//!
+//! # FTS search strategy
+//!
+//! `search_memories` runs the FTS5 `MATCH` query in isolation (no JOIN) to
+//! avoid bm25 aggregation limitations in some SQLite builds. Project-scope and
+//! status filtering are applied client-side in Rust after the FTS pass, which
+//! is acceptable because project DBs are already per-project (PRD §9).
 
 use std::str::FromStr;
 
@@ -17,7 +38,10 @@ use crate::{Result, Store, StoreError};
 // === IMPL STORE ===
 
 impl Store {
-    /// Counts memories grouped by status. Used by `vestige status`.
+    /// Count memories grouped by status for this project.
+    ///
+    /// Returns a [`MemoryCounts`] with `active` and `deleted` tallies.
+    /// Used by `vestige status` to display the project summary.
     pub fn memory_counts(&self, project_id: &ProjectId) -> Result<MemoryCounts> {
         let mut stmt = self.conn.prepare(
             "SELECT status, COUNT(*) FROM memories WHERE project_id = ?1 GROUP BY status",
@@ -37,7 +61,13 @@ impl Store {
         Ok(MemoryCounts { active, deleted })
     }
 
-    /// Append a structured event to `memory_events`.
+    /// Append a structured event to the `memory_events` journal.
+    ///
+    /// The journal is append-only — this is the only write path. `event_type`
+    /// should follow dot-namespaced convention (`"memory.recorded"`,
+    /// `"memory.forgotten"`, etc.). `payload_json` is optional free-form JSON.
+    ///
+    /// Side-effect: inserts one row into `memory_events`.
     pub fn record_event(
         &self,
         project_id: &ProjectId,
@@ -54,8 +84,19 @@ impl Store {
         Ok(())
     }
 
-    /// Persist a full memory bundle (memory row + four representation rows +
-    /// optional source row) atomically and append a `memory.recorded` event.
+    /// Persist a [`MemoryBundle`] and record a `memory.recorded` journal event.
+    ///
+    /// **Atomicity** — everything runs inside a single `BEGIN … COMMIT`
+    /// transaction: the `memories` row, all `memory_representations` rows
+    /// (typically four: handle / one-liner / summary / compressed), the
+    /// optional `memory_sources` row, and the `memory_events` entry. Either
+    /// all rows land or none do.
+    ///
+    /// **FTS** — `memory_representations` INSERT triggers (migration 0002)
+    /// automatically populate `memory_fts` within the same transaction.
+    ///
+    /// Side-effects: inserts into `memories`, `memory_representations`,
+    /// optionally `memory_sources`, and `memory_events`.
     pub fn record_memory(&mut self, bundle: &MemoryBundle) -> Result<()> {
         let tx = self.conn.transaction()?;
         let m = &bundle.memory;
@@ -136,7 +177,10 @@ impl Store {
         Ok(())
     }
 
-    /// Fetch a memory with all joined representations and sources.
+    /// Fetch a memory by ID, joining all representations and sources.
+    ///
+    /// Returns `None` if no row with that ID exists (any status). Callers that
+    /// need active-only should check `FetchedMemory::memory.status` afterward.
     pub fn get_memory(&self, id: &MemoryId) -> Result<Option<FetchedMemory>> {
         let memory = match self.fetch_memory_row(id)? {
             Some(m) => m,
@@ -151,7 +195,12 @@ impl Store {
         }))
     }
 
-    /// List memories for a project. Excludes deleted by default.
+    /// List memories for a project, optionally filtered by type or status.
+    ///
+    /// Excludes deleted memories by default; set `filter.include_deleted` to
+    /// include them. Results are ordered by `updated_at DESC`. Each returned
+    /// [`FetchedMemory`] includes all representations and sources via N+1
+    /// queries — appropriate for list sizes in the tens; not for bulk export.
     pub fn list_memories(
         &self,
         project_id: &ProjectId,
@@ -284,9 +333,16 @@ impl Store {
         Ok(hits)
     }
 
-    /// Soft-delete (`forget`) a memory: flip status, set `deleted_at`. The
-    /// FTS sync trigger drops its rows from the index. Returns whether the
-    /// row was found in `active` state.
+    /// Soft-delete a memory (`vestige forget`).
+    ///
+    /// Flips `status` from `'active'` to `'deleted'` and sets `deleted_at`.
+    /// The `memory_after_soft_delete` trigger (migration 0002) synchronously
+    /// removes the memory's rows from `memory_fts`, so it immediately drops
+    /// out of search results. A `memory.forgotten` event is appended to the
+    /// journal. No row is ever hard-deleted.
+    ///
+    /// Returns `true` if the row existed in `active` state and was updated;
+    /// `false` if not found or already deleted (idempotent, not an error).
     pub fn forget_memory(&mut self, id: &MemoryId) -> Result<bool> {
         let now_str = rfc3339(OffsetDateTime::now_utc())?;
         let updated = self.conn.execute(
@@ -301,8 +357,17 @@ impl Store {
         Ok(updated > 0)
     }
 
-    /// Restore a soft-deleted memory. The FTS restore trigger re-indexes its
-    /// representations. Returns whether the row was found in `deleted` state.
+    /// Restore a soft-deleted memory (`vestige restore`).
+    ///
+    /// Flips `status` from `'deleted'` back to `'active'` and clears
+    /// `deleted_at`. The `memory_after_restore` trigger (migration 0002)
+    /// synchronously re-inserts the memory's representations into `memory_fts`,
+    /// making it searchable again. A `memory.restored` event is appended.
+    ///
+    /// Note: embeddings are left stale after restore (PRD §8.4) — they will
+    /// re-embed on the next `vestige embed` run.
+    ///
+    /// Returns `true` if the row existed in `deleted` state and was updated.
     pub fn restore_memory(&mut self, id: &MemoryId) -> Result<bool> {
         let now_str = rfc3339(OffsetDateTime::now_utc())?;
         let updated = self.conn.execute(
@@ -317,6 +382,11 @@ impl Store {
         Ok(updated > 0)
     }
 
+    /// Append a status-transition event for `id` to the `memory_events` journal.
+    ///
+    /// Looks up `project_id` from the `memories` row, then inserts one
+    /// `memory_events` row with `{ "memory_id": "…" }` as the payload.
+    /// Called by `forget_memory` and `restore_memory`; not for direct use.
     pub(crate) fn append_status_event(
         &self,
         id: &MemoryId,
@@ -339,6 +409,7 @@ impl Store {
         Ok(())
     }
 
+    /// Fetch the raw `memories` row for `id`. No representations or sources.
     pub(crate) fn fetch_memory_row(&self, id: &MemoryId) -> Result<Option<Memory>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, project_id, type, status, confidence, importance,
@@ -353,6 +424,7 @@ impl Store {
         }
     }
 
+    /// Fetch all `memory_representations` rows for `id`, ordered by type.
     pub(crate) fn fetch_representations(&self, id: &MemoryId) -> Result<Vec<RepresentationRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT memory_id, representation_type, content, content_hash
@@ -384,6 +456,10 @@ impl Store {
         Ok(out)
     }
 
+    /// Fetch all `memory_sources` rows for `id`, ordered by `created_at`.
+    ///
+    /// The `truncated` field is always `false` on retrieval — truncation is
+    /// a build-time concern applied before storage, not persisted as metadata.
     pub(crate) fn fetch_sources(&self, id: &MemoryId) -> Result<Vec<SourceRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT memory_id, source_type, source_ref, source_content
@@ -416,6 +492,10 @@ impl Store {
     }
 }
 
+/// Map a `memories` SELECT row (columns 0–8) into a [`Memory`].
+///
+/// Column order must match the SELECT list in every caller:
+/// `id, project_id, type, status, confidence, importance, created_at, updated_at, deleted_at`.
 fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
     let id_str: String = row.get(0)?;
     let project_str: String = row.get(1)?;
