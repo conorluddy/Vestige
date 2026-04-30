@@ -39,10 +39,8 @@ pub fn build_provider(cfg: &EmbeddingsConfig) -> Result<Box<dyn EmbeddingProvide
         "fastembed" => {
             #[cfg(feature = "fastembed")]
             {
-                // PR7 fills this in.
-                Err(EmbedError::Backend(
-                    "fastembed not implemented yet".to_string(),
-                ))
+                let model_name = cfg.model.as_deref().unwrap_or("bge-small-en-v1.5");
+                Ok(Box::new(crate::FastembedProvider::new(model_name)?))
             }
             #[cfg(not(feature = "fastembed"))]
             {
@@ -53,10 +51,15 @@ pub fn build_provider(cfg: &EmbeddingsConfig) -> Result<Box<dyn EmbeddingProvide
         "ollama" => {
             #[cfg(feature = "ollama")]
             {
-                // PR7 fills this in.
-                Err(EmbedError::Backend(
-                    "ollama not implemented yet".to_string(),
-                ))
+                let base_url = "http://localhost:11434".to_string();
+                let model = cfg
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "nomic-embed-text".to_string());
+                let dimensions = cfg.dimensions.unwrap_or(768);
+                Ok(Box::new(crate::OllamaProvider::new(
+                    base_url, model, dimensions,
+                )))
             }
             #[cfg(not(feature = "ollama"))]
             {
@@ -108,7 +111,6 @@ mod tests {
 
     #[test]
     fn fastembed_disabled_without_feature() {
-        // This test passes when the `fastembed` feature is NOT active (default).
         #[cfg(not(feature = "fastembed"))]
         {
             let result = build_provider(&config("fastembed"));
@@ -117,11 +119,16 @@ mod tests {
                 Err(EmbedError::ProviderDisabled("fastembed"))
             ));
         }
-        // If the feature is enabled, the stub Backend error is returned instead.
+        // When the feature is enabled the provider constructs successfully
+        // (lazy init means no model download happens at construction time).
         #[cfg(feature = "fastembed")]
         {
             let result = build_provider(&config("fastembed"));
-            assert!(matches!(result, Err(EmbedError::Backend(_))));
+            assert!(
+                result.is_ok(),
+                "fastembed provider should build, err: {:?}",
+                result.err()
+            );
         }
     }
 
@@ -135,10 +142,16 @@ mod tests {
                 Err(EmbedError::ProviderDisabled("ollama"))
             ));
         }
+        // When the feature is enabled the provider constructs successfully
+        // (no network call happens at construction time).
         #[cfg(feature = "ollama")]
         {
             let result = build_provider(&config("ollama"));
-            assert!(matches!(result, Err(EmbedError::Backend(_))));
+            assert!(
+                result.is_ok(),
+                "ollama provider should build, err: {:?}",
+                result.err()
+            );
         }
     }
 }

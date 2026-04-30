@@ -10,7 +10,7 @@ pub use context::{
     APPROX_CHARS_PER_TOKEN,
 };
 pub use error::{CoreError, Result};
-pub use ids::{MemoryId, ProjectId};
+pub use ids::{EmbeddingId, MemoryId, ProjectId};
 pub use memory::{
     build_bundle, composite_score, project_card, project_detail, rank_hits, sanitize_fts_query,
     FetchedMemory, ListFilter, MemoryBundle, MemoryCard, MemoryDetail, NewMemory, NewSource,

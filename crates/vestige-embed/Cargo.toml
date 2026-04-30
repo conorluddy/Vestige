@@ -14,8 +14,8 @@ readme = "../../README.md"
 
 [features]
 default = []
-fastembed = []   # impl lands in PR7
-ollama = []      # impl lands in PR7
+fastembed = ["dep:fastembed", "dep:directories"]
+ollama = ["dep:reqwest"]
 
 [dependencies]
 vestige-core = { path = "../vestige-core" }
@@ -24,6 +24,9 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tracing.workspace = true
+fastembed = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+directories = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

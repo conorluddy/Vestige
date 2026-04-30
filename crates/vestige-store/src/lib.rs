@@ -4,6 +4,10 @@
 //! live alongside in `vestige-core`'s engine and call into here through the
 //! `Store` API.
 
+mod embeddings;
+
+pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
+
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -16,8 +20,9 @@ use ulid::Ulid;
 use std::str::FromStr;
 
 use vestige_core::{
-    FetchedMemory, ListFilter, Memory, MemoryBundle, MemoryId, MemoryStatus, MemoryType, ProjectId,
-    ProjectRecord, RepresentationDepth, RepresentationRow, SearchFilter, SearchHit, SourceRow,
+    EmbeddingId, FetchedMemory, ListFilter, Memory, MemoryBundle, MemoryId, MemoryStatus,
+    MemoryType, ProjectId, ProjectRecord, RepresentationDepth, RepresentationRow, SearchFilter,
+    SearchHit, SourceRow,
 };
 
 #[derive(Debug, Error)]
@@ -514,6 +519,58 @@ impl Store {
             });
         }
         Ok(out)
+    }
+
+    // === EMBEDDING API ===
+
+    /// Insert or replace an embedding + vector blob in a single transaction.
+    ///
+    /// Uses `INSERT OR REPLACE` on the unique index `(representation_id, provider, model)`.
+    /// Idempotent: re-embedding the same representation replaces the old row.
+    pub fn record_embedding(&mut self, new: &NewEmbedding<'_>) -> Result<EmbeddingId> {
+        embeddings::record_embedding(&self.conn, new)
+    }
+
+    /// Mark a single embedding stale by its ID.
+    pub fn mark_embedding_stale(&mut self, embedding_id: &EmbeddingId) -> Result<()> {
+        embeddings::mark_embedding_stale(&self.conn, embedding_id)
+    }
+
+    /// Mark all active embeddings for a given representation stale.
+    ///
+    /// Returns the number of rows affected.
+    pub fn mark_representation_embeddings_stale(
+        &mut self,
+        representation_id: &str,
+    ) -> Result<usize> {
+        embeddings::mark_representation_embeddings_stale(&self.conn, representation_id)
+    }
+
+    /// Hard-delete an embedding row and its vector (FK cascade).
+    ///
+    /// Embeddings are disposable acceleration — hard delete is acceptable here.
+    /// Returns `true` if a row was deleted.
+    pub fn delete_embedding(&mut self, embedding_id: &EmbeddingId) -> Result<bool> {
+        embeddings::delete_embedding(&self.conn, embedding_id)
+    }
+
+    /// Brute-force cosine nearest-neighbour search within the project scope.
+    ///
+    /// Enforces `project_id` via JOIN — callers cannot bypass this guard.
+    /// Only active memories with active embeddings matching `filter` are included.
+    pub fn nearest_neighbours(
+        &self,
+        project_id: &ProjectId,
+        query_vec: &[f32],
+        k: u32,
+        filter: &VectorFilter,
+    ) -> Result<Vec<VectorHit>> {
+        embeddings::nearest_neighbours(&self.conn, project_id, query_vec, k, filter)
+    }
+
+    /// Snapshot of embedding coverage for a project.
+    pub fn embedding_status(&self, project_id: &ProjectId) -> Result<EmbeddingStatus> {
+        embeddings::embedding_status(&self.conn, project_id)
     }
 }
 

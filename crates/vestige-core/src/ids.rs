@@ -7,6 +7,7 @@ use crate::error::CoreError;
 
 const MEMORY_PREFIX: &str = "mem_";
 const PROJECT_PREFIX: &str = "proj_";
+const EMBEDDING_PREFIX: &str = "emb_";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -90,6 +91,49 @@ impl FromStr for ProjectId {
     }
 }
 
+/// A validated embedding ID of the form `emb_<ULID>`.
+///
+/// Wraps a `String` to carry proof-of-validation through the type system.
+/// Construct with [`EmbeddingId::new`] or parse from a string with [`FromStr`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EmbeddingId(String);
+
+impl EmbeddingId {
+    /// Generate a new embedding ID using a fresh ULID.
+    pub fn new() -> Self {
+        Self(format!("{EMBEDDING_PREFIX}{}", Ulid::new()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for EmbeddingId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for EmbeddingId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for EmbeddingId {
+    type Err = CoreError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with(EMBEDDING_PREFIX) {
+            return Err(CoreError::InvalidId(format!(
+                "embedding id must start with `{EMBEDDING_PREFIX}`, got `{s}`"
+            )));
+        }
+        Ok(Self(s.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,5 +155,25 @@ mod tests {
     fn project_id_from_slug() {
         let id = ProjectId::from_slug("vestige");
         assert_eq!(id.as_str(), "proj_vestige");
+    }
+
+    #[test]
+    fn embedding_id_roundtrip() {
+        let id = EmbeddingId::new();
+        assert!(id.as_str().starts_with("emb_"));
+        let parsed = EmbeddingId::from_str(id.as_str()).unwrap();
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn embedding_id_rejects_bad_prefix() {
+        assert!(EmbeddingId::from_str("mem_foo").is_err());
+        assert!(EmbeddingId::from_str("proj_foo").is_err());
+    }
+
+    #[test]
+    fn embedding_id_display_matches_as_str() {
+        let id = EmbeddingId::new();
+        assert_eq!(id.to_string(), id.as_str());
     }
 }
