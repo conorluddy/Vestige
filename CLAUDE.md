@@ -107,6 +107,15 @@ These flow from the PRD and are enforced by `CODESTYLE.md`:
 - **Embeddings** are optional + rebuildable. The `fake` provider (default) is for tests; use `--features fastembed` for real semantic recall. `EmbeddingId` uses `emb_<ULID>` prefix. All embedding ops scope by project just like memories.
 - **Vestige is dogfooded on itself.** Run `vestige status` from the repo root to see the project pin. The MCP server can be wired into your agent via `claude mcp add vestige -s project -- vestige mcp` for full self-recall.
 
+## Release pipeline
+
+Runs through `release-plz` (PR generator + publisher) plus `cargo-dist` (binary builder) and `release-tap.yml` (Homebrew formula). A few non-obvious things, learned the hard way during the v0.2.x recovery:
+
+- **Bumps are decided by `cargo-semver-checks`, not commit prefixes alone.** Any push to `main` that changes a publishable file (Cargo.toml, src/, tests/) will produce a `chore: release vX.Y.(Z+1)` PR even if the commit was `chore:` or `ci:`. Merge it (cuts a clean release) or close it (no version cut). The `commit_parsers` skip rules in `release-plz.toml` only suppress changelog entries, not bump detection.
+- **Publish order is computed from `[dependencies]` only.** Never put an internal sibling crate in `[dev-dependencies]`. release-plz won't see it in the topological sort and will queue your crate for publish before the dep is on crates.io. If a test needs sibling X, host the test in a crate that already imports X as a regular dep. (See PR #17 for the canonical example: `vector_lifecycle.rs` moved from `vestige-store/tests/` to `vestige-engine/tests/` for exactly this reason.)
+- **Sequential `cargo publish` calls don't need sleeps.** Cargo blocks until each crate is index-visible before exiting (`note: waiting for vestige-X v0.2.Y to be available at registry`). Order matters; timing handles itself.
+- **Manual recovery** is `cargo publish -p <crate>` per crate in topological order: `vestige-core → vestige-embed → vestige-store → vestige-config → vestige-engine → vestige-mcp → vestige`. Keep this list aligned with the workspace dep graph if a crate is added.
+
 ## Testing
 
 First-class, but earning their seat. Tests follow the trophy in `CODESTYLE.md`: mostly integration, some unit, a few smokes at the top.
