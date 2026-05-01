@@ -17,6 +17,7 @@ use vestige_config::{
 use vestige_core::{build_bundle, ListFilter, MemoryType, NewMemory};
 use vestige_store::Store;
 
+use crate::commands::skills::{resolve_targets, Target as SkillsTarget};
 use crate::output::{emit_json, OutputFormat};
 
 /// Arguments for `vestige init`.
@@ -39,10 +40,17 @@ pub struct InitArgs {
     #[arg(long)]
     pub json: bool,
 
-    /// Skip the bundled-skills install. Default behaviour is to write
-    /// every shipped SKILL.md into <repo>/.claude/skills/ during init.
+    /// Skip the bundled-skills install. Default behaviour is to write every
+    /// shipped SKILL.md into <repo>/.claude/skills/ AND <repo>/.agents/skills/
+    /// during init.
     #[arg(long)]
     pub no_install_skills: bool,
+
+    /// Which agent-skills directory(ies) to install to. Default `both`
+    /// covers Claude Code (`.claude/skills/`) and the agentskills.io standard
+    /// (`.agents/skills/`).
+    #[arg(long, value_enum, default_value_t = SkillsTarget::Both)]
+    pub skills_target: SkillsTarget,
 }
 
 /// Initialise (or re-confirm) Vestige for the current repository.
@@ -143,46 +151,58 @@ pub fn run(args: InitArgs) -> Result<()> {
 
     let is_fresh = existing.is_none();
 
-    // Install bundled skills into <repo>/.claude/skills/ — best-effort, never
-    // fails init. Drift is warned about but not treated as an error; the user
-    // can run `vestige skills install --force` to overwrite local edits.
-    let skills_report = if args.no_install_skills {
+    // Install bundled skills into the selected target dir(s) — best-effort,
+    // never fails init. Drift is warned about but not treated as an error;
+    // the user can run `vestige skills install --force` to overwrite.
+    let skills_results = if args.no_install_skills {
         None
     } else {
-        let skills_dest = repo_root.join(".claude").join("skills");
-        match crate::skills::bundle::install(&skills_dest, false, false) {
-            Ok(report) => {
-                if !report.drifted.is_empty() {
+        let targets = resolve_targets(None, args.skills_target, &repo_root);
+        let mut results = Vec::with_capacity(targets.len());
+        for (label, dest) in targets {
+            match crate::skills::bundle::install(&dest, false, false) {
+                Ok(report) => {
+                    if !report.drifted.is_empty() {
+                        tracing::warn!(
+                            project_id = %project_id,
+                            target = label,
+                            dest = %dest.display(),
+                            drifted = ?report.drifted,
+                            "skills install: local edits detected; run `vestige skills install --force` to overwrite"
+                        );
+                    }
+                    results.push((label, report));
+                }
+                Err(err) => {
                     tracing::warn!(
                         project_id = %project_id,
-                        dest = %skills_dest.display(),
-                        drifted = ?report.drifted,
-                        "skills install: local edits detected; run `vestige skills install --force` to overwrite"
+                        target = label,
+                        error = %err,
+                        dest = %dest.display(),
+                        "skills install failed; init succeeded"
                     );
                 }
-                Some(report)
-            }
-            Err(err) => {
-                tracing::warn!(
-                    project_id = %project_id,
-                    error = %err,
-                    dest = %skills_dest.display(),
-                    "skills install failed; init succeeded"
-                );
-                None
             }
         }
+        Some(results)
     };
 
     match OutputFormat::pick(args.json) {
         OutputFormat::Json => {
-            let skills_installed = skills_report.as_ref().map(|r| {
-                serde_json::json!({
-                    "written": r.written.len(),
-                    "skipped": r.skipped.len(),
-                    "drifted": r.drifted.len(),
-                    "dest": r.dest.to_string_lossy(),
-                })
+            let skills_installed = skills_results.as_ref().map(|results| {
+                let entries: Vec<serde_json::Value> = results
+                    .iter()
+                    .map(|(label, r)| {
+                        serde_json::json!({
+                            "target": label,
+                            "written": r.written.len(),
+                            "skipped": r.skipped.len(),
+                            "drifted": r.drifted.len(),
+                            "dest": r.dest.to_string_lossy(),
+                        })
+                    })
+                    .collect();
+                serde_json::json!({ "results": entries })
             });
             emit_json(&serde_json::json!({
                 "project_id": project_id.as_str(),
@@ -209,8 +229,10 @@ pub fn run(args: InitArgs) -> Result<()> {
             if let Some(s) = &args.summary {
                 println!("  Summary:  {s}");
             }
-            if let Some(report) = &skills_report {
-                print_skills_line(report);
+            if let Some(results) = &skills_results {
+                for (label, report) in results {
+                    print_skills_line(label, report);
+                }
             }
             if is_fresh {
                 print_next_steps();
@@ -240,22 +262,24 @@ fn print_next_steps() {
 
 /// Print the one-line skills install summary for text-mode output.
 ///
-/// Three variants:
+/// Three variants per target:
 /// - All up to date → "Already up to date (N files)"
 /// - Some written, no drift → "Installed N skill files"
 /// - Drift detected → counts + escape-hatch hint
-fn print_skills_line(report: &crate::skills::bundle::InstallReport) {
+fn print_skills_line(label: &str, report: &crate::skills::bundle::InstallReport) {
     let written = report.written.len();
     let skipped = report.skipped.len();
     let drifted = report.drifted.len();
     let dest = report.dest.display();
 
     if written == 0 && drifted == 0 {
-        println!("  Skills:   Already up to date ({skipped} files) → {dest}");
+        println!("  Skills [{label}]: Already up to date ({skipped} files) → {dest}");
     } else if drifted == 0 {
-        println!("  Skills:   Installed {written} skill files → {dest}");
+        println!("  Skills [{label}]: Installed {written} skill files → {dest}");
     } else {
-        println!("  Skills:   Installed {written} (skipped {skipped}, drifted {drifted}) → {dest}");
+        println!(
+            "  Skills [{label}]: Installed {written} (skipped {skipped}, drifted {drifted}) → {dest}"
+        );
         println!("            run `vestige skills install --force` to overwrite local edits");
     }
 }

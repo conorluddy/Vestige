@@ -42,6 +42,16 @@ fn parse_json(out: &Output, ctx: &str) -> Value {
     serde_json::from_str(stdout).unwrap_or_else(|e| panic!("{ctx} not JSON: {e}\n{stdout}"))
 }
 
+/// `vestige skills install` returns `{ "results": [<per-target report>] }`.
+/// When called with `--dest <path>` there's exactly one entry; this helper
+/// returns it for tests that exercise the single-target path.
+fn first_result(envelope: &Value) -> &Value {
+    envelope["results"]
+        .as_array()
+        .and_then(|results| results.first())
+        .unwrap_or_else(|| panic!("expected results array with >= 1 entry; got: {envelope}"))
+}
+
 struct Dirs {
     _tmp: TempDir,
     cwd: PathBuf,
@@ -83,7 +93,8 @@ fn skills_install_writes_files_to_tmpdir() {
     );
     assert_ok(&out, "skills install");
 
-    let report = parse_json(&out, "skills install json");
+    let envelope = parse_json(&out, "skills install json");
+    let report = first_result(&envelope);
 
     // At least 10 skills × 3 files each = 30; real count is higher.
     let written = report["written"].as_array().unwrap();
@@ -122,7 +133,8 @@ fn skills_install_is_idempotent() {
         &dirs.home,
     );
     assert_ok(&out1, "first install");
-    let r1 = parse_json(&out1, "first install json");
+    let env1 = parse_json(&out1, "first install json");
+    let r1 = first_result(&env1);
     let written_count = r1["written"].as_array().unwrap().len();
 
     let out2 = run_vestige(
@@ -131,7 +143,8 @@ fn skills_install_is_idempotent() {
         &dirs.home,
     );
     assert_ok(&out2, "second install");
-    let r2 = parse_json(&out2, "second install json");
+    let env2 = parse_json(&out2, "second install json");
+    let r2 = first_result(&env2);
 
     assert!(
         r2["written"].as_array().unwrap().is_empty(),
@@ -185,7 +198,8 @@ fn skills_install_drift_causes_hard_fail() {
     );
 
     // JSON output must name the drifted path.
-    let r2 = parse_json(&out2, "drift install json");
+    let env2 = parse_json(&out2, "drift install json");
+    let r2 = first_result(&env2);
     let drifted = r2["drifted"].as_array().unwrap();
     assert!(
         drifted
@@ -231,7 +245,8 @@ fn skills_install_force_overwrites_drift() {
     );
     assert_ok(&out2, "force install");
 
-    let r2 = parse_json(&out2, "force install json");
+    let env2 = parse_json(&out2, "force install json");
+    let r2 = first_result(&env2);
 
     // No drift in the report.
     assert!(
@@ -256,45 +271,71 @@ fn skills_install_force_overwrites_drift() {
     );
 }
 
-/// `vestige init` installs skills by default, into `<repo>/.claude/skills/`.
+/// `vestige init` installs skills to BOTH `.claude/skills/` and `.agents/skills/` by default.
 #[test]
-fn init_installs_skills_by_default() {
+fn init_installs_skills_to_both_targets_by_default() {
     let dirs = fresh_dirs();
 
     let out = run_vestige(&["init", "--json"], &dirs.cwd, &dirs.home);
     assert_ok(&out, "init");
 
     let envelope = parse_json(&out, "init json");
-
-    // skills_installed must be present and non-null.
-    let skills_installed = &envelope["skills_installed"];
-    assert!(
-        !skills_installed.is_null(),
-        "skills_installed must not be null after default init; envelope: {envelope}"
+    let results = envelope["skills_installed"]["results"]
+        .as_array()
+        .expect("skills_installed.results must be an array after default init");
+    assert_eq!(
+        results.len(),
+        2,
+        "default init must report two install targets; got: {envelope}"
     );
 
-    // Written count must be positive.
-    let written = skills_installed["written"].as_u64().unwrap_or(0);
-    assert!(
-        written > 0,
-        "init must write at least one skill file; written={written}"
-    );
+    let mut targets: Vec<&str> = results
+        .iter()
+        .map(|r| r["target"].as_str().unwrap())
+        .collect();
+    targets.sort();
+    assert_eq!(targets, vec!["agents", "claude"]);
 
-    // dest must end with .claude/skills.
-    let dest = skills_installed["dest"].as_str().unwrap();
-    assert!(
-        dest.ends_with(".claude/skills"),
-        "dest must end with .claude/skills; got: {dest}"
-    );
+    for r in results {
+        let written = r["written"].as_u64().unwrap_or(0);
+        assert!(written > 0, "each target must write skills; got: {r}");
+        assert_eq!(r["drifted"].as_u64().unwrap(), 0);
+    }
 
-    // The file must exist on disk.
-    let skill_md = dirs
-        .cwd
-        .join(".claude")
-        .join("skills")
-        .join("vestige-auto-memorise")
-        .join("SKILL.md");
-    assert!(skill_md.is_file(), "SKILL.md must exist at {skill_md:?}");
+    // Both dirs must exist on disk with the canonical SKILL.md.
+    for sub in [".claude", ".agents"] {
+        let skill_md = dirs
+            .cwd
+            .join(sub)
+            .join("skills")
+            .join("vestige-auto-memorise")
+            .join("SKILL.md");
+        assert!(skill_md.is_file(), "SKILL.md must exist at {skill_md:?}");
+    }
+}
+
+/// `vestige init --skills-target claude` only writes to `.claude/skills/`.
+#[test]
+fn init_skills_target_claude_only() {
+    let dirs = fresh_dirs();
+
+    let out = run_vestige(
+        &["init", "--skills-target", "claude", "--json"],
+        &dirs.cwd,
+        &dirs.home,
+    );
+    assert_ok(&out, "init --skills-target claude");
+
+    let envelope = parse_json(&out, "init claude-only json");
+    let results = envelope["skills_installed"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["target"].as_str().unwrap(), "claude");
+
+    assert!(dirs.cwd.join(".claude").join("skills").is_dir());
+    assert!(
+        !dirs.cwd.join(".agents").exists(),
+        ".agents/ must not exist when targeting claude only"
+    );
 }
 
 /// `vestige init --no-install-skills` omits the skills step entirely.
@@ -316,12 +357,14 @@ fn init_no_install_skills_skips_install() {
         "skills_installed must be null when --no-install-skills is set; envelope: {envelope}"
     );
 
-    // .claude/skills/ must not exist on disk.
-    let skills_dir = dirs.cwd.join(".claude").join("skills");
-    assert!(
-        !skills_dir.exists(),
-        ".claude/skills/ must not exist when skills install is skipped"
-    );
+    // Neither target dir must exist on disk.
+    for sub in [".claude", ".agents"] {
+        let skills_dir = dirs.cwd.join(sub).join("skills");
+        assert!(
+            !skills_dir.exists(),
+            "{sub}/skills/ must not exist when skills install is skipped"
+        );
+    }
 }
 
 /// `vestige init --dry-run` does not install skills.
@@ -339,10 +382,12 @@ fn init_dry_run_does_not_install_skills() {
         "skills_installed must be null in dry-run mode; envelope: {envelope}"
     );
 
-    // .claude/skills/ must not exist on disk.
-    let skills_dir = dirs.cwd.join(".claude").join("skills");
-    assert!(
-        !skills_dir.exists(),
-        ".claude/skills/ must not exist after --dry-run"
-    );
+    // Neither target dir must exist on disk.
+    for sub in [".claude", ".agents"] {
+        let skills_dir = dirs.cwd.join(sub).join("skills");
+        assert!(
+            !skills_dir.exists(),
+            "{sub}/skills/ must not exist after --dry-run"
+        );
+    }
 }

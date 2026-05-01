@@ -174,12 +174,14 @@ function Skills() {
     lifecycle: 'var(--vt-muted)',
   };
   return (
-    <Section id="skills" n="05" title="Skills surface." lede="Ten Claude Code skills, bundled in the binary. Installed into .claude/skills/ by vestige init.">
+    <Section id="skills" n="05" title="Skills surface." lede="Ten agent skills, bundled in the binary. Installed by vestige init into .claude/skills/ (Claude Code) AND .agents/skills/ (agentskills.io standard, read by Codex). Compliant with the open standard at agentskills.io.">
       <pre className="vt-pre" style={{ marginBottom: 18 }}>{`# Ships with the binary — cargo install / brew users get them too.
-vestige skills install        # writes 33 files into <repo>/.claude/skills/
-vestige skills list --json    # 10 skills + version
+vestige skills install                  # writes to BOTH .claude/skills/ and .agents/skills/
+vestige skills install --target agents  # only .agents/skills/ (Codex)
+vestige skills install --target claude  # only .claude/skills/ (Claude Code)
+vestige skills list --json              # 10 skills + version
 
-# init installs by default; opt out with:
+# init installs to both targets by default; opt out with:
 vestige init --no-install-skills`}</pre>
       <div className="vt-frame" style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 1fr', padding: '8px 14px', borderBottom: '1px solid var(--vt-rule)', background: 'var(--vt-panel)', color: 'var(--vt-muted)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
