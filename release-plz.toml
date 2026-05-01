@@ -3,7 +3,22 @@
 # release-tap.yml keeps firing on the same trigger.
 git_tag_name = "v{{ version }}"
 git_release_name = "v{{ version }}"
-release_always = false
+# release_always = true so `release-plz release` runs on every push to main,
+# not only on the merge of an auto-generated `chore: release vX.Y.Z` PR.
+#
+# Why: when an earlier release partially publishes (network blip, registry
+# rate-limit, sibling crate not yet index-visible), the workspace is left
+# with local Cargo.toml ahead of crates.io. With `release_always = false`,
+# release-plz refuses to retry — every subsequent feature merge fails on
+# `release-pr` ("local package vestige-X has a greater version than the
+# registry but the git tag exists"), and the only escape is a manual
+# `cargo publish` chain (recovery procedure in CLAUDE.md).
+#
+# With `release_always = true`, `release-plz release` walks every workspace
+# crate on every main push: any whose local version matches the registry
+# is a no-op; any whose local version is ahead gets published. Partial
+# publishes self-heal on the next merge instead of jamming the pipeline.
+release_always = true
 git_tag_enable = true
 # cargo-dist owns the GitHub Release (it builds binaries and attaches them
 # in the same job that creates the release). release-plz just pushes the tag;
