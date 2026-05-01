@@ -27,4 +27,3 @@ hex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-vestige-embed.workspace = true

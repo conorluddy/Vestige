@@ -3536,6 +3536,7 @@ dependencies = [
 name = "vestige-engine"
 version = "0.2.2"
 dependencies = [
+ "rusqlite",
  "serde",
  "tempfile",
  "thiserror 1.0.69",
@@ -3579,7 +3580,6 @@ dependencies = [
  "tracing",
  "ulid",
  "vestige-core",
- "vestige-embed",
 ]
 
 [[package]]

@@ -27,4 +27,4 @@ ollama = ["vestige-embed/ollama"]
 
 [dev-dependencies]
 tempfile.workspace = true
-vestige-embed = { path = "../vestige-embed" }
+rusqlite.workspace = true
