@@ -34,19 +34,21 @@ cargo test -p vestige-core representations::tests::
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
-# Run the CLI from source
-cargo run -p vestige-cli -- init --name "My Project"              # installs skills to .claude/skills/ AND .agents/skills/ by default; --no-install-skills to opt out, --skills-target claude|agents to narrow
-cargo run -p vestige-cli -- status
-cargo run -p vestige-cli -- mcp                 # M5; currently bails
-cargo run -p vestige-cli -- embed --all                       # V0.1
-cargo run -p vestige-cli -- embeddings status                 # V0.1
-cargo run -p vestige-cli -- search "..." --mode hybrid        # V0.1
-cargo run -p vestige-cli -- skills install                    # writes to both .claude/skills/ and .agents/skills/
-cargo run -p vestige-cli -- skills install --target agents    # only .agents/skills/ (agentskills.io / Codex)
-cargo run -p vestige-cli -- skills list --json                # 10 skills + version
+# Run the CLI from source.
+# Note: package name is `vestige` (in crates/vestige-cli/Cargo.toml); the directory
+# is `crates/vestige-cli/`. Use the package name with `cargo run -p`.
+cargo run -p vestige -- init --name "My Project"              # installs skills to .claude/skills/ AND .agents/skills/ by default; --no-install-skills to opt out, --skills-target claude|agents to narrow
+cargo run -p vestige -- status
+cargo run -p vestige -- mcp                 # M5; currently bails
+cargo run -p vestige -- embed --all                       # V0.1
+cargo run -p vestige -- embeddings status                 # V0.1
+cargo run -p vestige -- search "..." --mode hybrid        # V0.1
+cargo run -p vestige -- skills install                    # writes to both .claude/skills/ and .agents/skills/
+cargo run -p vestige -- skills install --target agents    # only .agents/skills/ (agentskills.io / Codex)
+cargo run -p vestige -- skills list --json                # 10 skills + version
 
 # Verbose logs to stderr
-VESTIGE_LOG=debug cargo run -p vestige-cli -- status
+VESTIGE_LOG=debug cargo run -p vestige -- status
 ```
 
 ## Architecture (the big picture)

@@ -661,7 +661,7 @@ Local-first repo-pinned memory layer for coding agents. CLI + MCP over SQLite. N
 - MCP: `vestige mcp` → `vestige-mcp::run`
 
 ## Workspace
-- Run: `cargo run -p vestige-cli -- <command>`
+- Run: `cargo run -p vestige -- <command>` (package is `vestige`; directory is `crates/vestige-cli/`)
 - Test: `cargo test`
 - Lint: `cargo clippy --all-targets --all-features -- -D warnings`
 - Format: `cargo fmt`
