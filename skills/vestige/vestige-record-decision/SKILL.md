@@ -1,6 +1,6 @@
 ---
 name: vestige-record-decision
-description: Capture a project decision to Vestige memory when committing to an architectural choice, picking approach A over B, settling a tradeoff, or choosing a library / framework / pattern. Fire on "we'll go with…", "let's use…", "decision:…", "I'm choosing X over Y because…", "settled — we use…", "going with X", or when the user says "capture that decision", "remember this", "record it". Decisions ground future reasoning and feed every `vestige context` pack. Captures body, rationale (the why), and importance (default 0.7). Returns the new handle (`mem_<ULID>`).
+description: 'Capture a project decision to Vestige memory when committing to an architectural choice, picking approach A over B, settling a tradeoff, or choosing a library / framework / pattern. Fire on "we''ll go with…", "let''s use…", "decision:…", "I''m choosing X over Y because…", "settled — we use…", "going with X", or when the user says "capture that decision", "remember this", "record it". Decisions ground future reasoning and feed every `vestige context` pack. Captures body, rationale (the why), and importance (default 0.7). Returns the new handle (`mem_<ULID>`).'
 ---
 
 # Record a project decision

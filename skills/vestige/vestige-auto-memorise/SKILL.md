@@ -1,6 +1,6 @@
 ---
 name: vestige-auto-memorise
-description: Fires automatically — without the user asking — when the conversation produces something a future session would want. Watch for decisions ("we'll go with…", "settled — X"), preferences ("I prefer…", "always…", "never…", "make sure to…"), open questions ("TBD", "unclear whether…", "follow-up:"), TILs / aha moments, gotchas ("careful — X breaks Y"), smells, workarounds, root causes, and broken assumptions. Probe `vestige recall` first to dedup, then dispatch to `vestige <subcommand> add`. Surface: `Recorded <kind> mem_<ULID>.` Do not wait for "remember this".
+description: 'Fires automatically — without the user asking — when the conversation produces something a future session would want. Watch for decisions ("we''ll go with…", "settled — X"), preferences ("I prefer…", "always…", "never…", "make sure to…"), open questions ("TBD", "unclear whether…", "follow-up:"), TILs / aha moments, gotchas ("careful — X breaks Y"), smells, workarounds, root causes, and broken assumptions. Probe `vestige recall` first to dedup, then dispatch to `vestige <subcommand> add`. Surface: `Recorded <kind> mem_<ULID>.` Do not wait for "remember this".'
 ---
 
 # Auto-memorise: fire it yourself

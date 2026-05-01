@@ -190,7 +190,7 @@ fn parse_description_from_frontmatter(text: &str) -> String {
             break;
         }
         if let Some(rest) = trimmed.strip_prefix("description:") {
-            return strip_yaml_quotes(rest.trim()).to_owned();
+            return strip_yaml_quotes(rest.trim()).into_owned();
         }
     }
 
@@ -198,13 +198,22 @@ fn parse_description_from_frontmatter(text: &str) -> String {
 }
 
 /// Remove wrapping `"..."` or `'...'` from a YAML scalar, leaving the value.
-fn strip_yaml_quotes(value: &str) -> &str {
-    if (value.starts_with('"') && value.ends_with('"'))
-        || (value.starts_with('\'') && value.ends_with('\''))
-    {
-        &value[1..value.len() - 1]
+///
+/// For single-quoted scalars the YAML spec encodes a literal apostrophe as `''`
+/// (two consecutive single quotes). This function collapses those pairs after
+/// stripping the outer quotes so callers receive the real text.
+fn strip_yaml_quotes(value: &str) -> std::borrow::Cow<'_, str> {
+    if value.starts_with('"') && value.ends_with('"') {
+        std::borrow::Cow::Borrowed(&value[1..value.len() - 1])
+    } else if value.starts_with('\'') && value.ends_with('\'') {
+        let inner = &value[1..value.len() - 1];
+        if inner.contains("''") {
+            std::borrow::Cow::Owned(inner.replace("''", "'"))
+        } else {
+            std::borrow::Cow::Borrowed(inner)
+        }
     } else {
-        value
+        std::borrow::Cow::Borrowed(value)
     }
 }
 
@@ -326,5 +335,32 @@ mod tests {
     fn parse_description_missing_returns_empty() {
         let md = "---\nname: foo\n---\n";
         assert_eq!(parse_description_from_frontmatter(md), "");
+    }
+
+    #[test]
+    fn parse_description_single_quoted_with_escaped_apostrophes() {
+        // YAML single-quoted scalar: '' encodes a literal apostrophe.
+        let md = "---\nname: foo\ndescription: 'we''ll go with X; it''s settled'\n---\n";
+        assert_eq!(
+            parse_description_from_frontmatter(md),
+            "we'll go with X; it's settled"
+        );
+    }
+
+    #[test]
+    fn parse_description_single_quoted_no_apostrophes() {
+        let md = "---\nname: foo\ndescription: 'plain single-quoted value'\n---\n";
+        assert_eq!(
+            parse_description_from_frontmatter(md),
+            "plain single-quoted value"
+        );
+    }
+
+    #[test]
+    fn strip_yaml_quotes_collapses_double_single_quotes() {
+        assert_eq!(
+            strip_yaml_quotes("'don''t'"),
+            std::borrow::Cow::Owned::<str>("don't".to_owned())
+        );
     }
 }
