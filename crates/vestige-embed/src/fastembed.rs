@@ -17,10 +17,16 @@ use crate::provider::EmbeddingProvider;
 /// Maps a model short-name (as passed via config) to a fastembed `EmbeddingModel`
 /// and its output dimension count.
 struct ModelSpec {
+    /// The fastembed enum variant that identifies the ONNX model to load.
     model: EmbeddingModel,
+    /// Number of dimensions in the output vector for this model.
     dimensions: usize,
 }
 
+/// Resolve a user-facing model short-name to a [`ModelSpec`].
+///
+/// Returns `None` for unrecognised names so the caller can surface a
+/// [`EmbedError::ModelNotAvailable`] with an actionable message.
 fn resolve_model_spec(model_name: &str) -> Option<ModelSpec> {
     match model_name {
         "bge-small-en-v1.5" => Some(ModelSpec {
@@ -111,18 +117,28 @@ impl FastembedProvider {
 }
 
 impl EmbeddingProvider for FastembedProvider {
+    /// Returns `"fastembed"` — the stable provider key stored in the database.
     fn provider_name(&self) -> &'static str {
         "fastembed"
     }
 
+    /// Returns the short model name passed to [`FastembedProvider::new`]
+    /// (e.g. `"bge-small-en-v1.5"`).
     fn model_name(&self) -> &str {
         &self.model_name
     }
 
+    /// Returns the vector dimension count for the loaded model
+    /// (384 / 768 / 1024 depending on the BGE variant).
     fn dimensions(&self) -> usize {
         self.dimensions
     }
 
+    /// Embed a single string via the loaded ONNX model.
+    ///
+    /// Triggers a lazy model load (and possible ~60 MB download) on first call.
+    /// Returns [`EmbedError::EmptyInput`] for empty strings,
+    /// [`EmbedError::ModelNotAvailable`] if the model cannot be loaded.
     fn embed(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
         if input.is_empty() {
             return Err(EmbedError::EmptyInput);
@@ -139,6 +155,10 @@ impl EmbeddingProvider for FastembedProvider {
             .ok_or_else(|| EmbedError::Backend("fastembed returned empty result".to_string()))
     }
 
+    /// Embed a batch of strings in a single ONNX inference pass.
+    ///
+    /// More efficient than sequential [`embed`](FastembedProvider::embed) calls.
+    /// Rejects the entire batch if any element is empty.
     fn embed_batch(&self, inputs: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         if inputs.is_empty() {
             return Ok(vec![]);

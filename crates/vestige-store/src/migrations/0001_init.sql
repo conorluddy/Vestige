@@ -1,3 +1,13 @@
+-- Migration 0001: core schema — projects, memories, representations, sources, events (PRD §9)
+--
+-- Establishes the three source-of-truth layers:
+--   1. memory_events — append-only audit journal
+--   2. memories + memory_representations + memory_sources — derived interpretation
+-- The FTS acceleration layer is added in migration 0002.
+--
+-- All timestamps are RFC-3339 TEXT in UTC. SQLite has no native timestamp type.
+-- Status column values: 'active' | 'deleted' (soft-delete only — no DELETE FROM memories).
+
 CREATE TABLE projects (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,

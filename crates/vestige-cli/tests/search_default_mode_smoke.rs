@@ -108,10 +108,11 @@ fn search_uses_config_default_mode_hybrid() {
     assert_ok(&out, "search with config default_mode=hybrid");
 
     let json = parse_json(&out, "search json");
+    // Engine sets effective_mode = Lexical on fallback; mode field reflects what actually ran.
     assert_eq!(
         json["mode"].as_str(),
-        Some("hybrid"),
-        "mode field must reflect the requested mode"
+        Some("lexical"),
+        "mode field must reflect effective_mode (lexical fallback)"
     );
     // No embeddings → fallback path emits at least one warning.
     let warnings = json["warnings"].as_array().expect("warnings must be array");
@@ -148,10 +149,11 @@ fn recall_uses_config_default_mode_hybrid() {
     assert_ok(&out, "recall with config default_mode=hybrid");
 
     let json = parse_json(&out, "recall json");
+    // Engine sets effective_mode = Lexical on fallback; mode field reflects what actually ran.
     assert_eq!(
         json["mode"].as_str(),
-        Some("hybrid"),
-        "recall mode field must reflect the config default"
+        Some("lexical"),
+        "recall mode field must reflect effective_mode (lexical fallback)"
     );
     let warnings = json["warnings"].as_array().expect("warnings must be array");
     assert!(

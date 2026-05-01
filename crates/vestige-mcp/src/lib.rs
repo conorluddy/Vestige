@@ -1,8 +1,28 @@
-//! MCP adapter — thin wrappers over `vestige-core` operations exposed as
-//! six high-level tools (PRD §13.2). Each tool maps 1:1 to a core function;
-//! no SQL, no destructive defaults, no cross-project access.
+//! MCP adapter — six high-level tools over project memory (PRD §13.2).
+//!
+//! Thin adapter crate: each tool maps 1:1 to a `vestige-core` or
+//! `vestige-engine` function. No SQL, no destructive defaults, no
+//! cross-project access. Errors are always structured `{code, message,
+//! retryable}` so coding agents can branch on them.
+//!
+//! # Tool surface (PRD §13.2)
+//!
+//! | Tool | File | Purpose |
+//! |------|------|---------|
+//! | `vestige_bootstrap` | `tools/bootstrap.rs` | Standing context at session start |
+//! | `vestige_search` | `tools/search.rs` | Lexical / semantic / hybrid search |
+//! | `vestige_expand` | `tools/expand.rs` | Full content at chosen depth |
+//! | `vestige_get_project_context` | `tools/project_context.rs` | Budget-bounded context pack |
+//! | `vestige_record_observation` | `tools/record_observation.rs` | Write a new observation |
+//! | `vestige_record_decision` | `tools/record_decision.rs` | Write a new decision |
+//!
+//! # Entry point
+//!
+//! [`run`] resolves the project config, opens the store, and starts the
+//! `rmcp` stdio server. `vestige-cli` calls this from its `mcp` subcommand.
 
 mod server;
+mod tools;
 
 use std::path::PathBuf;
 
@@ -13,7 +33,10 @@ use vestige_store::Store;
 
 pub use server::VestigeServer;
 
+/// Options forwarded from `vestige mcp` CLI flags.
 pub struct McpOptions {
+    /// When `true`, write tools (`record_observation`, `record_decision`) are
+    /// disabled and return `READ_ONLY` errors.
     pub read_only: bool,
 }
 
