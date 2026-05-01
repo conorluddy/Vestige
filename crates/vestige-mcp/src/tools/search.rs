@@ -11,11 +11,10 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
-use vestige_config::EmbeddingsConfigSection;
+use vestige_config::embeddings_config_for;
 use vestige_core::{resolve_default_mode, MemoryType, ScoredCard, SearchMode};
-use vestige_embed::{build_provider, EmbeddingProvider, EmbeddingsConfig};
+use vestige_embed::{build_provider, EmbeddingProvider};
 use vestige_engine::error::EngineError;
-use vestige_store::EmbeddingStatus;
 
 use crate::server::{err, ok_json, Inner, VestigeServer};
 
@@ -124,7 +123,9 @@ impl VestigeServer {
                         false,
                     ));
                 }
-                if let Some(msg) = provider_mismatch_message(&status, provider.as_ref()) {
+                if let Some(msg) =
+                    vestige_engine::search::provider_mismatch_message(&status, provider.as_ref())
+                {
                     return Err(err("EMBEDDINGS_UNAVAILABLE", msg, false));
                 }
                 vestige_engine::search::search_semantic(
@@ -176,54 +177,10 @@ fn engine_err_to_data(e: EngineError) -> ErrorData {
 /// Construct an embedding provider from the project's typed `[embeddings]`
 /// config section, defaulting to `"fake"` when absent.
 fn build_configured_provider(inner: &Inner) -> Result<Box<dyn EmbeddingProvider>, ErrorData> {
-    let cfg = embeddings_config_from_section(inner.config.embeddings.as_ref());
+    let cfg = embeddings_config_for(inner.config.embeddings.as_ref());
     build_provider(&cfg).map_err(|e| err("PROVIDER_INIT_FAILED", e.to_string(), false))
 }
 
-/// Compare what's stored against what the configured provider would query.
-///
-/// Returns `Some(message)` when the dominant on-disk provider/dimensions don't
-/// match the runtime — the silent-empty-results trap. Used only by semantic
-/// mode, which has no fallback and must surface this as a hard error.
-fn provider_mismatch_message(
-    status: &EmbeddingStatus,
-    provider: &dyn EmbeddingProvider,
-) -> Option<String> {
-    let stored_provider = status.provider.as_deref()?;
-    let stored_model = status.model.as_deref().unwrap_or("?");
-    let stored_dims = status.dimensions.unwrap_or(0);
-
-    let runtime_provider = provider.provider_name();
-    let runtime_model = provider.model_name();
-    let runtime_dims = provider.dimensions();
-
-    if stored_provider == runtime_provider
-        && stored_model == runtime_model
-        && stored_dims == runtime_dims
-    {
-        return None;
-    }
-    Some(format!(
-        "project embedded with `{stored_provider}`/{stored_model}/{stored_dims}d, \
-         server configured for `{runtime_provider}`/{runtime_model}/{runtime_dims}d — \
-         run `vestige embed --all` to re-embed under the configured provider"
-    ))
-}
-
-/// Map a typed `[embeddings]` config section onto the runtime `EmbeddingsConfig`.
-/// Mirrors `vestige_cli::context::embeddings_config_from_section` — duplicated
-/// here to avoid `vestige-mcp → vestige-cli` (cli is a binary, not a library).
-fn embeddings_config_from_section(section: Option<&EmbeddingsConfigSection>) -> EmbeddingsConfig {
-    match section {
-        Some(s) => EmbeddingsConfig {
-            provider: s.provider.clone().unwrap_or_else(|| "fake".to_string()),
-            model: s.model.clone(),
-            dimensions: s.dimensions,
-        },
-        None => EmbeddingsConfig {
-            provider: "fake".to_string(),
-            model: None,
-            dimensions: None,
-        },
-    }
-}
+// Provider-mismatch detection lives in `vestige_engine::search::provider_mismatch_message`
+// — that crate is the single source of truth for the wording used by both
+// CLI and MCP search paths.

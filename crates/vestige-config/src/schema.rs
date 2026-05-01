@@ -35,8 +35,16 @@
 use serde::{Deserialize, Serialize};
 
 use vestige_core::ProjectId;
+use vestige_embed::EmbeddingsConfig;
 
 use crate::{ConfigError, Result};
+
+/// Default embedding provider when no `[embeddings]` section is set.
+///
+/// `"fake"` works without network or model downloads — sensible for tests
+/// and first-run experience. Real semantic recall requires switching to
+/// `"fastembed"` or `"ollama"` and re-running `vestige embed --all`.
+const DEFAULT_PROVIDER: &str = "fake";
 
 /// Default value for the `scope` field — `"project"`.
 fn default_scope() -> String {
@@ -134,6 +142,41 @@ pub struct EmbeddingsConfigSection {
     /// Omit to use the provider default. Values are matched against
     /// `MemoryRepresentationKind` string names.
     pub default_representations: Option<Vec<String>>,
+}
+
+/// Borrow conversion: section → runtime [`EmbeddingsConfig`].
+///
+/// Used by every code path that needs to build an embedding provider from a
+/// loaded `.vestige/config.toml`. The CLI and MCP layers used to carry their
+/// own copies of this mapping; this `From` impl is the single source of truth.
+impl From<&EmbeddingsConfigSection> for EmbeddingsConfig {
+    fn from(section: &EmbeddingsConfigSection) -> Self {
+        EmbeddingsConfig {
+            provider: section
+                .provider
+                .clone()
+                .unwrap_or_else(|| DEFAULT_PROVIDER.into()),
+            model: section.model.clone(),
+            dimensions: section.dimensions,
+        }
+    }
+}
+
+/// Build an [`EmbeddingsConfig`] from an optional section, defaulting to
+/// [`DEFAULT_PROVIDER`] when absent.
+///
+/// Provided as a free function (not a `From<Option<_>> for EmbeddingsConfig`
+/// impl) because Rust's orphan rules block trait impls when both `Option` and
+/// `EmbeddingsConfig` are foreign types.
+pub fn embeddings_config_for(section: Option<&EmbeddingsConfigSection>) -> EmbeddingsConfig {
+    match section {
+        Some(s) => s.into(),
+        None => EmbeddingsConfig {
+            provider: DEFAULT_PROVIDER.into(),
+            model: None,
+            dimensions: None,
+        },
+    }
 }
 
 /// Configuration for search behaviour (`[search]` in `.vestige/config.toml`).
