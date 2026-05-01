@@ -118,10 +118,11 @@ pub fn run(args: InitArgs) -> Result<()> {
         }
     }
 
-    let banner = if existing.is_some() {
-        "Already initialised"
-    } else {
+    let is_fresh = existing.is_none();
+    let banner = if is_fresh {
         "Initialised"
+    } else {
+        "Already initialised"
     };
     println!(
         "{banner} Vestige project `{project_name}` ({})",
@@ -132,7 +133,29 @@ pub fn run(args: InitArgs) -> Result<()> {
     if let Some(s) = args.summary {
         println!("  Summary:  {s}");
     }
+
+    if is_fresh {
+        print_next_steps();
+    }
     Ok(())
+}
+
+/// Print onboarding hints after a first-time `init`. Skipped on re-runs so
+/// the success line stays compact for the agent-driven happy path.
+///
+/// Today: just the MCP wiring step. When skills are published, add a second
+/// bullet pointing at the install flow (a one-liner here).
+fn print_next_steps() {
+    println!();
+    println!("Next steps:");
+    println!("  Wire Vestige into Claude Code as an MCP server:");
+    println!("    claude mcp add vestige -s project -- vestige mcp");
+    println!();
+    println!("  Capture your first memory:");
+    println!("    vestige decision add \"…\" --rationale \"…\"");
+    println!("    vestige note add \"…\"");
+    println!();
+    println!("  Inspect state:  vestige status");
 }
 
 /// Return `true` if a `project_summary` memory already exists (so we don't duplicate).
