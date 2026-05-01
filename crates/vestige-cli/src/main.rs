@@ -62,7 +62,7 @@ enum Command {
     Embeddings(commands::embeddings::EmbeddingsArgs),
     /// Rebuild the FTS and/or embedding indexes.
     Reindex(commands::reindex::ReindexArgs),
-    /// Start the MCP server (M5 — not implemented yet).
+    /// Start the MCP server over stdio so an agent can read/write project memory.
     Mcp(commands::mcp::McpArgs),
 }
 

@@ -35,6 +35,6 @@ pub fn run() -> Result<()> {
         "Memories:   {} active, {} deleted",
         counts.active, counts.deleted
     );
-    println!("MCP:        not implemented yet (M5)");
+    println!("MCP:        run `vestige mcp` to expose this project to an agent over stdio");
     Ok(())
 }

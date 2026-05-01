@@ -34,7 +34,7 @@ pub enum EmbedAction {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EmbedTarget {
-    pub memory_id: String,
+    pub memory_id: MemoryId,
     pub representation_type: String,
     pub action: EmbedAction,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,7 +62,7 @@ impl From<embed::EmbedResult> for EmbedTarget {
             EmbedOutcome::Failed => EmbedAction::Failed,
         };
         EmbedTarget {
-            memory_id: r.memory_id.as_str().to_owned(),
+            memory_id: r.memory_id,
             representation_type: r.representation_type,
             action,
             error: r.error,
