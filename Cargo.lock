@@ -3464,7 +3464,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vestige"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -3487,7 +3487,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-config"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "directories",
  "hex",
@@ -3504,7 +3504,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "hex",
  "serde",
@@ -3518,7 +3518,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-embed"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "directories",
  "fastembed",
@@ -3534,7 +3534,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-engine"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "rusqlite",
  "serde",
@@ -3548,7 +3548,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-mcp"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "rmcp",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "vestige-store"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "hex",
  "rusqlite",
