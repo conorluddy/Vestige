@@ -15,20 +15,24 @@ semver_check = true
 
 # Commit parsing for changelog generation + bump detection.
 #
-# Without these rules, merging release-plz's own `chore: release vX.Y.Z` PR
-# leaves a commit that the next `release-plz` run sees as "new work since
-# the last tag" and proposes vX.Y.(Z+1). Skipping `chore: release` breaks
-# that loop. Other parsers carry through standard Conventional Commits
-# grouping for the changelog.
+# Conventional Commits semantics: `feat` → minor, `fix`/`perf` → patch,
+# everything else (`chore`, `ci`, `docs`, `test`, `refactor`, `style`)
+# does not warrant a published version on its own.
+#
+# `skip = true` excludes the commit from both the changelog and bump
+# detection. Without these rules, merging release-plz's own
+# `chore: release vX.Y.Z` PR — or any `chore(ci): …` infra tweak — was
+# being read as "new work since the last tag" and produced spurious
+# vX.Y.(Z+1) PRs.
 [changelog]
 commit_parsers = [
-  { message = "^chore: release", skip = true },
-  { message = "^chore\\(.*\\): release", skip = true },
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
   { message = "^perf", group = "Performance" },
   { message = "^refactor", group = "Refactor" },
   { message = "^docs", group = "Documentation" },
   { message = "^test", group = "Tests" },
-  { message = "^chore", group = "Other" },
+  { message = "^chore", skip = true },
+  { message = "^ci", skip = true },
+  { message = "^style", skip = true },
 ]
