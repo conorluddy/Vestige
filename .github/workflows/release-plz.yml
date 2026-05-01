@@ -48,6 +48,27 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
+          # Only backfill in the *partial-publish recovery* case.
+          #
+          # release-plz uses the existence of the `vX.Y.Z` git tag as its
+          # "already released" signal. So the only state this backfill must
+          # recover from is: tag exists, but the registry is incomplete (a
+          # previous run tagged then crashed mid-publish). If there is no
+          # tag for the current local version, release-plz hasn't run yet —
+          # let it do publish + tag + GitHub Release in a single flow.
+          #
+          # Without this gate, the backfill fires on every fresh release-PR
+          # merge (local always ahead of registry by design), publishes the
+          # crates itself, and starves release-plz of anything to release —
+          # leaving the version published on crates.io but with no git tag,
+          # no GitHub Release, no cargo-dist binaries, and no Homebrew bump.
+          local_version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "vestige") | .version')
+          if ! git rev-parse "v$local_version" >/dev/null 2>&1; then
+            echo "No v$local_version tag yet — skipping backfill so release-plz can publish + tag + release."
+            exit 0
+          fi
+          echo "Tag v$local_version exists — checking registry for partial-publish recovery."
           # Workspace dep order — must match the topological order used by
           # release-plz. Update if a new crate is added to the workspace.
           crates=(vestige-core vestige-embed vestige-store vestige-config vestige-engine vestige-mcp vestige)
