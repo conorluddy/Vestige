@@ -25,8 +25,32 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run release-plz
+      # Split into two steps so the publish phase runs FIRST.
+      #
+      # The default `release-plz` action runs `release-pr` and `release`
+      # together, but `release-pr` errors out if the registry is behind
+      # local Cargo.toml versions (e.g. a previous run partially published).
+      # That makes a transient publish failure self-perpetuating: once
+      # `release-pr` fails, no future run can recover without manual
+      # `cargo publish` of the missing crates.
+      #
+      # Running `release` first makes recovery automatic. It compares each
+      # workspace crate's local version against crates.io and publishes
+      # any that are ahead — a no-op in the happy path, a self-heal when
+      # the registry has fallen behind.
+
+      - name: release-plz release (publish any pending crates)
         uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: release-plz release-pr (open next bump PR)
+        uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
