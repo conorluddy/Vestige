@@ -25,6 +25,55 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Backfill any workspace crate whose local version is ahead of crates.io.
+      #
+      # release-plz 0.3.x uses the existence of the `vX.Y.Z` git tag as its
+      # "already published" signal — not the registry. So if a previous run
+      # tagged the workspace and then partially published (network blip,
+      # registry rate-limit, sibling crate not yet index-visible), the tag
+      # exists but the registry is missing crates. Every subsequent run sees
+      # the tag and refuses to retry, jamming the pipeline indefinitely.
+      #
+      # This step does an actual registry-vs-local check and runs `cargo
+      # publish` for any deltas, in workspace dep order. In the happy path
+      # it's a fast no-op (just curl + jq per crate). In the broken-state
+      # path it backfills the missing publishes so release-plz then sees a
+      # consistent state.
+      #
+      # `cargo publish` blocks until each crate is index-visible before
+      # exiting, so sequential calls in dep order handle ordering for free.
+
+      - name: Backfill missing crates.io publishes
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Workspace dep order — must match the topological order used by
+          # release-plz. Update if a new crate is added to the workspace.
+          crates=(vestige-core vestige-embed vestige-store vestige-config vestige-engine vestige-mcp vestige)
+          for crate in "${crates[@]}"; do
+            local_version=$(cargo metadata --no-deps --format-version 1 \
+              | jq -r --arg c "$crate" '.packages[] | select(.name == $c) | .version')
+            registry_version=$(curl -sSf "https://crates.io/api/v1/crates/$crate" \
+              | jq -r '.crate.max_version // ""')
+            echo "$crate: local=$local_version registry=$registry_version"
+            if [[ -z "$registry_version" ]]; then
+              echo "::warning::$crate not on crates.io yet — first publish must come from a release-plz run"
+              continue
+            fi
+            if [[ "$local_version" == "$registry_version" ]]; then
+              continue
+            fi
+            highest=$(printf '%s\n%s\n' "$local_version" "$registry_version" | sort -V | tail -1)
+            if [[ "$highest" != "$local_version" ]]; then
+              echo "::warning::$crate local ($local_version) is behind registry ($registry_version) — skipping"
+              continue
+            fi
+            echo "::group::Publishing $crate $local_version (registry has $registry_version)"
+            cargo publish -p "$crate" --no-verify
+            echo "::endgroup::"
+          done
+
       # Split into two steps so the publish phase runs FIRST.
       #
       # The default `release-plz` action runs `release-pr` and `release`
