@@ -14,7 +14,6 @@ readme = "../../README.md"
 
 [dependencies]
 vestige-core.workspace = true
-vestige-embed.workspace = true
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
 thiserror.workspace = true
@@ -28,4 +27,4 @@ hex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-vestige-embed = { path = "../vestige-embed" }
+vestige-embed.workspace = true

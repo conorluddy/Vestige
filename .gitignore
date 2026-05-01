@@ -7,3 +7,6 @@ Cargo.lock.bak
 .vestige/local.toml
 .env
 pages-seed/
+
+# Claude Code agent scratch — worktrees, transcripts, agent-local state.
+.claude/

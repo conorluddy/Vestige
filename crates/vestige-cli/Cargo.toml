@@ -31,7 +31,6 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 time.workspace = true
-rusqlite.workspace = true
 ulid.workspace = true
 
 [features]
