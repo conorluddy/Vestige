@@ -1,6 +1,6 @@
 ---
 name: vestige-restore
-description: Restore a previously soft-deleted Vestige memory by its handle (`mem_<ULID>`). Use when a memory was forgotten in error, when the situation has reverted (a decision that was reversed gets re-affirmed), or the user says "bring back <id>", "restore <id>", "undo that forget", "that memory should still be there". Re-flips status from `deleted` to `active` and re-indexes the memory's representations into FTS. Note — embeddings are left stale by restore (they'll re-embed on the next `vestige embed` run).
+description: 'Restore a previously soft-deleted Vestige memory by its handle (`mem_<ULID>`). Use when a memory was forgotten in error, when the situation has reverted (a decision that was reversed gets re-affirmed), or the user says "bring back <id>", "restore <id>", "undo that forget", "that memory should still be there". Re-flips status from `deleted` to `active` and re-indexes the memory''s representations into FTS. Note — embeddings are left stale by restore (they''ll re-embed on the next `vestige embed` run).'
 ---
 
 # Restore a soft-deleted memory

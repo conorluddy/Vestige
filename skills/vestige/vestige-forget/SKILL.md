@@ -1,6 +1,6 @@
 ---
 name: vestige-forget
-description: Soft-delete a Vestige memory by its handle (`mem_<ULID>`) when the memory is wrong, superseded, or stale. Fire when a decision has been reversed, a note is no longer accurate, an open question has been answered, or the user says "forget memory <id>", "that's outdated", "remove <id>", "drop that memory", "we don't do that anymore". Flips status to `deleted` and drops the memory from search results — the row stays in the journal. Reversible via `vestige-restore`.
+description: 'Soft-delete a Vestige memory by its handle (`mem_<ULID>`) when the memory is wrong, superseded, or stale. Fire when a decision has been reversed, a note is no longer accurate, an open question has been answered, or the user says "forget memory <id>", "that''s outdated", "remove <id>", "drop that memory", "we don''t do that anymore". Flips status to `deleted` and drops the memory from search results — the row stays in the journal. Reversible via `vestige-restore`.'
 ---
 
 # Soft-delete a memory

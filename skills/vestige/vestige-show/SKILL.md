@@ -1,6 +1,6 @@
 ---
 name: vestige-show
-description: Expand a Vestige memory at higher fidelity once you have its handle (a `mem_<ULID>` string). Use this skill after `vestige-recall` returns a card whose `one_liner` isn't enough, when the user says "show me memory <id>", "expand <id>", "what does <id> say in full?", "read me memory <id>", or whenever you need the *body*, *rationale*, or *source content* of a memory rather than the compact handle. Depth ladder — one_liner → summary → compressed → full. Default is summary; pass `--depth full` to read the entire body.
+description: 'Expand a Vestige memory at higher fidelity once you have its handle (a `mem_<ULID>` string). Use this skill after `vestige-recall` returns a card whose `one_liner` isn''t enough, when the user says "show me memory <id>", "expand <id>", "what does <id> say in full?", "read me memory <id>", or whenever you need the *body*, *rationale*, or *source content* of a memory rather than the compact handle. Depth ladder — one_liner → summary → compressed → full. Default is summary; pass `--depth full` to read the entire body.'
 ---
 
 # Expand a memory by handle

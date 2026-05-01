@@ -1,6 +1,6 @@
 ---
 name: vestige-record-preference
-description: Capture a user preference to Vestige memory when the human expresses a convention, opinion, or "how I like things done". Fire on "I prefer X", "always use Y", "don't do Z", "we always…", "never…", "I like…", "I don't like…", "make sure to…", "do not…", "convention:…", "rule:…", "house style:", "in this project we…", or when correcting your own output to match what the user just said. Preferences constrain every future agent run via the `vestige context` pack. Default importance 0.6. Returns the new handle (`mem_<ULID>`).
+description: 'Capture a user preference to Vestige memory when the human expresses a convention, opinion, or "how I like things done". Fire on "I prefer X", "always use Y", "don''t do Z", "we always…", "never…", "I like…", "I don''t like…", "make sure to…", "do not…", "convention:…", "rule:…", "house style:", "in this project we…", or when correcting your own output to match what the user just said. Preferences constrain every future agent run via the `vestige context` pack. Default importance 0.6. Returns the new handle (`mem_<ULID>`).'
 ---
 
 # Record a project preference

@@ -1,6 +1,6 @@
 ---
 name: vestige-context
-description: Render the project's Vestige context pack — summary, recent decisions, open questions, recent activity — as a budget-bounded brief. Use at session start, before unfamiliar work, after a long pause, or when the user says "what's the state of this project?", "where are we?", "catch me up", "what have we decided?", "what's outstanding?", "give me the rundown". Returns a JSON envelope with `summary`, `decisions[]`, `open_questions[]`, `recent[]`. Token budget defaults to 1200 — pass `--budget-tokens` to adjust.
+description: 'Render the project''s Vestige context pack — summary, recent decisions, open questions, recent activity — as a budget-bounded brief. Use at session start, before unfamiliar work, after a long pause, or when the user says "what''s the state of this project?", "where are we?", "catch me up", "what have we decided?", "what''s outstanding?", "give me the rundown". Returns a JSON envelope with `summary`, `decisions[]`, `open_questions[]`, `recent[]`. Token budget defaults to 1200 — pass `--budget-tokens` to adjust.'
 ---
 
 # Get the project context pack
