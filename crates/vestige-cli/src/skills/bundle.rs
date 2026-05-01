@@ -129,20 +129,18 @@ pub fn list() -> Vec<SkillSummary> {
 fn iter_skill_files(
     dir: &'static Dir<'static>,
 ) -> impl Iterator<Item = &'static include_dir::File<'static>> {
-    dir.entries().iter().flat_map(|entry| {
-        let sub = match entry {
-            DirEntry::Dir(d) if is_skill_dir(d) => d,
-            _ => return Vec::new().into_iter(),
-        };
-        sub.find("**/*")
-            .expect("glob pattern is valid")
-            .filter_map(|e| match e {
-                DirEntry::File(f) => Some(f),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-    })
+    dir.entries()
+        .iter()
+        .filter_map(|entry| entry.as_dir())
+        .filter(|sub| is_skill_dir(sub))
+        .flat_map(|sub| {
+            sub.find("**/*")
+                .expect("glob pattern is valid")
+                .filter_map(|e| match e {
+                    DirEntry::File(f) => Some(f),
+                    _ => None,
+                })
+        })
 }
 
 /// A skill directory is any top-level subtree that contains a `SKILL.md` at
@@ -225,7 +223,7 @@ mod tests {
     fn list_returns_ten_skills() {
         let skills = list();
         assert!(skills.iter().any(|s| s.name == "vestige-auto-memorise"));
-        assert!(skills.len() >= 10);
+        assert_eq!(skills.len(), 10);
     }
 
     #[test]

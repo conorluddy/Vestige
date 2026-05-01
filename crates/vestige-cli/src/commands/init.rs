@@ -154,6 +154,7 @@ pub fn run(args: InitArgs) -> Result<()> {
             Ok(report) => {
                 if !report.drifted.is_empty() {
                     tracing::warn!(
+                        project_id = %project_id,
                         dest = %skills_dest.display(),
                         drifted = ?report.drifted,
                         "skills install: local edits detected; run `vestige skills install --force` to overwrite"
@@ -163,6 +164,7 @@ pub fn run(args: InitArgs) -> Result<()> {
             }
             Err(err) => {
                 tracing::warn!(
+                    project_id = %project_id,
                     error = %err,
                     dest = %skills_dest.display(),
                     "skills install failed; init succeeded"
