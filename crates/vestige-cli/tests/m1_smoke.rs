@@ -215,6 +215,29 @@ fn full_m1_lifecycle() {
 }
 
 #[test]
+fn reinit_preserves_config_bytes() {
+    // After the first successful `init`, `.vestige/config.toml` belongs to the
+    // user. A second `init` must not rewrite it — otherwise hand-added comments
+    // or formatting would be silently dropped (toml::to_string_pretty is lossy).
+    let repo = fresh_repo();
+
+    assert_ok(&vestige(&repo, &["init", "--name", "Smoke"]), "init");
+    let config_path = repo.repo.join(".vestige/config.toml");
+
+    let mut original = std::fs::read_to_string(&config_path).expect("read config");
+    original.push_str("\n# user comment that must survive a re-init\n");
+    std::fs::write(&config_path, &original).expect("write user comment");
+
+    assert_ok(&vestige(&repo, &["init", "--name", "Smoke"]), "second init");
+
+    let after = std::fs::read_to_string(&config_path).expect("read config after");
+    assert_eq!(
+        after, original,
+        "re-running `init` must not rewrite an existing config.toml"
+    );
+}
+
+#[test]
 fn forget_unknown_id_errors_cleanly() {
     let repo = fresh_repo();
     assert_ok(&vestige(&repo, &["init", "--name", "x"]), "init");
