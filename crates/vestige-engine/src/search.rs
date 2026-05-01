@@ -19,8 +19,8 @@ use serde::Serialize;
 
 use vestige_core::{
     merge_hits, normalise_cosine, normalise_fts, project_card, rank_hits, sanitize_fts_query,
-    HybridOpts, MemoryId, MemoryType, ProjectId, ScoredCard, SearchFilter, SearchHit, SearchMode,
-    SemanticHit,
+    HybridOpts, HybridScore, MemoryId, MemoryType, ProjectId, ScoredCard, SearchFilter, SearchHit,
+    SearchMode, SemanticHit,
 };
 use vestige_embed::EmbeddingProvider;
 use vestige_store::{EmbeddingStatus, Store, VectorFilter};
@@ -145,10 +145,19 @@ pub fn search_semantic(
     for hit in &raw_hits {
         if let Some(fetched) = store.get_memory(&hit.memory_id)? {
             let similarity = hit.similarity.clamp(0.0, 1.0);
+            // Semantic-only path: rank score IS cosine similarity, so the
+            // diagnostic mirrors that — `vector` and `total` both equal the
+            // displayed score, other components are zero. PRD §11.3 / §19.4.
             scored.push(ScoredCard {
                 card: project_card(&fetched),
                 score: similarity,
-                score_parts: None,
+                score_parts: Some(HybridScore {
+                    fts: 0.0,
+                    vector: similarity,
+                    importance: 0.0,
+                    type_boost: 0.0,
+                    total: similarity,
+                }),
             });
         }
     }

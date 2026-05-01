@@ -32,9 +32,11 @@ pub struct HybridScore {
 
 /// A search result projected for display: compact card + composite score.
 ///
-/// `score_parts` is `Some` only when hybrid/semantic merging was performed
-/// with `include_score_parts = true` in the [`crate::SearchFilter`]. The
-/// lexical-only path (`rank_hits`) always sets it to `None`.
+/// `score_parts` is populated on the hybrid and semantic paths and is `None`
+/// on the lexical-only path (`rank_hits`). On semantic-only the `vector` and
+/// `total` components both equal the displayed `score`; the other components
+/// are zero. On hybrid the breakdown is the genuine weighted decomposition
+/// produced by [`merge_hits`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoredCard {
     #[serde(flatten)]

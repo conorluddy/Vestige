@@ -164,6 +164,46 @@ fn search_semantic_with_embeddings_returns_hits_scored_by_similarity() {
     );
 }
 
+#[test]
+fn search_semantic_populates_score_parts_with_vector_component() {
+    // PRD §11.3 / §19.4 — the JSON envelope must surface per-component scores
+    // for every non-lexical search mode. Today's semantic path returns the
+    // cosine similarity as `score`; the diagnostic must mirror that with
+    // `vector == total == score` and the other components zero.
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("sem-score-parts");
+    seed_project(&mut store, &project);
+
+    let provider = FakeEmbeddingProvider::new(64);
+    let text = "Score diagnostics must accompany semantic results.";
+    let memory_id = record_memory(&mut store, &project, text);
+    embed_memory(&mut store, &memory_id, &provider, text);
+
+    let outcome = search_semantic(&store, &project, text, None, 10, &provider).unwrap();
+
+    assert!(!outcome.scored.is_empty(), "should have results");
+    let top = &outcome.scored[0];
+    let parts = top
+        .score_parts
+        .expect("semantic results must carry score_parts diagnostic");
+    assert_eq!(parts.fts, 0.0, "no FTS contribution on semantic-only path");
+    assert_eq!(parts.importance, 0.0);
+    assert_eq!(parts.type_boost, 0.0);
+    assert!(
+        parts.vector > 0.99,
+        "vector component should equal cosine similarity, got {}",
+        parts.vector
+    );
+    assert_eq!(
+        parts.total, parts.vector,
+        "semantic-only total must equal the vector component"
+    );
+    assert_eq!(
+        top.score, parts.total,
+        "displayed score and total must agree"
+    );
+}
+
 // === HYBRID TESTS ===
 
 #[test]
