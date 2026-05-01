@@ -1,26 +1,36 @@
 # Vestige skills
 
-Ten Claude Code skill definitions that mirror Vestige's user-facing memory CLI.
-Each skill is a self-contained `SKILL.md` describing **when** an agent should
-fire it and **how** to invoke the underlying `vestige <subcommand>`.
+Ten agent skill definitions that mirror Vestige's user-facing memory CLI.
+Each skill is a self-contained `SKILL.md` (compliant with the
+[agentskills.io](https://agentskills.io) open standard) describing **when**
+an agent should fire it and **how** to invoke the underlying `vestige
+<subcommand>`. Currently consumed by Claude Code (`.claude/skills/`) and
+Codex (`.agents/skills/`); any agentskills.io-compatible tool can pick them
+up.
 
 ## Install
 
-Skills are bundled into the `vestige` binary as of v0.3 — `cargo install vestige`
-and Homebrew users get them automatically.
+Skills are bundled into the `vestige` binary — `cargo install vestige` and
+Homebrew users get them automatically.
 
-**New repo** — `vestige init` installs skills into `<repo>/.claude/skills/` by
-default. Pass `--no-install-skills` to opt out.
+**New repo** — `vestige init` installs skills into BOTH
+`<repo>/.claude/skills/` and `<repo>/.agents/skills/` by default. Pass
+`--no-install-skills` to opt out, or `--skills-target claude|agents` to
+target a single dir.
 
-**Existing repo** — run `vestige skills install` to write into `<repo>/.claude/skills/`.
-Idempotent. Hard-fails on drift unless `--force`.
+**Existing repo** — run `vestige skills install` to write into both target
+dirs. Idempotent. Hard-fails on drift unless `--force`.
 
 ```bash
-# Install (or re-install) skills into the current repo
+# Install (or re-install) skills into the current repo (both targets)
 vestige skills install
 
-# Override destination
-vestige skills install --dest /path/to/.claude/skills/
+# Single target only
+vestige skills install --target claude    # .claude/skills/ only
+vestige skills install --target agents    # .agents/skills/ only
+
+# Explicit destination (overrides --target)
+vestige skills install --dest /path/to/skills/
 
 # Preview without writing
 vestige skills install --dry-run

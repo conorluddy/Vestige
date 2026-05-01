@@ -78,7 +78,8 @@ const VESTIGE = {
     { name: 'vestige_record_decision',     role: 'write', desc: 'Explicit project decision.' },
   ],
 
-  // Ten Claude Code skills, bundled in the binary, installed by `vestige init`.
+  // Ten agent skills (agentskills.io standard), bundled in the binary,
+  // installed by `vestige init` into both .claude/skills/ and .agents/skills/.
   skills: [
     { kind: 'auto',      name: 'vestige-auto-memorise',     wraps: 'dispatches to vestige <cmd> add', desc: 'Fires without a prompt when the conversation produces something memorable.' },
     { kind: 'capture',   name: 'vestige-record-decision',   wraps: 'vestige decision add',            desc: 'Captures an architectural or approach choice.' },

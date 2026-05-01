@@ -174,16 +174,22 @@ call `vestige_get_project_context` to load standing decisions and open
 questions. Use `vestige_record_decision` when you make project-level calls.
 ```
 
-## Skills (Claude Code)
+## Skills (agent skills)
 
-Vestige ships with ten Claude Code skills bundled into the binary. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
+Vestige ships with ten agent skills bundled into the binary, compliant with the [agentskills.io](https://agentskills.io) open standard. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
+
+Currently consumed by **Claude Code** (reads `.claude/skills/`) and **Codex** (reads `.agents/skills/`). `vestige init` writes to BOTH dirs by default so any compliant agent can pick them up.
 
 ```bash
-# vestige init installs them by default into <repo>/.claude/skills/
+# vestige init installs to BOTH .claude/skills/ and .agents/skills/ by default
 vestige init --name "My Project"
 
-# or, in an existing repo:
+# or, in an existing repo (still writes to both):
 vestige skills install
+
+# target a single dir if you only use one agent:
+vestige skills install --target claude     # .claude/skills/ only
+vestige skills install --target agents     # .agents/skills/ only
 
 # inspect what shipped with this binary:
 vestige skills list --json
