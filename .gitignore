@@ -9,7 +9,23 @@ Cargo.lock.bak
 pages-seed/
 
 # Claude Code agent scratch — worktrees, transcripts, agent-local state.
-.claude/
+# Pattern uses `.claude/*` (not `.claude/`) so individual files inside the
+# dir are ignored, but the dir itself is traversable — required for the
+# vestige-review exception below to work (gitignore can't re-include files
+# inside a fully-excluded directory).
+.claude/*
+!.claude/skills/
+.claude/skills/*
+# Exception: vestige-review is a project-local skill for developing Vestige
+# itself (cites this repo's CODESTYLE/CLAUDE/PRD). Track it so a fresh clone
+# has it; it must NOT be shipped to .agents/ — that's only for skills meant
+# to be loaded by external agents.
+!.claude/skills/vestige-review/
+
+# .agents/skills/ is an install output of `vestige skills install`.
+# Bundled skills get re-written from the binary on every install; nothing
+# in here should be tracked by source control.
+.agents/
 
 # Skill-creator eval workspace (skills/vestige/vestige-skills-workspace/iteration-N/)
 skills/vestige/vestige-skills-workspace/
