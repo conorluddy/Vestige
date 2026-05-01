@@ -68,11 +68,16 @@ pub fn run(args: InitArgs) -> Result<()> {
             &storage_path,
             &cfg,
             args.summary.as_deref(),
+            existing.is_some(),
         );
         return Ok(());
     }
 
-    write_config(&config_path, &cfg).context("writing .vestige/config.toml")?;
+    // First write wins. Once `.vestige/config.toml` exists the file belongs to
+    // the user — re-running `init` must not stomp on hand edits or comments.
+    if existing.is_none() {
+        write_config(&config_path, &cfg).context("writing .vestige/config.toml")?;
+    }
 
     let mut store = Store::open(&storage_path).context("opening project store")?;
     store
@@ -113,8 +118,13 @@ pub fn run(args: InitArgs) -> Result<()> {
         }
     }
 
+    let banner = if existing.is_some() {
+        "Already initialised"
+    } else {
+        "Initialised"
+    };
     println!(
-        "Initialised Vestige project `{project_name}` ({})",
+        "{banner} Vestige project `{project_name}` ({})",
         project_id.as_str()
     );
     println!("  Config:   {}", config_path.display());
@@ -148,6 +158,7 @@ fn print_plan(
     storage_path: &Path,
     cfg: &vestige_config::VestigeConfig,
     summary: Option<&str>,
+    config_exists: bool,
 ) {
     println!(
         "[dry-run] would initialise Vestige in {}",
@@ -155,7 +166,14 @@ fn print_plan(
     );
     println!("  project_id:    {}", cfg.project_id);
     println!("  project_name:  {}", cfg.project_name);
-    println!("  config:        {}", config_path.display());
+    if config_exists {
+        println!(
+            "  config:        {} (exists; would not rewrite)",
+            config_path.display()
+        );
+    } else {
+        println!("  config:        {}", config_path.display());
+    }
     println!("  memory db:     {}", storage_path.display());
     if let Some(s) = summary {
         println!("  summary:       {s}");
