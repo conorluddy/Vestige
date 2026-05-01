@@ -54,7 +54,10 @@ jobs:
           for crate in "${crates[@]}"; do
             local_version=$(cargo metadata --no-deps --format-version 1 \
               | jq -r --arg c "$crate" '.packages[] | select(.name == $c) | .version')
-            registry_version=$(curl -sSf "https://crates.io/api/v1/crates/$crate" \
+            # crates.io rejects requests without a User-Agent (returns 403).
+            registry_version=$(curl -sSf \
+              -A "vestige-release-backfill (https://github.com/conorluddy/Vestige)" \
+              "https://crates.io/api/v1/crates/$crate" \
               | jq -r '.crate.max_version // ""')
             echo "$crate: local=$local_version registry=$registry_version"
             if [[ -z "$registry_version" ]]; then
