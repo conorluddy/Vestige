@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7](https://github.com/conorluddy/Vestige/compare/v0.2.6...v0.2.7) - 2026-05-01
+
+### Features
+
+- *(skills)* dual-target install — .claude/skills/ + .agents/skills/ ([#35](https://github.com/conorluddy/Vestige/pull/35))
+
 ## [0.2.6](https://github.com/conorluddy/Vestige/compare/v0.2.5...v0.2.6) - 2026-05-01
 
 ### Features

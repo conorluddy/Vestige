@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7](https://github.com/conorluddy/Vestige/compare/v0.2.6...v0.2.7) - 2026-05-01
+
+### Bug Fixes
+
+- *(skills)* single-quote SKILL.md descriptions for strict YAML parsers ([#33](https://github.com/conorluddy/Vestige/pull/33))
+
+### Features
+
+- *(skills)* dual-target install — .claude/skills/ + .agents/skills/ ([#35](https://github.com/conorluddy/Vestige/pull/35))
+
 ## [0.2.5](https://github.com/conorluddy/Vestige/compare/v0.2.4...v0.2.5) - 2026-05-01
 
 ### Features
