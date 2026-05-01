@@ -61,15 +61,20 @@ impl fmt::Display for MemoryType {
 
 impl FromStr for MemoryType {
     type Err = CoreError;
+    /// Parse a memory-type label. Accepts the canonical snake_case forms
+    /// (`open_question`, `project_summary`) and the user-facing aliases that
+    /// match the capture subcommand names (`question`, `summary`). Matching
+    /// is case-insensitive so `--type Decision` works alongside the snake
+    /// form. Anything else is a `CoreError::InvalidMemoryType`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        match s.to_ascii_lowercase().as_str() {
             "observation" => Ok(Self::Observation),
             "note" => Ok(Self::Note),
             "decision" => Ok(Self::Decision),
             "preference" => Ok(Self::Preference),
-            "project_summary" => Ok(Self::ProjectSummary),
-            "open_question" => Ok(Self::OpenQuestion),
-            other => Err(CoreError::InvalidMemoryType(other.to_string())),
+            "project_summary" | "summary" => Ok(Self::ProjectSummary),
+            "open_question" | "question" => Ok(Self::OpenQuestion),
+            _ => Err(CoreError::InvalidMemoryType(s.to_string())),
         }
     }
 }
@@ -276,4 +281,49 @@ pub struct MemoryCounts {
     pub active: i64,
     /// Number of memories with `status = 'deleted'` (soft-deleted).
     pub deleted: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_type_accepts_canonical_and_aliases() {
+        // Canonical
+        assert_eq!(
+            MemoryType::from_str("decision").unwrap(),
+            MemoryType::Decision
+        );
+        assert_eq!(
+            MemoryType::from_str("open_question").unwrap(),
+            MemoryType::OpenQuestion
+        );
+        assert_eq!(
+            MemoryType::from_str("project_summary").unwrap(),
+            MemoryType::ProjectSummary
+        );
+        // Aliases matching capture-subcommand names
+        assert_eq!(
+            MemoryType::from_str("question").unwrap(),
+            MemoryType::OpenQuestion
+        );
+        assert_eq!(
+            MemoryType::from_str("summary").unwrap(),
+            MemoryType::ProjectSummary
+        );
+        // Case-insensitive
+        assert_eq!(
+            MemoryType::from_str("Decision").unwrap(),
+            MemoryType::Decision
+        );
+        assert_eq!(
+            MemoryType::from_str("QUESTION").unwrap(),
+            MemoryType::OpenQuestion
+        );
+        // Unknown
+        assert!(matches!(
+            MemoryType::from_str("bogus"),
+            Err(CoreError::InvalidMemoryType(_))
+        ));
+    }
 }

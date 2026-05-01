@@ -17,6 +17,8 @@ use vestige_config::{
 use vestige_core::{build_bundle, ListFilter, MemoryType, NewMemory};
 use vestige_store::Store;
 
+use crate::output::{emit_json, OutputFormat};
+
 /// Arguments for `vestige init`.
 #[derive(Debug, Args)]
 pub struct InitArgs {
@@ -32,6 +34,10 @@ pub struct InitArgs {
     /// Show the planned actions without writing anything.
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Emit a structured JSON envelope (project_id, name, db_path, fresh).
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Initialise (or re-confirm) Vestige for the current repository.
@@ -62,6 +68,17 @@ pub fn run(args: InitArgs) -> Result<()> {
     let cfg = build_init_config(&project_id, &project_name, &storage_path);
 
     if args.dry_run {
+        if args.json {
+            return emit_json(&serde_json::json!({
+                "dry_run": true,
+                "project_id": cfg.project_id,
+                "name": cfg.project_name,
+                "config_path": config_path.to_string_lossy(),
+                "db_path": storage_path.to_string_lossy(),
+                "summary": args.summary,
+                "fresh": existing.is_none(),
+            }));
+        }
         print_plan(
             &repo_root,
             &config_path,
@@ -119,25 +136,37 @@ pub fn run(args: InitArgs) -> Result<()> {
     }
 
     let is_fresh = existing.is_none();
-    let banner = if is_fresh {
-        "Initialised"
-    } else {
-        "Already initialised"
-    };
-    println!(
-        "{banner} Vestige project `{project_name}` ({})",
-        project_id.as_str()
-    );
-    println!("  Config:   {}", config_path.display());
-    println!("  Memory:   {}", storage_path.display());
-    if let Some(s) = args.summary {
-        println!("  Summary:  {s}");
-    }
 
-    if is_fresh {
-        print_next_steps();
+    match OutputFormat::pick(args.json) {
+        OutputFormat::Json => emit_json(&serde_json::json!({
+            "project_id": project_id.as_str(),
+            "name": project_name,
+            "config_path": config_path.to_string_lossy(),
+            "db_path": storage_path.to_string_lossy(),
+            "summary": args.summary,
+            "fresh": is_fresh,
+        })),
+        OutputFormat::Text => {
+            let banner = if is_fresh {
+                "Initialised"
+            } else {
+                "Already initialised"
+            };
+            println!(
+                "{banner} Vestige project `{project_name}` ({})",
+                project_id.as_str()
+            );
+            println!("  Config:   {}", config_path.display());
+            println!("  Memory:   {}", storage_path.display());
+            if let Some(s) = args.summary {
+                println!("  Summary:  {s}");
+            }
+            if is_fresh {
+                print_next_steps();
+            }
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 /// Print onboarding hints after a first-time `init`. Skipped on re-runs so
