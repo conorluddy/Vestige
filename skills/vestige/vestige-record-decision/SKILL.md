@@ -1,6 +1,6 @@
 ---
 name: vestige-record-decision
-description: Capture a project decision to Vestige memory whenever the model commits to an architectural choice, picks approach A over B, settles a tradeoff, chooses a library / framework / pattern, or answers a "how should we do X?" question. Use this skill when you say or hear things like "we'll go with…", "let's use…", "decision:…", "I'm choosing X over Y because…", "settled — we use…", "going with X", or when the user says "capture that decision", "remember this", "record it", or names something they just decided. Decisions are the highest-signal memory type — they ground future reasoning ("we already chose SQLite, don't re-litigate") and feed every `vestige context` pack. Captures the body, a rationale (the *why*), and an importance score (default 0.7). Returns the new memory's handle (`mem_<ULID>`).
+description: Capture a project decision to Vestige memory when committing to an architectural choice, picking approach A over B, settling a tradeoff, or choosing a library / framework / pattern. Fire on "we'll go with…", "let's use…", "decision:…", "I'm choosing X over Y because…", "settled — we use…", "going with X", or when the user says "capture that decision", "remember this", "record it". Decisions ground future reasoning and feed every `vestige context` pack. Captures body, rationale (the why), and importance (default 0.7). Returns the new handle (`mem_<ULID>`).
 ---
 
 # Record a project decision

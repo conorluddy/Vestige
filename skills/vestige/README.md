@@ -4,17 +4,30 @@ Ten Claude Code skill definitions that mirror Vestige's user-facing memory CLI.
 Each skill is a self-contained `SKILL.md` describing **when** an agent should
 fire it and **how** to invoke the underlying `vestige <subcommand>`.
 
-## Install (manual, for now)
+## Install
 
-Copy or symlink this entire `vestige/` directory into the consuming repo's
-`.claude/skills/` so the model picks the skills up:
+Skills are bundled into the `vestige` binary as of v0.3 — `cargo install vestige`
+and Homebrew users get them automatically.
+
+**New repo** — `vestige init` installs skills into `<repo>/.claude/skills/` by
+default. Pass `--no-install-skills` to opt out.
+
+**Existing repo** — run `vestige skills install` to write into `<repo>/.claude/skills/`.
+Idempotent. Hard-fails on drift unless `--force`.
 
 ```bash
-mkdir -p <repo>/.claude/skills/
-cp -R skills/vestige <repo>/.claude/skills/
-```
+# Install (or re-install) skills into the current repo
+vestige skills install
 
-A future `vestige init --install-skills` (or equivalent) will automate this.
+# Override destination
+vestige skills install --dest /path/to/.claude/skills/
+
+# Preview without writing
+vestige skills install --dry-run
+
+# Inspect what shipped with this binary (name + description + file count + version)
+vestige skills list --json
+```
 
 ## What's here
 

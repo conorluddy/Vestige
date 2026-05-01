@@ -1,6 +1,6 @@
 ---
 name: vestige-record-note
-description: Capture a general project note to Vestige memory when you learn or surface a non-trivial fact about the codebase, its setup, an external service's quirk, a workaround for a tooling bug, a non-obvious gotcha, an "aha" moment, a TIL, a code smell worth flagging, a TODO that needs to outlive the session, or anything future-you would want to remember but that isn't a decision (no firm commitment), a preference (no user opinion), or an open question (the answer is known). Fire when you say or hear "good to know:", "TIL", "note that…", "worth remembering:", "heads up:", "FYI:", "useful fact:", "turns out…", "the reason X happens is…", "TODO:", "smell:", "careful — X", or when the user says "jot this down", "note that down", "remember this fact". Default importance is 0.5. Returns the new memory's handle (`mem_<ULID>`).
+description: Capture a general project note to Vestige memory for non-trivial facts, workarounds, gotchas, aha moments, TILs, code smells, or durable TODOs — anything worth keeping that isn't a decision, preference, or open question. Fire on "good to know:", "TIL", "note that…", "heads up:", "FYI:", "turns out…", "the reason X happens is…", "TODO:", "smell:", "careful — X", or when the user says "jot this down", "note that down", "remember this fact". Default importance 0.5. Returns the new handle (`mem_<ULID>`).
 ---
 
 # Record a project note

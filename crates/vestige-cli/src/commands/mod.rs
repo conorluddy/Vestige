@@ -21,4 +21,5 @@ pub mod restore;
 pub mod search;
 pub mod search_shared;
 pub mod show;
+pub mod skills;
 pub mod status;
