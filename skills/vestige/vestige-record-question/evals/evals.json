@@ -1,0 +1,23 @@
+{
+  "skill_name": "vestige-record-question",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Open question I want to keep visible: should auto-memorise be on by default in every project, or opt-in via .vestige/config.toml? Real ambiguity — I can see arguments either way and don't want to decide right now. Park it.",
+      "expected_output": "vestige question add with body framed as an actual question about auto-memorise default, importance ~0.5-0.6.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "TBD: do we ship a `vestige init --install-skills` flag in v0.3 or wait for v0.5 when we have the MCP server in place? Capture as a question — needs more thought.",
+      "expected_output": "vestige question add capturing the install-skills timing question.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "follow-up I don't want to lose: when we add hybrid recall, should the score normalisation be min-max per query or rank-based? Need to investigate the literature first. record it.",
+      "expected_output": "vestige question add about hybrid recall score normalisation, importance ~0.5.",
+      "files": []
+    }
+  ]
+}

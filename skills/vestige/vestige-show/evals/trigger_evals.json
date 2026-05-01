@@ -1,0 +1,18 @@
+[
+  { "query": "show me mem_01HABCDEFGHIJKLMNOPQRSTUVW in full", "should_trigger": true },
+  { "query": "expand mem_01H8XYZABCDEFGHJKMNPQRSTV at summary depth", "should_trigger": true },
+  { "query": "what does mem_01HXXXXXXXXXXXXXXXXXX say? read me the body", "should_trigger": true },
+  { "query": "the recall hit was mem_01HABC… but the one-liner isn't enough — pull the full memory and any sources attached", "should_trigger": true },
+  { "query": "read mem_01H8XYZ at compressed depth, I just want a paragraph", "should_trigger": true },
+  { "query": "expand mem_01H8XYZ with --sources so I can see the file it was captured from", "should_trigger": true },
+  { "query": "search memory for embedding decisions", "should_trigger": false },
+  { "query": "we'll go with SQLite, settled", "should_trigger": false },
+  { "query": "I prefer trailing commas always", "should_trigger": false },
+  { "query": "TBD: daemon mode v0.5", "should_trigger": false },
+  { "query": "give me the project context pack", "should_trigger": false },
+  { "query": "forget mem_01H8XYZ", "should_trigger": false },
+  { "query": "restore mem_01H8XYZ", "should_trigger": false },
+  { "query": "TIL fastembed downloads lazily", "should_trigger": false },
+  { "query": "the bug was an empty vector index", "should_trigger": false },
+  { "query": "list memories of type decision", "should_trigger": false }
+]

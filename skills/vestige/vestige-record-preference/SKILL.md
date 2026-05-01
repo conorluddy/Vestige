@@ -1,6 +1,6 @@
 ---
 name: vestige-record-preference
-description: Capture a user preference to Vestige memory when the human you're working with expresses a convention, opinion, taste, or "how I like things done" about this project. Examples to fire on - "I prefer X", "always use Y", "don't do Z", "we always…", "never…", "I like…", "I don't like…", "make sure to…", "do not…", "convention:…", "rule:…", "in this project we…", or "the team prefers…". The value of preferences is durability across sessions — a recorded preference becomes a constraint on every future agent run in this repo via the `vestige context` pack. Default importance is 0.6; returns the new memory's handle (`mem_<ULID>`).
+description: Capture a user preference to Vestige memory when the human you're working with expresses a convention, opinion, taste, or "how I like things done" about this project. Fire on "I prefer X", "always use Y", "don't do Z", "we always…", "never…", "I like…", "I don't like…", "make sure to…", "do not…", "convention:…", "rule:…", "house style:", "in this project we…", "the team prefers…", or when you're correcting your own output to match what the user just told you to do. Preferences durably constrain every future agent run in this repo via the `vestige context` pack — that's why they're worth a dedicated skill. Default importance is 0.6. Returns the new memory's handle (`mem_<ULID>`).
 ---
 
 # Record a project preference
@@ -17,11 +17,14 @@ The user just said one of:
 - "convention:" / "rule:" / "house style:"
 - "in this project, we…"
 
-Or you're inferring a preference from a correction the user gave ("no, I want it written like this") — capture the corrected form.
+Or you're inferring a preference from a correction the user just gave ("no, I want it written like this") — capture the corrected form in their voice.
 
-If the human is committing to an *architectural* choice (with a why), it's a decision, not a preference — use `vestige-record-decision`. Preferences are stylistic / methodological / personal.
+Tie-breakers vs siblings:
 
-## How to capture
+- *Preference vs decision* — preferences are stylistic / methodological / personal; decisions are architectural commitments with a rationale. If the user gave a *why*, it might still be a decision.
+- *Preference vs note* — preferences are stated opinions ("I prefer …"); notes are facts about the project. Don't conflate them: notes don't earn the same surfacing treatment in the context pack.
+
+## How to invoke
 
 ```bash
 vestige preference add "<the preference, written as the user would phrase it>" \
@@ -30,12 +33,21 @@ vestige preference add "<the preference, written as the user would phrase it>" \
 ```
 
 - **body** (positional, required): the preference verbatim if you can. Write in the user's voice ("I prefer …", "always use …") — don't reword to third-person.
-- **`--importance`** (optional): default 0.6. Bump to 0.8+ for hard rules ("never commit to main"); drop to 0.5 for taste.
+- **`--importance`** (optional, default 0.6): bump to 0.8+ for hard rules ("never commit to main"); drop to 0.5 for taste.
+- **`--source`** (optional): the file or message where the preference was expressed, if inspectable.
 
-## After capture
+## After invocation
 
-Read the returned `id`. Surface as: *"Captured your preference (`mem_…`). I'll honour it going forward."* — explicit acknowledgement of the constraint.
+The JSON envelope returns `{ "id": "mem_<ULID>", ... }`. Surface as: *"Captured your preference (`mem_…`). I'll honour it going forward."* — explicit acknowledgement of the constraint.
 
-## Why preferences matter
+Preferences feed `vestige context` and are surfaced at the top of every project context pack — they're how the agent inherits the project's accumulated taste without having to re-ask the same questions every session.
 
-Preferences feed `vestige context` and are surfaced at the top of every project context pack. They're how the agent inherits the project's accumulated taste without having to re-ask the same questions every session.
+## Idempotence & dedup
+
+Every call is a fresh write. Before capturing, dedup:
+
+```bash
+vestige recall "<key phrase>" --type preference --json --limit 3
+```
+
+If a near-identical preference already exists, skip. If the user has *changed their mind* (the new preference contradicts the old), capture the new one and `vestige-forget` the prior — don't leave contradictory rules active.

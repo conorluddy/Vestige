@@ -1,11 +1,11 @@
 ---
 name: vestige-context
-description: Render the project's Vestige context pack — project summary, recent decisions, open questions, recent activity — as a budget-bounded markdown brief. Use this skill at session start, right before tackling unfamiliar work in this codebase, after a long pause from this project, or when the user asks "what's the state of this project?", "where are we?", "catch me up", "what have we decided?", "what's outstanding?", "give me the rundown". Returns a compact JSON envelope (or markdown text) with the project_summary memory, the N most-important decisions, the open questions still in flight, and a tail of recent activity. Token budget defaults to 1200 — passing `--budget-tokens` tightens or loosens.
+description: Render the project's Vestige context pack — project summary, recent decisions, open questions, recent activity — as a budget-bounded markdown brief. Use this skill at session start, right before tackling unfamiliar work in this codebase, after a long pause from this project, or when the user asks "what's the state of this project?", "where are we?", "catch me up", "what have we decided?", "what's outstanding?", "give me the rundown". Returns a JSON envelope (or markdown text) with `summary`, `decisions[]`, `open_questions[]`, `recent[]`. Token budget defaults to 1200 — pass `--budget-tokens` to tighten or loosen.
 ---
 
 # Get the project context pack
 
-Pull the durable Vestige memory that an agent should read before doing serious work in this project. The pack is constructed by `vestige-core::build_pack` and is the same shape MCP tooling exposes via `vestige_get_project_context`.
+Pull the durable Vestige memory an agent should read before doing serious work in this project. Same shape MCP tooling exposes via `vestige_get_project_context`.
 
 ## When to fire
 
@@ -14,22 +14,21 @@ Pull the durable Vestige memory that an agent should read before doing serious w
 - **User explicitly asks.** "What's the state?", "remind me where we are", "summarise this project for me".
 - **Before a non-trivial decision.** If you're about to commit to architecture, the pack tells you what you're already committed to.
 
-If you're searching for a *specific* piece of memory (a decision about X), use `vestige-recall` instead — narrower, cheaper.
+Tie-breaker vs `vestige-recall`: the pack is *broad* (project-wide). Recall is *narrow* (one query). If you have a specific question, use recall — it's cheaper.
 
-## How to fetch
+## How to invoke
 
 ```bash
 vestige context --json
 ```
 
-Useful flags:
+- **`--budget-tokens <n>`** (default 1200): caps the total pack size. Lower it (300–500) when context is tight; raise it (2400+) for a deep dive.
+- **`--per-section <n>`** (default 8): caps each list section.
+- **`--json`** (recommended for agents): structured envelope. Skip for human-readable markdown.
 
-- **`--budget-tokens <n>`** (default 1200): caps the total pack size. Lower it (300–500) when you're tight on context window; raise it (2400+) for a deep dive.
-- **`--json`** (recommended for skills): structured envelope with `summary`, `decisions[]`, `open_questions[]`, `recent[]` sections. Skip for human-readable markdown.
+## After invocation
 
-## After fetching
-
-Read the JSON. The structure:
+The JSON envelope:
 
 ```json
 {
@@ -42,9 +41,11 @@ Read the JSON. The structure:
 }
 ```
 
-Use `available_depths` and `vestige-show <id>` to expand any card you need at higher fidelity.
+For any card whose `one_liner` isn't enough, use `vestige-show <id>` to expand at higher fidelity. Cite handles (`mem_…`) when you reference a finding.
 
-## When to skip
+## Idempotence & dedup
 
-- The user just asked a narrow question. Don't pull the whole pack to answer "what's our SQLite version?" — `vestige-recall "sqlite"` is the right tool.
+Read-only — calling repeatedly is safe and cheap, but pointless. Skip if:
+
 - You already pulled the pack this session and nothing has changed.
+- The user just asked a narrow question — don't pull the whole pack to answer "what's our SQLite version?", use `vestige-recall "sqlite"` instead.

@@ -1,0 +1,18 @@
+[
+  { "query": "I prefer integration tests against real SQLite over mocks, always. record this", "should_trigger": true },
+  { "query": "in this project we never push directly to main. main is production. branches and PRs only. capture that preference", "should_trigger": true },
+  { "query": "convention: every public function in vestige-core gets a one-line doc comment", "should_trigger": true },
+  { "query": "make sure to always run cargo fmt before committing. don't skip it", "should_trigger": true },
+  { "query": "I don't like multi-line doc comments on private helpers — keep them to one line. house style", "should_trigger": true },
+  { "query": "rule: no `unwrap()` outside of #[cfg(test)] blocks", "should_trigger": true },
+  { "query": "we always use newtype IDs (MemoryId, ProjectId), never bare strings. preference, log it", "should_trigger": true },
+  { "query": "decision: SQLite over Redis", "should_trigger": false },
+  { "query": "TIL fastembed downloads the model on first call", "should_trigger": false },
+  { "query": "open question — daemon mode for v0.5?", "should_trigger": false },
+  { "query": "show me mem_01H8", "should_trigger": false },
+  { "query": "search for prior decisions on embeddings", "should_trigger": false },
+  { "query": "forget mem_01H8 — outdated", "should_trigger": false },
+  { "query": "what's the project state?", "should_trigger": false },
+  { "query": "restore mem_01H8", "should_trigger": false },
+  { "query": "the bug was UTF-8 boundary truncation, fixed it", "should_trigger": false }
+]

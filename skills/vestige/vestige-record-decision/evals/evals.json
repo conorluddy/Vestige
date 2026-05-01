@@ -1,0 +1,29 @@
+{
+  "skill_name": "vestige-record-decision",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ok we just spent 20 minutes going back and forth on whether to use redis or sqlite for the rate-limit token bucket. settled — we're going with sqlite because the deploy is single-node and the extra dependency isn't worth it for v1. capture that.",
+      "expected_output": "A single `vestige decision add` call with body capturing the SQLite-over-Redis choice and --rationale citing single-node deploy + dependency cost. Should print mem_<ULID> handle.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I've been reading through the rmcp 0.16 source and I'm convinced we should expose one vestige_search tool with a mode param rather than three separate tools (vestige_search_lexical, vestige_search_semantic, vestige_search_hybrid). Semantic compression beats per-mode tools for agent ergonomics. Going with that.",
+      "expected_output": "vestige decision add with a one-liner about the unified vestige_search tool, --rationale referring to semantic compression / agent ergonomics, importance 0.7 or higher.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Decision: migration files are immutable once shipped. We add new numbered files under crates/vestige-store/src/migrations/ rather than editing existing ones — old DBs in ~/.vestige/projects/* won't re-run a mutated migration. Record this so we don't forget and break someone's repo.",
+      "expected_output": "vestige decision add capturing the immutable-migrations rule with rationale about already-deployed DBs.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Looked at thiserror vs snafu. We'll go with thiserror per crate (CoreError, StoreError, ConfigError) and only reach for anyhow at the CLI boundary with .context() calls. Reasoning: thiserror gives us typed enums for callers, anyhow's dynamic Box<dyn Error> is fine at the very edge but we don't want it leaking into core. Importance is high — every crate inherits from this.",
+      "expected_output": "vestige decision add with --importance >=0.85 and --rationale capturing the per-crate typed enums vs anyhow-at-boundary reasoning.",
+      "files": []
+    }
+  ]
+}

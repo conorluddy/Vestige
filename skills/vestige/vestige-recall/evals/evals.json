@@ -1,0 +1,23 @@
+{
+  "skill_name": "vestige-recall",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Have we already decided on an embedding provider? Before I commit to fastembed, search memory for prior decisions or notes about it.",
+      "expected_output": "vestige recall \"embedding provider\" --json (ideally --hybrid). Then a brief reading of the top hits, citing handles.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I'm about to start a refactor of vestige-store::repr_sync. What did we say about the FTS triggers and soft-delete sync? Look it up before I touch anything.",
+      "expected_output": "vestige recall \"FTS triggers soft-delete sync\" --json --hybrid. Cite handles found.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "have we discussed adding a daemon mode? I want to ground the answer in what's already in memory rather than guess.",
+      "expected_output": "vestige recall \"daemon mode\" --json --hybrid (or --type question if narrowing).",
+      "files": []
+    }
+  ]
+}

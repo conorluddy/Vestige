@@ -1,22 +1,27 @@
 ---
 name: vestige-record-note
-description: Capture a general project note to Vestige memory when you learn or surface a non-trivial fact about the codebase, its setup, an external service's quirk, a workaround for a tooling bug, a non-obvious gotcha, or anything future-you would want to remember but that isn't a decision (no firm commitment), a preference (no user opinion), or an open question (the answer is known). Use this skill when you say or hear "good to know:", "TIL", "note that…", "worth remembering:", "heads up:", "FYI:", "useful fact:", or when the user says "jot this down", "note that down", "remember this fact", or describes something they want captured without committing to it. Default importance is 0.5; the JSON envelope returns the new memory's handle (`mem_<ULID>`) and a compact card.
+description: Capture a general project note to Vestige memory when you learn or surface a non-trivial fact about the codebase, its setup, an external service's quirk, a workaround for a tooling bug, a non-obvious gotcha, an "aha" moment, a TIL, a code smell worth flagging, a TODO that needs to outlive the session, or anything future-you would want to remember but that isn't a decision (no firm commitment), a preference (no user opinion), or an open question (the answer is known). Fire when you say or hear "good to know:", "TIL", "note that…", "worth remembering:", "heads up:", "FYI:", "useful fact:", "turns out…", "the reason X happens is…", "TODO:", "smell:", "careful — X", or when the user says "jot this down", "note that down", "remember this fact". Default importance is 0.5. Returns the new memory's handle (`mem_<ULID>`).
 ---
 
 # Record a project note
 
-Use Vestige to capture useful project knowledge that doesn't fit a more specific type. Notes are the catch-all bucket — lower-signal than decisions but still worth keeping.
+Capture useful project knowledge that doesn't fit a more specific type. Notes are the catch-all bucket — lower-signal than decisions, but still worth keeping. Aha moments, TILs, gotchas, code smells, and durable TODOs all live here.
 
 ## When to fire
 
 - You discovered a non-obvious thing about the codebase ("`cargo test --workspace` triggers FTS triggers in tmpdir-shaped tests").
 - You found a workaround for a tool quirk.
-- You learned a fact that's true *now* but not necessarily a project commitment.
+- You hit an "aha" — surprising behaviour, broken assumption, root cause after debugging.
+- You're flagging a code smell or refactor candidate that should outlive this session.
 - The user said "jot this down" / "note that" / "worth recording" without naming it a decision.
 
-If the moment carries a *commitment* with a *why*, use `vestige-record-decision` instead. If it's a user *opinion* about how the project should be done, use `vestige-record-preference`. If it's an unanswered *question*, use `vestige-record-question`.
+Tie-breakers vs siblings:
 
-## How to capture
+- *Note vs decision* — does it carry a commitment with a why? If yes, `vestige-record-decision`.
+- *Note vs preference* — is it a user opinion / convention? If yes, `vestige-record-preference`.
+- *Note vs question* — is the answer known? If no, `vestige-record-question`.
+
+## How to invoke
 
 ```bash
 vestige note add "<the fact, in one or two sentences>" \
@@ -25,15 +30,22 @@ vestige note add "<the fact, in one or two sentences>" \
 ```
 
 - **body** (positional, required): the fact itself, written so it stands alone — assume future-you reads it cold.
-- **`--importance`** (optional): default 0.5. Drop to 0.3 for trivia; raise to 0.7 only if losing this would actually hurt.
-- **`--source`** (optional): when the note came from a specific file/PR/URL, attach it. ≤ 2 KiB.
+- **`--importance`** (optional, default 0.5): drop to 0.3 for trivia; raise to 0.6 for code smells / root causes worth keeping in front of the agent; 0.7 only if losing this would actually hurt.
+- **`--source`** (optional): when the note came from a specific file/PR/URL, attach it.
+- **`--source-content`** (optional): inline snippet, capped at 2 KiB by the CLI.
 
-## After capture
+## After invocation
 
-Read the returned `id` and surface a one-liner: *"Noted `mem_…`."* — no need to read the body back.
+The JSON envelope returns `{ "id": "mem_<ULID>", ... }`. Surface a one-liner: *"Noted `mem_…`."* No need to read the body back.
 
-## When NOT to capture
+## Idempotence & dedup
 
-- The user already said it once and you can paraphrase it back. Don't note conversational acknowledgements.
-- The fact is fully encoded in code (a comment in the source serves better).
-- You're tempted to record a question. Use `vestige-record-question` — open questions get their own surfacing in `vestige context`.
+Every call is a fresh write. Before capturing a note that feels familiar, dedup with:
+
+```bash
+vestige recall "<key phrase>" --json --limit 3
+```
+
+Skip the write if the top hit is the same fact at a comparable importance. If you're capturing because *something changed*, capture the new note and `vestige-forget` the stale one — don't leave both active.
+
+Don't note conversational acknowledgements, things already in code (a comment serves better), or anything that's actually a decision/preference/question in disguise.

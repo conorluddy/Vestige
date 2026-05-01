@@ -1,0 +1,23 @@
+{
+  "skill_name": "vestige-forget",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "We just decided to switch from fastembed to a different provider. The old decision is mem_01HABCDEFGHIJKLMNOPQRSTUVW. First record the new decision (provider TBD by the user — just stub the body 'switch embedding provider'), then forget the old one so it stops surfacing in context.",
+      "expected_output": "Two CLI calls in order: vestige decision add \"...\" --json (capturing the supersession), then vestige forget mem_01HABCDEFGHIJKLMNOPQRSTUVW --json. Brief surface line acknowledging soft-delete is reversible.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "forget mem_01H8XYZABCDEFGHJKMNPQRSTV — that note is outdated, we've changed how the FTS triggers work since",
+      "expected_output": "vestige forget mem_01H8XYZABCDEFGHJKMNPQRSTV --json. Surface that it's restorable.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "the open question mem_01H7QQQQQQQQQQQQQQQQQQ has been answered — we just recorded mem_01H7AAAAAAAAAAAAAAAAAA as the decision. drop the question.",
+      "expected_output": "vestige forget mem_01H7QQQQQQQQQQQQQQQQQQ --json (no need to re-capture; the user already recorded the decision).",
+      "files": []
+    }
+  ]
+}

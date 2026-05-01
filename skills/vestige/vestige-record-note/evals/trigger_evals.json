@@ -1,0 +1,18 @@
+[
+  { "query": "TIL — fastembed downloads its model on first call, which makes the first `vestige embed --all` look hung. note that down", "should_trigger": true },
+  { "query": "good to know: rusqlite bundled mode pins to whatever sqlite version ships with the crate, not the system one. worth jotting down so we don't get confused next upgrade", "should_trigger": true },
+  { "query": "the bug was a UTF-8 boundary truncation issue in source-snippet capping — we were slicing on bytes inside a multi-byte char. record the root cause", "should_trigger": true },
+  { "query": "this match arm in derive_representations is a code smell — same pattern duplicated 4 times for each MemoryType. flag it as a refactor candidate", "should_trigger": true },
+  { "query": "careful — Cargo's --workspace with a -p still re-runs the whole workspace for shared deps. non-obvious. note it", "should_trigger": true },
+  { "query": "TODO that I want to actually remember between sessions: replace the fake embedding provider tests with property-based ones once proptest is added to the workspace", "should_trigger": true },
+  { "query": "interesting — the FTS5 rank function in sqlite returns negative scores by default, you have to negate them for sane sorting. heads up", "should_trigger": true },
+  { "query": "we'll go with FTS5 over a custom tokenizer, settled", "should_trigger": false },
+  { "query": "I prefer trailing commas in struct definitions, always", "should_trigger": false },
+  { "query": "open question: do we want a daemon mode in v0.5", "should_trigger": false },
+  { "query": "show me what mem_01H8XYZ says", "should_trigger": false },
+  { "query": "search memory for what we said about embeddings", "should_trigger": false },
+  { "query": "forget that note, it's stale", "should_trigger": false },
+  { "query": "give me the project context pack", "should_trigger": false },
+  { "query": "restore mem_01H8XYZ — we forgot it by accident", "should_trigger": false },
+  { "query": "ok cool, that makes sense, let's move on", "should_trigger": false }
+]

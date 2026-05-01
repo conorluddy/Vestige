@@ -154,9 +154,15 @@ pub struct ListFilter {
 }
 
 /// Sanitize a free-text query for FTS5 MATCH. Collapses to alphanumeric
-/// tokens (plus `-` and `_`), joined by whitespace (FTS5 implicit AND with
-/// the porter stemmer doing the rest). Returns empty string when the query
-/// has no usable tokens — callers should skip the search in that case.
+/// tokens (plus `-` and `_`), then wraps each token in double quotes so
+/// FTS5 treats it as a literal phrase. Without quoting, FTS5 parses tokens
+/// like `soft-delete` as `soft:delete` (column reference), surfacing
+/// `no such column: delete` errors on perfectly valid English queries.
+/// Quoting also short-circuits other FTS5 syntax characters (`*`, `(`,
+/// `OR`, `NEAR`, etc.) without us needing per-character escaping.
+///
+/// Returns empty string when the query has no usable tokens — callers
+/// should skip the search in that case.
 pub fn sanitize_fts_query(raw: &str) -> String {
     raw.split_whitespace()
         .map(|w| {
@@ -165,6 +171,7 @@ pub fn sanitize_fts_query(raw: &str) -> String {
                 .collect::<String>()
         })
         .filter(|s| !s.is_empty())
+        .map(|t| format!("\"{t}\""))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -239,12 +246,24 @@ mod tests {
 
     #[test]
     fn sanitize_strips_fts_specials() {
-        assert_eq!(sanitize_fts_query("MCP adapter!"), "MCP adapter");
+        assert_eq!(sanitize_fts_query("MCP adapter!"), "\"MCP\" \"adapter\"");
         assert_eq!(
             sanitize_fts_query("  (foo) \"bar\" baz-qux "),
-            "foo bar baz-qux"
+            "\"foo\" \"bar\" \"baz-qux\""
         );
         assert_eq!(sanitize_fts_query("***"), "");
         assert_eq!(sanitize_fts_query(""), "");
+    }
+
+    #[test]
+    fn sanitize_quotes_dashed_terms_so_fts5_does_not_parse_as_column_ref() {
+        // Without quoting, FTS5 reads `soft-delete` as `soft:delete` and
+        // raises `no such column: delete`. The quoted form is a phrase.
+        assert_eq!(
+            sanitize_fts_query("FTS triggers soft-delete sync"),
+            "\"FTS\" \"triggers\" \"soft-delete\" \"sync\""
+        );
+        assert_eq!(sanitize_fts_query("auto-memorise"), "\"auto-memorise\"");
+        assert_eq!(sanitize_fts_query("opt-in"), "\"opt-in\"");
     }
 }

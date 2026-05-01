@@ -1,0 +1,18 @@
+[
+  { "query": "restore mem_01H8XYZ — I forgot it by accident", "should_trigger": true },
+  { "query": "bring back mem_01HABCDEFGHIJKLMNOPQRSTUVW, that memory should still be active", "should_trigger": true },
+  { "query": "undo that forget on mem_01H7QQQQQQQQ", "should_trigger": true },
+  { "query": "we changed our minds again — re-activate mem_01H8XYZ", "should_trigger": true },
+  { "query": "that decision was reversed and now re-affirmed, restore mem_01H8XYZ", "should_trigger": true },
+  { "query": "forget mem_01H8XYZ", "should_trigger": false },
+  { "query": "show mem_01H8XYZ in full", "should_trigger": false },
+  { "query": "search memory for embeddings", "should_trigger": false },
+  { "query": "we'll go with SQLite", "should_trigger": false },
+  { "query": "I prefer trailing commas", "should_trigger": false },
+  { "query": "TBD: daemon mode for v0.5", "should_trigger": false },
+  { "query": "give me the project context pack", "should_trigger": false },
+  { "query": "TIL fastembed downloads lazily", "should_trigger": false },
+  { "query": "the bug was an empty vector index", "should_trigger": false },
+  { "query": "list memories of type decision", "should_trigger": false },
+  { "query": "rebuild the FTS index from scratch", "should_trigger": false }
+]
