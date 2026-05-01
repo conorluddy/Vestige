@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 mod commands;
 mod context;
 mod output;
+mod skills;
 
 /// Top-level clap entry-point.
 #[derive(Parser)]
@@ -62,6 +63,8 @@ enum Command {
     Embeddings(commands::embeddings::EmbeddingsArgs),
     /// Rebuild the FTS and/or embedding indexes.
     Reindex(commands::reindex::ReindexArgs),
+    /// Manage Claude Code skills bundled with this `vestige` binary.
+    Skills(commands::skills::SkillsArgs),
     /// Start the MCP server over stdio so an agent can read/write project memory.
     Mcp(commands::mcp::McpArgs),
 }
@@ -93,6 +96,7 @@ fn main() -> Result<()> {
         Command::Embed(args) => commands::embed::run(args),
         Command::Embeddings(args) => commands::embeddings::run(args),
         Command::Reindex(args) => commands::reindex::run(args),
+        Command::Skills(args) => commands::skills::run(args),
         Command::Mcp(args) => commands::mcp::run(args),
     }
 }

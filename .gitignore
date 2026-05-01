@@ -13,3 +13,4 @@ pages-seed/
 
 # Skill-creator eval workspace (skills/vestige/vestige-skills-workspace/iteration-N/)
 skills/vestige/vestige-skills-workspace/
+.DS_Store

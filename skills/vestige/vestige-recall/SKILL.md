@@ -1,6 +1,6 @@
 ---
 name: vestige-recall
-description: Search Vestige memory before making a decision, taking on a refactor, choosing a library, or any time you suspect "we already discussed this in a previous session". Fire when you're about to commit to something and want to ground the choice in prior project context, or when the user says "have we decided this?", "what did we say about X?", "look up our notes on Y", "is this already settled?", "search memory for Z". Lexical (BM25) by default — always available; pass `--hybrid` for merged lexical + semantic recall when embeddings exist (`vestige embed --all` first), or `--semantic` for cosine-only. Returns ranked compact cards with `mem_<ULID>` handles, scores, and one-liners. Use `vestige-show <id>` to expand any card to full body.
+description: Search Vestige memory before a decision, refactor, or library choice — any time you suspect "we already discussed this". Fire when the user says "have we decided this?", "what did we say about X?", "look up our notes on Y", "is this already settled?", "search memory for Z". Lexical (BM25) by default; `--hybrid` for merged lexical + semantic recall (requires `vestige embed --all`); `--semantic` for cosine-only. Returns ranked compact cards with `mem_<ULID>` handles. Use `vestige-show <id>` to expand.
 ---
 
 # Recall prior memory

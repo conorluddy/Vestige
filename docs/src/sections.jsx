@@ -164,10 +164,46 @@ function MCP() {
   );
 }
 
+// ── Skills ───────────────────────────────────────────────
+function Skills() {
+  const { skills } = window.VESTIGE;
+  const kindColor = {
+    auto:      'var(--vt-accent)',
+    capture:   'var(--vt-info)',
+    retrieve:  'var(--vt-mint)',
+    lifecycle: 'var(--vt-muted)',
+  };
+  return (
+    <Section id="skills" n="05" title="Skills surface." lede="Ten Claude Code skills, bundled in the binary. Installed into .claude/skills/ by vestige init.">
+      <pre className="vt-pre" style={{ marginBottom: 18 }}>{`# Ships with the binary — cargo install / brew users get them too.
+vestige skills install        # writes 33 files into <repo>/.claude/skills/
+vestige skills list --json    # 10 skills + version
+
+# init installs by default; opt out with:
+vestige init --no-install-skills`}</pre>
+      <div className="vt-frame" style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 1fr', padding: '8px 14px', borderBottom: '1px solid var(--vt-rule)', background: 'var(--vt-panel)', color: 'var(--vt-muted)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+          <span>kind</span><span>skill</span><span>wraps</span>
+        </div>
+        {skills.map((s, i) => (
+          <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 1fr', padding: '10px 14px', borderTop: i > 0 ? '1px solid var(--vt-rule)' : 'none', alignItems: 'baseline' }}>
+            <span style={{ color: kindColor[s.kind] }}>{s.kind}</span>
+            <span>
+              <span style={{ color: 'var(--vt-ink)', fontWeight: 500 }}>{s.name}</span>
+              <span style={{ display: 'block', color: 'var(--vt-muted)', marginTop: 3, fontFamily: 'var(--vt-font-sans)', fontSize: 12.5, lineHeight: 1.5 }}>{s.desc}</span>
+            </span>
+            <span style={{ color: 'var(--vt-faint)' }}>{s.wraps}</span>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 // ── Storage ──────────────────────────────────────────────
 function Storage() {
   return (
-    <Section id="fig04" n="05" title="Storage layout." lede="Repo gets a tiny pin. Private memory lives outside the working tree.">
+    <Section id="fig04" n="06" title="Storage layout." lede="Repo gets a tiny pin. Private memory lives outside the working tree.">
       <StorageLayout />
       <pre className="vt-pre" style={{ marginTop: 16 }}>{`# .vestige/pin.toml — committed
 project_id   = "vestige"
@@ -189,7 +225,7 @@ include_global_preferences = false`}</pre>
 // ── Schema + embedding lifecycle ─────────────────────────
 function SchemaSection() {
   return (
-    <Section id="schema" n="06" title="Schema." lede="V0 owns three tables. V0.1 adds three more, all rebuildable.">
+    <Section id="schema" n="07" title="Schema." lede="V0 owns three tables. V0.1 adds three more, all rebuildable.">
       <SchemaDiagram />
     </Section>
   );
@@ -197,7 +233,7 @@ function SchemaSection() {
 
 function Embeddings() {
   return (
-    <Section id="embeddings" n="07" title="Embedding lifecycle." lede="Vectors are derived state. Provider, model, content drift — anything triggers a rebuild.">
+    <Section id="embeddings" n="08" title="Embedding lifecycle." lede="Vectors are derived state. Provider, model, content drift — anything triggers a rebuild.">
       <EmbeddingLifecycle />
     </Section>
   );
@@ -207,7 +243,7 @@ function Embeddings() {
 function Features() {
   const { features } = window.VESTIGE;
   return (
-    <Section id="features" n="08" title="Defaults.">
+    <Section id="features" n="09" title="Defaults.">
       <div className="vt-frame hard" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         {features.map((f, i) => (
           <div key={i} style={{
@@ -235,7 +271,7 @@ function CLI() {
     { name: 'lifecycle', cmds: [commands[0], commands[1], commands[11], commands[12]] },
   ];
   return (
-    <Section id="cli" n="09" title="CLI reference." lede="Thirteen commands. Pipe-friendly. Deterministic.">
+    <Section id="cli" n="10" title="CLI reference." lede="Thirteen commands. Pipe-friendly. Deterministic.">
       <div className="vt-frame hard">
         <div style={{ display: 'flex', borderBottom: '1px solid var(--vt-ink)' }}>
           {groups.map((g, i) => (
@@ -269,7 +305,7 @@ function CLI() {
 function Roadmap() {
   const { roadmap } = window.VESTIGE;
   return (
-    <Section id="roadmap" n="10" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
+    <Section id="roadmap" n="11" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
       <div className="vt-frame hard">
         <div style={{ display: 'grid', gridTemplateColumns: '60px 180px 1fr 80px', padding: '10px 14px', background: 'var(--vt-ink)', color: 'var(--vt-bg)', fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
           <span>ver</span><span>title</span><span>scope</span><span style={{ textAlign: 'right' }}>state</span>
@@ -312,4 +348,4 @@ function Footer() {
   );
 }
 
-Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Storage, SchemaSection, Embeddings, Features, CLI, Roadmap, Footer });
+Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Features, CLI, Roadmap, Footer });

@@ -9,6 +9,7 @@ function VestigePage() {
       <Disclosure />
       <Recall />
       <MCP />
+      <Skills />
       <Storage />
       <SchemaSection />
       <Embeddings />

@@ -35,12 +35,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
 # Run the CLI from source
-cargo run -p vestige-cli -- init --name "My Project"
+cargo run -p vestige-cli -- init --name "My Project"              # installs skills by default; pass --no-install-skills to opt out
 cargo run -p vestige-cli -- status
 cargo run -p vestige-cli -- mcp                 # M5; currently bails
 cargo run -p vestige-cli -- embed --all                       # V0.1
 cargo run -p vestige-cli -- embeddings status                 # V0.1
 cargo run -p vestige-cli -- search "..." --mode hybrid        # V0.1
+cargo run -p vestige-cli -- skills install                    # writes to .claude/skills/
+cargo run -p vestige-cli -- skills list --json                # 10 skills + version
 
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige-cli -- status

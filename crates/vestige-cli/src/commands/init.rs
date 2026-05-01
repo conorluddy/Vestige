@@ -38,6 +38,11 @@ pub struct InitArgs {
     /// Emit a structured JSON envelope (project_id, name, db_path, fresh).
     #[arg(long)]
     pub json: bool,
+
+    /// Skip the bundled-skills install. Default behaviour is to write
+    /// every shipped SKILL.md into <repo>/.claude/skills/ during init.
+    #[arg(long)]
+    pub no_install_skills: bool,
 }
 
 /// Initialise (or re-confirm) Vestige for the current repository.
@@ -77,6 +82,7 @@ pub fn run(args: InitArgs) -> Result<()> {
                 "db_path": storage_path.to_string_lossy(),
                 "summary": args.summary,
                 "fresh": existing.is_none(),
+                "skills_installed": null,
             }));
         }
         print_plan(
@@ -137,15 +143,57 @@ pub fn run(args: InitArgs) -> Result<()> {
 
     let is_fresh = existing.is_none();
 
+    // Install bundled skills into <repo>/.claude/skills/ — best-effort, never
+    // fails init. Drift is warned about but not treated as an error; the user
+    // can run `vestige skills install --force` to overwrite local edits.
+    let skills_report = if args.no_install_skills {
+        None
+    } else {
+        let skills_dest = repo_root.join(".claude").join("skills");
+        match crate::skills::bundle::install(&skills_dest, false, false) {
+            Ok(report) => {
+                if !report.drifted.is_empty() {
+                    tracing::warn!(
+                        project_id = %project_id,
+                        dest = %skills_dest.display(),
+                        drifted = ?report.drifted,
+                        "skills install: local edits detected; run `vestige skills install --force` to overwrite"
+                    );
+                }
+                Some(report)
+            }
+            Err(err) => {
+                tracing::warn!(
+                    project_id = %project_id,
+                    error = %err,
+                    dest = %skills_dest.display(),
+                    "skills install failed; init succeeded"
+                );
+                None
+            }
+        }
+    };
+
     match OutputFormat::pick(args.json) {
-        OutputFormat::Json => emit_json(&serde_json::json!({
-            "project_id": project_id.as_str(),
-            "name": project_name,
-            "config_path": config_path.to_string_lossy(),
-            "db_path": storage_path.to_string_lossy(),
-            "summary": args.summary,
-            "fresh": is_fresh,
-        })),
+        OutputFormat::Json => {
+            let skills_installed = skills_report.as_ref().map(|r| {
+                serde_json::json!({
+                    "written": r.written.len(),
+                    "skipped": r.skipped.len(),
+                    "drifted": r.drifted.len(),
+                    "dest": r.dest.to_string_lossy(),
+                })
+            });
+            emit_json(&serde_json::json!({
+                "project_id": project_id.as_str(),
+                "name": project_name,
+                "config_path": config_path.to_string_lossy(),
+                "db_path": storage_path.to_string_lossy(),
+                "summary": args.summary,
+                "fresh": is_fresh,
+                "skills_installed": skills_installed,
+            }))
+        }
         OutputFormat::Text => {
             let banner = if is_fresh {
                 "Initialised"
@@ -158,8 +206,11 @@ pub fn run(args: InitArgs) -> Result<()> {
             );
             println!("  Config:   {}", config_path.display());
             println!("  Memory:   {}", storage_path.display());
-            if let Some(s) = args.summary {
+            if let Some(s) = &args.summary {
                 println!("  Summary:  {s}");
+            }
+            if let Some(report) = &skills_report {
+                print_skills_line(report);
             }
             if is_fresh {
                 print_next_steps();
@@ -171,9 +222,6 @@ pub fn run(args: InitArgs) -> Result<()> {
 
 /// Print onboarding hints after a first-time `init`. Skipped on re-runs so
 /// the success line stays compact for the agent-driven happy path.
-///
-/// Today: just the MCP wiring step. When skills are published, add a second
-/// bullet pointing at the install flow (a one-liner here).
 fn print_next_steps() {
     println!();
     println!("Next steps:");
@@ -184,7 +232,32 @@ fn print_next_steps() {
     println!("    vestige decision add \"…\" --rationale \"…\"");
     println!("    vestige note add \"…\"");
     println!();
+    println!("  Inspect installed skills:");
+    println!("    vestige skills list");
+    println!();
     println!("  Inspect state:  vestige status");
+}
+
+/// Print the one-line skills install summary for text-mode output.
+///
+/// Three variants:
+/// - All up to date → "Already up to date (N files)"
+/// - Some written, no drift → "Installed N skill files"
+/// - Drift detected → counts + escape-hatch hint
+fn print_skills_line(report: &crate::skills::bundle::InstallReport) {
+    let written = report.written.len();
+    let skipped = report.skipped.len();
+    let drifted = report.drifted.len();
+    let dest = report.dest.display();
+
+    if written == 0 && drifted == 0 {
+        println!("  Skills:   Already up to date ({skipped} files) → {dest}");
+    } else if drifted == 0 {
+        println!("  Skills:   Installed {written} skill files → {dest}");
+    } else {
+        println!("  Skills:   Installed {written} (skipped {skipped}, drifted {drifted}) → {dest}");
+        println!("            run `vestige skills install --force` to overwrite local edits");
+    }
 }
 
 /// Return `true` if a `project_summary` memory already exists (so we don't duplicate).

@@ -1,6 +1,6 @@
 ---
 name: vestige-record-question
-description: Capture an open question to Vestige memory when an ambiguity is identified that cannot be resolved right now and will need a human, an investigation, or a later session to answer. Fire when you say or hear "TBD:", "open question:", "we should figure out…", "unclear whether…", "need to decide later if…", "??:", "?:", "follow-up:", "to investigate:", "leaving X open", or when the user says "capture that as a question", "we'll come back to that", "park that for now", "good question — note it down". Open questions surface in every `vestige context` pack until they're `vestige-forget`'d (typically when answered, often paired with a `vestige-record-decision`). Default importance is 0.5. Returns the new memory's handle (`mem_<ULID>`).
+description: Capture an open question to Vestige memory when an ambiguity can't be resolved now and needs a human, investigation, or later session. Fire on "TBD:", "open question:", "we should figure out…", "unclear whether…", "follow-up:", "to investigate:", "leaving X open", or when the user says "capture that as a question", "we'll come back to that", "park that for now", "good question — note it down". Questions surface in every `vestige context` pack until `vestige-forget`'d (typically when answered via `vestige-record-decision`). Default importance 0.5. Returns the new handle (`mem_<ULID>`).
 ---
 
 # Record an open question
