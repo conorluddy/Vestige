@@ -12,3 +12,23 @@ git_release_enable = false
 # Conventional Commits drive the bump; release-plz computes publish order
 # from the workspace dep graph.
 semver_check = true
+
+# Commit parsing for changelog generation + bump detection.
+#
+# Without these rules, merging release-plz's own `chore: release vX.Y.Z` PR
+# leaves a commit that the next `release-plz` run sees as "new work since
+# the last tag" and proposes vX.Y.(Z+1). Skipping `chore: release` breaks
+# that loop. Other parsers carry through standard Conventional Commits
+# grouping for the changelog.
+[changelog]
+commit_parsers = [
+  { message = "^chore: release", skip = true },
+  { message = "^chore\\(.*\\): release", skip = true },
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactor" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Tests" },
+  { message = "^chore", group = "Other" },
+]
