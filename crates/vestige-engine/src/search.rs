@@ -299,7 +299,11 @@ fn hybrid_per_leg_limit(limit: u32) -> u32 {
 /// match the runtime configuration — the silent-empty-results trap. Returns
 /// `None` when embeddings are absent (that's a separate "unavailable" case)
 /// or when everything matches.
-fn provider_mismatch_message(
+///
+/// Shared with `vestige-mcp`'s `vestige_search` tool — both layers must surface
+/// identical wording when they detect the mismatch, so this is the single
+/// source of truth.
+pub fn provider_mismatch_message(
     status: &EmbeddingStatus,
     provider: &dyn EmbeddingProvider,
 ) -> Option<String> {

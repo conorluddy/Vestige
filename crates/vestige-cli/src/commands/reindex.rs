@@ -70,27 +70,15 @@ pub fn run(args: ReindexArgs) -> Result<()> {
     let mut embed_summary: Option<EmbedSummary> = None;
 
     if do_fts {
-        ctx.store
-            .connection()
-            .execute("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')", [])
-            .context("rebuilding FTS5 index")?;
+        ctx.store.rebuild_fts().context("rebuilding FTS5 index")?;
         fts_rebuilt = true;
         tracing::info!("FTS5 index rebuilt");
     }
 
     if do_embeddings {
-        // Hard-delete all embeddings for this project (vectors cascade via FK).
-        // The filter is project-scoped per the hard rules.
         let deleted = ctx
             .store
-            .connection()
-            .execute(
-                "DELETE FROM memory_embeddings
-                 WHERE memory_id IN (
-                     SELECT id FROM memories WHERE project_id = ?1
-                 )",
-                rusqlite::params![ctx.project_id.as_str()],
-            )
+            .clear_project_embeddings(&ctx.project_id)
             .context("clearing project embeddings")?;
         tracing::info!(deleted, "cleared embedding rows before reindex");
 

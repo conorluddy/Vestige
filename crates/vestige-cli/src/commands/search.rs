@@ -4,17 +4,14 @@
 //! supplies `--mode`, `--semantic`, or `--hybrid`, or config sets
 //! `[search] default_mode`. The `--limit` default is fixed in clap (8).
 //! For a config-budgeted limit per project, use `vestige recall` (PRD §12.6).
-
-use std::str::FromStr;
+//!
+//! All real work lives in [`crate::commands::search_shared`]; this file is
+//! a thin clap shell.
 
 use anyhow::Result;
 use clap::Args;
-use vestige_core::{resolve_default_mode, MemoryType, SearchMode};
-use vestige_embed::{build_provider, EmbedError, EmbeddingProvider};
-use vestige_engine::search::{search_hybrid, search_lexical, search_semantic, HybridOutcome};
 
-use crate::context::{self, ProjectContext};
-use crate::output::{emit_search_json, print_scored_opts, OutputFormat};
+use crate::commands::search_shared::{parse_type_filter, run_search, SearchModeFlags};
 
 // === ARGS ===
 
@@ -54,111 +51,13 @@ pub struct SearchArgs {
 // === ENTRY POINT ===
 
 pub fn run(args: SearchArgs) -> Result<()> {
-    let ctx = context::load()?;
-    let type_filter = args
-        .r#type
-        .as_deref()
-        .map(MemoryType::from_str)
-        .transpose()?;
-    let mode = resolve_mode(&args, &ctx)?;
-    let include_parts = args.score_parts || mode == SearchMode::Hybrid;
-    let outcome = dispatch(&args.query, &ctx, type_filter, args.limit, mode)?;
-    for w in &outcome.warnings {
-        eprintln!("warning: {w}");
-    }
-    match OutputFormat::pick(args.json) {
-        OutputFormat::Json => {
-            emit_search_json(outcome.effective_mode, &outcome.scored, &outcome.warnings)
-        }
-        OutputFormat::Text => {
-            print_scored_list(&outcome.scored, include_parts);
-            Ok(())
-        }
-    }
-}
-
-// === HELPERS ===
-
-fn dispatch(
-    query: &str,
-    ctx: &ProjectContext,
-    type_filter: Option<MemoryType>,
-    limit: u32,
-    mode: SearchMode,
-) -> Result<HybridOutcome> {
-    match mode {
-        SearchMode::Lexical => Ok(search_lexical(
-            &ctx.store,
-            &ctx.project_id,
-            query,
-            type_filter,
-            limit,
-        )?),
-        SearchMode::Semantic => {
-            let provider = build_embed_provider(ctx)?;
-            Ok(search_semantic(
-                &ctx.store,
-                &ctx.project_id,
-                query,
-                type_filter,
-                limit,
-                &*provider,
-            )?)
-        }
-        SearchMode::Hybrid => {
-            let provider = build_embed_provider(ctx)?;
-            Ok(search_hybrid(
-                &ctx.store,
-                &ctx.project_id,
-                query,
-                type_filter,
-                limit,
-                &*provider,
-            )?)
-        }
-    }
-}
-
-/// Resolve the search mode from args.
-///
-/// Alias flags (`--lexical` / `--semantic` / `--hybrid`) take priority, then
-/// `--mode`, then `[search] default_mode` from config, then `Lexical`.
-fn resolve_mode(args: &SearchArgs, ctx: &ProjectContext) -> Result<SearchMode> {
-    if args.lexical {
-        return Ok(SearchMode::Lexical);
-    }
-    if args.semantic {
-        return Ok(SearchMode::Semantic);
-    }
-    if args.hybrid {
-        return Ok(SearchMode::Hybrid);
-    }
-    let config_default = ctx
-        .config
-        .search
-        .as_ref()
-        .and_then(|s| s.default_mode.as_deref());
-    resolve_default_mode(args.mode.as_deref(), config_default).map_err(anyhow::Error::from)
-}
-
-fn build_embed_provider(ctx: &ProjectContext) -> Result<Box<dyn EmbeddingProvider>> {
-    build_provider(&ctx.resolve_embeddings_config()).map_err(|e| {
-        let hint = match &e {
-            EmbedError::ProviderDisabled(name) => {
-                format!("provider `{name}` is not compiled in; rebuild with `--features {name}`")
-            }
-            _ => e.to_string(),
-        };
-        anyhow::anyhow!("embedding provider error: {hint}")
-    })
-}
-
-fn print_scored_list(scored: &[vestige_core::ScoredCard], include_parts: bool) {
-    if scored.is_empty() {
-        println!("(no matches)");
-    } else {
-        for hit in scored {
-            print_scored_opts(hit, include_parts);
-        }
-    }
+    let type_filter = parse_type_filter(args.r#type.as_deref())?;
+    let mode_flags = SearchModeFlags {
+        mode: args.mode.as_deref(),
+        lexical: args.lexical,
+        semantic: args.semantic,
+        hybrid: args.hybrid,
+        score_parts: args.score_parts,
+    };
+    run_search(&args.query, type_filter, args.limit, mode_flags, args.json)
 }

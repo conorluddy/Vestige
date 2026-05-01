@@ -3468,7 +3468,6 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
- "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -3500,6 +3499,7 @@ dependencies = [
  "tracing",
  "ulid",
  "vestige-core",
+ "vestige-embed",
 ]
 
 [[package]]
