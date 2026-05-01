@@ -78,6 +78,20 @@ const VESTIGE = {
     { name: 'vestige_record_decision',     role: 'write', desc: 'Explicit project decision.' },
   ],
 
+  // Ten Claude Code skills, bundled in the binary, installed by `vestige init`.
+  skills: [
+    { kind: 'auto',      name: 'vestige-auto-memorise',     wraps: 'dispatches to vestige <cmd> add', desc: 'Fires without a prompt when the conversation produces something memorable.' },
+    { kind: 'capture',   name: 'vestige-record-decision',   wraps: 'vestige decision add',            desc: 'Captures an architectural or approach choice.' },
+    { kind: 'capture',   name: 'vestige-record-note',       wraps: 'vestige note add',                desc: 'Captures a non-trivial fact, gotcha, or TIL.' },
+    { kind: 'capture',   name: 'vestige-record-preference', wraps: 'vestige preference add',          desc: 'Captures a stated convention or "how I like things".' },
+    { kind: 'capture',   name: 'vestige-record-question',   wraps: 'vestige question add',            desc: 'Captures an unresolved ambiguity.' },
+    { kind: 'retrieve',  name: 'vestige-context',           wraps: 'vestige context',                 desc: 'Loads the project pack at session start.' },
+    { kind: 'retrieve',  name: 'vestige-recall',            wraps: 'vestige recall',                  desc: 'Searches before deciding — "have we discussed this?".' },
+    { kind: 'retrieve',  name: 'vestige-show',              wraps: 'vestige show',                    desc: 'Expands a memory by handle to its body.' },
+    { kind: 'lifecycle', name: 'vestige-forget',            wraps: 'vestige forget',                  desc: 'Soft-deletes a memory that is wrong or superseded.' },
+    { kind: 'lifecycle', name: 'vestige-restore',           wraps: 'vestige restore',                 desc: 'Undoes a forget; re-indexes the memory.' },
+  ],
+
   features: [
     { k: '01', t: 'Repo-pinned by default',  b: 'Memories never leak across projects. Global preferences must be explicitly included in recall.' },
     { k: '02', t: 'Progressive disclosure',  b: 'Search returns one-liners. Agents expand to summary, compressed, or full only when needed.' },

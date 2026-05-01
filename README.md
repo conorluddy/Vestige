@@ -174,6 +174,45 @@ call `vestige_get_project_context` to load standing decisions and open
 questions. Use `vestige_record_decision` when you make project-level calls.
 ```
 
+## Skills (Claude Code)
+
+Vestige ships with ten Claude Code skills bundled into the binary. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
+
+```bash
+# vestige init installs them by default into <repo>/.claude/skills/
+vestige init --name "My Project"
+
+# or, in an existing repo:
+vestige skills install
+
+# inspect what shipped with this binary:
+vestige skills list --json
+
+# opt out at init time:
+vestige init --no-install-skills
+```
+
+Re-running `skills install` is idempotent — files that match the bundled bytes are skipped. If you've hand-edited a SKILL.md, install hard-fails with a verbose drift report; pass `--force` to overwrite.
+
+The ten skills, by role:
+
+| Role        | Skill                       | Wraps                          |
+|-------------|-----------------------------|--------------------------------|
+| Auto        | `vestige-auto-memorise`     | dispatches inline to `vestige <cmd> add` |
+| Capture     | `vestige-record-decision`   | `vestige decision add`         |
+| Capture     | `vestige-record-note`       | `vestige note add`             |
+| Capture     | `vestige-record-preference` | `vestige preference add`       |
+| Capture     | `vestige-record-question`   | `vestige question add`         |
+| Retrieve    | `vestige-context`           | `vestige context`              |
+| Retrieve    | `vestige-recall`            | `vestige recall`               |
+| Retrieve    | `vestige-show`              | `vestige show`                 |
+| Lifecycle   | `vestige-forget`            | `vestige forget`               |
+| Lifecycle   | `vestige-restore`           | `vestige restore`              |
+
+`vestige-auto-memorise` is the headline one: it watches for memorable moments (decisions, preferences, open questions, TILs, gotchas) and captures them without an explicit "remember this" prompt. The other capture skills handle explicit cues; the retrieve and lifecycle skills give the agent durable read + edit affordances.
+
+Skills shell out to the `vestige` binary — they don't depend on the MCP server being configured, but they compose well alongside it.
+
 ## Where things live
 
 ```text
