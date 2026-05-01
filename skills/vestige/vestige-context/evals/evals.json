@@ -1,0 +1,23 @@
+{
+  "skill_name": "vestige-context",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Just opened this repo for the first time today. Catch me up — what's the state? What have we decided, what's outstanding?",
+      "expected_output": "Single `vestige context --json` call, then a brief markdown summary derived from the response (project name, top decisions, open questions, recent activity). Token budget left at default 1200.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "About to start refactoring vestige-store::repr_sync. Before I touch anything, give me the project rundown so I don't accidentally undo a prior architectural choice.",
+      "expected_output": "vestige context --json, summarised; should explicitly note 'check decisions before refactoring'.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I'm context-tight today, only ~400 tokens to spare for the project pack. What can you fit?",
+      "expected_output": "vestige context --json --budget-tokens 400 (or similar tightening). Brief summary that respects the budget.",
+      "files": []
+    }
+  ]
+}

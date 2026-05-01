@@ -1,0 +1,77 @@
+{
+  "skill_name": "vestige-auto-memorise",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ok we just settled — we're going with SQLite over Redis for the rate-limit token bucket. Single-node deploy, the Redis dependency isn't worth it.",
+      "expected_output": "Categorise as decision. Dedup probe via vestige recall. Then vestige decision add with rationale. Surface a single line: 'Recorded decision mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "TIL — rusqlite_migration::validate panics if the migration list has a numbering gap. Surprise.",
+      "expected_output": "Categorise as note (aha/TIL). Dedup probe. vestige note add with importance ~0.5. Surface 'Recorded note mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "in this project we never use unwrap() outside of #[cfg(test)] blocks. always propagate with ?",
+      "expected_output": "Categorise as preference. Dedup probe. vestige preference add with importance >=0.7 (hard rule). Surface 'Recorded preference mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "open question I want to keep alive: should auto-memorise default to on or off per project? leaving it open for now",
+      "expected_output": "Categorise as question. Dedup probe. vestige question add. Surface 'Recorded question mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "the bug was that MemoryId::parse used starts_with instead of validating the ULID character set — anything beginning with 'mem_' was accepted. fixed it.",
+      "expected_output": "Categorise as note (root cause). Dedup probe. vestige note add with importance 0.6. Surface 'Recorded note mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "this match arm in derive_representations is duplicated four times — one per MemoryType. classic refactor candidate, code smell.",
+      "expected_output": "Categorise as note (code smell). Dedup probe. vestige note add with importance 0.6. Surface 'Recorded note mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "decision: every crate gets its own thiserror enum (CoreError, StoreError, ConfigError); anyhow only at the CLI boundary with .context(). importance high — every crate inherits.",
+      "expected_output": "Categorise as decision (with explicit decision keyword). vestige decision add with --rationale and --importance >=0.85. Surface 'Recorded decision mem_<ULID>.'",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "thanks, that's helpful — let me think about it",
+      "expected_output": "No capture. This is conversational acknowledgement, not a memorable moment. The skill should explicitly NOT fire vestige; produce no `Recorded ...` line.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "TODO: write the function get_project_id_from_remote — single-line code task",
+      "expected_output": "No capture (or a borderline note at most). The agent should recognise this as a code task that belongs as a TODO comment in source, not as project-level memory. Strong precision here matters.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "careful — restoring a soft-deleted memory does not regenerate embeddings, the old embeddings stay marked stale until the next `vestige embed` run. non-obvious gotcha.",
+      "expected_output": "Categorise as note (gotcha). Dedup probe. vestige note add. Surface single line.",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "I prefer integration tests against real SQLite over mocks, every time. don't mock the DB.",
+      "expected_output": "Categorise as preference. Dedup probe. vestige preference add. Surface single line.",
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "Long planning discussion: ok so we'll use rmcp 0.16 with stdio transport (decision) — and I want every public MCP tool to map 1:1 to a high-level core function, no raw SQL exposed (preference / rule). Also TBD whether we ship a vestige_admin tool surface in v0.5.",
+      "expected_output": "Three captures in one turn: vestige decision add (rmcp 0.16 stdio), vestige preference add (no raw SQL, 1:1 high-level mapping), vestige question add (vestige_admin in v0.5). Single batched surface line listing all three handles.",
+      "files": []
+    }
+  ]
+}

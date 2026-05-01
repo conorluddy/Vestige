@@ -1,0 +1,18 @@
+[
+  { "query": "ok let's just go with sqlite for now, redis is overkill for a single-node deploy", "should_trigger": true },
+  { "query": "decision: every crate gets its own thiserror enum, anyhow only at the cli edge", "should_trigger": true },
+  { "query": "I'm settled — adopt FTS5 instead of building a custom inverted index. Capture that decision.", "should_trigger": true },
+  { "query": "after a lot of back and forth we're choosing rmcp 0.16 over the older mcp-rs crate, mostly because rmcp's stdio transport is cleaner. record this", "should_trigger": true },
+  { "query": "going with bundled SQLite (rusqlite features = [\"bundled\"]) over the system one — too much version drift across mac/linux otherwise", "should_trigger": true },
+  { "query": "yeah let's commit to ULIDs for memory ids. mem_<ULID>, proj_<slug-or-hash>, evt_<ULID>", "should_trigger": true },
+  { "query": "we'll use tokio only in vestige-mcp where the transport demands it, the rest stays sync. importance high", "should_trigger": true },
+  { "query": "log the recall scores at debug — actually wait, that's not a decision, that's just a TODO", "should_trigger": false },
+  { "query": "I prefer 4-space indentation in this project, please always use that", "should_trigger": false },
+  { "query": "TBD whether we want a daemon mode in v0.5. leaving it open for now", "should_trigger": false },
+  { "query": "show me memory mem_01H8XYZABC", "should_trigger": false },
+  { "query": "have we already decided on an embedding provider? search memory before I commit to fastembed", "should_trigger": false },
+  { "query": "just realised cargo test --workspace re-runs FTS triggers in the tmpdir tests, good to know", "should_trigger": false },
+  { "query": "forget mem_01H8XYZABC, that decision was reversed", "should_trigger": false },
+  { "query": "what's the state of this project? catch me up", "should_trigger": false },
+  { "query": "the bug was that ULID generation was using the wrong timestamp source. fix is one line", "should_trigger": false }
+]

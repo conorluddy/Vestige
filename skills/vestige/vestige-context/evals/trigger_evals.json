@@ -1,0 +1,18 @@
+[
+  { "query": "what's the state of this project? catch me up", "should_trigger": true },
+  { "query": "give me the project rundown before I start work today", "should_trigger": true },
+  { "query": "remind me where we are on Vestige — decisions, open questions, recent activity", "should_trigger": true },
+  { "query": "I haven't touched this repo in two weeks. summarise where things stand", "should_trigger": true },
+  { "query": "before I refactor anything, render the project context pack so I know the constraints", "should_trigger": true },
+  { "query": "what have we decided so far on this project, and what's still outstanding?", "should_trigger": true },
+  { "query": "can you fit the context pack in about 400 tokens? I'm tight", "should_trigger": true },
+  { "query": "search memory for what we said about embeddings", "should_trigger": false },
+  { "query": "show me mem_01H8XYZ in full", "should_trigger": false },
+  { "query": "we'll go with SQLite, settled", "should_trigger": false },
+  { "query": "I prefer integration tests over mocks, always", "should_trigger": false },
+  { "query": "TBD: daemon mode in v0.5?", "should_trigger": false },
+  { "query": "forget mem_01H8XYZ", "should_trigger": false },
+  { "query": "restore mem_01H8XYZ", "should_trigger": false },
+  { "query": "TIL — rusqlite_migration validates gaps", "should_trigger": false },
+  { "query": "what's the current sqlite version we're bundling?", "should_trigger": false }
+]

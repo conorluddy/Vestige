@@ -1,0 +1,18 @@
+[
+  { "query": "TBD: do we want a daemon mode in v0.5 or stay single-process forever? park it", "should_trigger": true },
+  { "query": "open question — should auto-memorise default to on or off per project? capture it", "should_trigger": true },
+  { "query": "follow-up: investigate whether FTS5 trigram tokenizer would help for symbol search. record as a question", "should_trigger": true },
+  { "query": "unclear whether we should expose source-content in the MCP get_memory response or only via the CLI. note it as an open question", "should_trigger": true },
+  { "query": "we should figure out: hybrid score normalisation — min-max or rank-based? leaving open", "should_trigger": true },
+  { "query": "good question — note it down: when do we hit the 2 KiB source-snippet ceiling in real projects?", "should_trigger": true },
+  { "query": "decision: we use sqlite, settled", "should_trigger": false },
+  { "query": "I prefer trailing commas always", "should_trigger": false },
+  { "query": "TIL — rusqlite_migration validates gaps", "should_trigger": false },
+  { "query": "TODO: write the function get_project_id_from_remote", "should_trigger": false },
+  { "query": "show mem_01H8", "should_trigger": false },
+  { "query": "recall everything about embeddings", "should_trigger": false },
+  { "query": "forget mem_01H8 — answered", "should_trigger": false },
+  { "query": "give me the project state pack", "should_trigger": false },
+  { "query": "restore mem_01H8 it shouldn't have been deleted", "should_trigger": false },
+  { "query": "the bug was a stale embedding row", "should_trigger": false }
+]

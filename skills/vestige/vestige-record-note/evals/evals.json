@@ -1,0 +1,29 @@
+{
+  "skill_name": "vestige-record-note",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Heads up: `cargo test --workspace` triggers the FTS5 triggers inside the TempDir-shaped store tests, which slows the whole suite by ~3s. Just learned that — note it down so we don't go chasing a 'flaky CI' ghost.",
+      "expected_output": "vestige note add capturing the FTS-trigger / cargo-test-workspace fact, importance ~0.5.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "TIL — rusqlite_migration::validate panics if the migration list contains a gap (e.g. 0001, 0003 with no 0002). Good to know before someone tries to renumber. Jot this down.",
+      "expected_output": "vestige note add for the migration-gap-validate quirk.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "the bug was — `MemoryId::parse` was accepting `mem_` followed by anything because we were using `starts_with` instead of validating the ULID character set. fixed it but worth recording the root cause as a code smell on input validation more broadly.",
+      "expected_output": "vestige note add with importance 0.6 (root cause / smell territory), body that names the starts_with vs ULID-charset validation problem.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "TODO that I want to outlive this session: we should benchmark `vestige recall --hybrid` against `--lexical` once we have ~1k memories — right now everything is fast because the corpus is tiny. Record it as a note (not a question — the answer is just 'go run the benchmark').",
+      "expected_output": "vestige note add capturing the benchmark TODO, importance ~0.5.",
+      "files": []
+    }
+  ]
+}

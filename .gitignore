@@ -10,3 +10,6 @@ pages-seed/
 
 # Claude Code agent scratch — worktrees, transcripts, agent-local state.
 .claude/
+
+# Skill-creator eval workspace (skills/vestige/vestige-skills-workspace/iteration-N/)
+skills/vestige/vestige-skills-workspace/

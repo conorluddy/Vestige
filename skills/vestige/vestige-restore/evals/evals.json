@@ -1,0 +1,23 @@
+{
+  "skill_name": "vestige-restore",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I forgot mem_01HABCDEFGHIJKLMNOPQRSTUVW by accident a minute ago — that decision is still active, bring it back.",
+      "expected_output": "vestige restore mem_01HABCDEFGHIJKLMNOPQRSTUVW --json. Surface a one-liner that it's back in search; mention embeddings might need re-running.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "actually we changed our minds — restore mem_01H8XYZABCDEFGHJKMNPQRSTV. It was reversed, then re-affirmed.",
+      "expected_output": "vestige restore mem_01H8XYZABCDEFGHJKMNPQRSTV --json. Brief acknowledgement.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "undo that forget on mem_01H7QQQQQQQQQQQQQQQQQQ",
+      "expected_output": "vestige restore mem_01H7QQQQQQQQQQQQQQQQQQ --json.",
+      "files": []
+    }
+  ]
+}

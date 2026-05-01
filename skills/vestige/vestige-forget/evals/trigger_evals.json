@@ -1,0 +1,18 @@
+[
+  { "query": "forget mem_01H8XYZABCDEFGHJKMNPQRSTV — that note is outdated", "should_trigger": true },
+  { "query": "drop mem_01HABCDEFGHIJKLMNOPQRSTUVW from search, the decision was reversed", "should_trigger": true },
+  { "query": "the open question mem_01H7QQQ has been answered, soft-delete it", "should_trigger": true },
+  { "query": "we don't do that anymore — forget memory mem_01H8XYZ", "should_trigger": true },
+  { "query": "remove mem_01HABC, it's stale", "should_trigger": true },
+  { "query": "that memory is outdated now, drop it: mem_01H8XYZ", "should_trigger": true },
+  { "query": "show mem_01H8XYZ in full", "should_trigger": false },
+  { "query": "search memory for embeddings", "should_trigger": false },
+  { "query": "we'll go with SQLite", "should_trigger": false },
+  { "query": "I prefer trailing commas", "should_trigger": false },
+  { "query": "open question — daemon mode in v0.5?", "should_trigger": false },
+  { "query": "give me the project context pack", "should_trigger": false },
+  { "query": "restore mem_01H8XYZ", "should_trigger": false },
+  { "query": "TIL fastembed downloads lazily", "should_trigger": false },
+  { "query": "list active memories of type decision", "should_trigger": false },
+  { "query": "delete this whole repo and start over", "should_trigger": false }
+]

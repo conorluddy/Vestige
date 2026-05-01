@@ -1,0 +1,18 @@
+[
+  { "query": "have we already decided on an embedding provider? search memory before I pick one", "should_trigger": true },
+  { "query": "what did we say about FTS triggers and soft-delete? look it up before I refactor", "should_trigger": true },
+  { "query": "is daemon mode already settled or still open? recall everything we have on it", "should_trigger": true },
+  { "query": "search memory for prior notes on rusqlite_migration", "should_trigger": true },
+  { "query": "what have we decided about MCP tool granularity? — pull our notes", "should_trigger": true },
+  { "query": "before I start, look up what we've recorded about importance scoring", "should_trigger": true },
+  { "query": "have we talked about UTF-8 boundary truncation already? don't want to re-derive it", "should_trigger": true },
+  { "query": "we'll go with SQLite, settled", "should_trigger": false },
+  { "query": "I prefer trailing commas in struct defs, always", "should_trigger": false },
+  { "query": "TBD: daemon mode for v0.5 — capture as a question", "should_trigger": false },
+  { "query": "show me mem_01H8XYZ in full", "should_trigger": false },
+  { "query": "give me the project context pack", "should_trigger": false },
+  { "query": "forget mem_01H8XYZ — outdated", "should_trigger": false },
+  { "query": "restore mem_01H8XYZ", "should_trigger": false },
+  { "query": "TIL — fastembed downloads its model lazily", "should_trigger": false },
+  { "query": "the bug was a stale embedding row in vector_index", "should_trigger": false }
+]

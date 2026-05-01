@@ -13,16 +13,15 @@ Search the project's durable memory before grounding any new decision. Recall is
 - **Before refactoring.** Pull recall on the module name to surface decisions that constrain the shape.
 - **When the user references prior discussion.** "We talked about this before" → recall, don't guess.
 - **When you're tempted to ask the user a question** that might already be answered in memory.
+- **As a dedup probe** before any `vestige-record-*` capture, to avoid double-writing.
 
-If you want the full project picture (not just hits for one query), use `vestige-context` instead.
+Tie-breaker vs `vestige-context`: pack is broad, recall is narrow. If you want the full state, use the pack.
 
-## How to query
+## How to invoke
 
 ```bash
 vestige recall "<query>" --json
 ```
-
-Recommended flags:
 
 - **`--hybrid`**: merged lexical + semantic recall. Best quality when the project has run `vestige embed --all` and a real embedding provider is configured. Falls back to lexical with a warning if embeddings are missing.
 - **`--limit <n>`**: default is the project's `[recall] max_results` (typically 8). Tighten for focused queries.
@@ -31,9 +30,7 @@ Recommended flags:
 
 Avoid `--semantic` alone — it has no fallback when embeddings aren't ready. Use `--hybrid` instead; it degrades gracefully.
 
-## Reading the response
-
-JSON envelope:
+## After invocation
 
 ```json
 {
@@ -48,8 +45,8 @@ JSON envelope:
 
 Always check `warnings` — a `hybrid → lexical` fallback message means semantic recall isn't ready and you should suggest `vestige embed --all` if depth matters.
 
-## After recall
+For each relevant hit, decide whether `one_liner` is enough or you need to expand via `vestige-show <id> --depth full`. Cite the handle when you reference a finding.
 
-- For each relevant hit, decide whether `one_liner` is enough or you need to expand.
-- Use `vestige-show <id> --depth full` to read the full body when one-liner isn't enough.
-- Cite the handle (`mem_…`) when you reference a finding so the user can verify.
+## Idempotence & dedup
+
+Read-only — safe to re-run. Vary the query phrasing on a miss before concluding nothing matches; lexical recall is keyword-sensitive, and `--hybrid` (when embeddings exist) catches paraphrases lexical misses.
