@@ -39,7 +39,7 @@ cargo fmt --check
 # is `crates/vestige-cli/`. Use the package name with `cargo run -p`.
 cargo run -p vestige -- init --name "My Project"              # installs skills to .claude/skills/ AND .agents/skills/ by default; --no-install-skills to opt out, --skills-target claude|agents to narrow
 cargo run -p vestige -- status
-cargo run -p vestige -- mcp                 # M5; currently bails
+cargo run -p vestige -- mcp                               # MCP server over stdio
 cargo run -p vestige -- embed --all                       # V0.1
 cargo run -p vestige -- embeddings status                 # V0.1
 cargo run -p vestige -- search "..." --mode hybrid        # V0.1
@@ -53,21 +53,25 @@ VESTIGE_LOG=debug cargo run -p vestige -- status
 
 ## Architecture (the big picture)
 
-Cargo workspace of 5 small crates with strictly one-way dependencies:
+Cargo workspace of 7 small crates with strictly one-way dependencies:
 
 ```
 cli ──┐
-      ├──→ core
-mcp ──┤
-      └──→ store ──→ core
+      ├──→ engine ──→ core
+mcp ──┤              ↑
+      └─────────────────→ store ──→ core
+                          ↑
+embed ────────────────────┘  (provider trait + fake/fastembed/ollama backends)
 config ──→ core
 ```
 
 - `vestige-core` — pure domain. Memory engine, representation derivation, typed IDs, `CoreError`. **Imports no `rusqlite`, no `clap`, no `rmcp`.** If you need a SQL row inside core, you've crossed the boundary the wrong way.
 - `vestige-store` — SQLite via `rusqlite` (bundled, FTS5 on). Owns connections, the migration runner, and FTS sync triggers. Higher-level memory ops live in core and call into here through `Store`.
+- `vestige-embed` — `EmbeddingProvider` trait plus `fake` (default, deterministic), `fastembed` (BAAI/bge-small-en-v1.5, feature-gated), and `ollama` (feature-gated) backends. No vestige siblings depend on it except `vestige-engine`.
+- `vestige-engine` — orchestration layer added in V0.1. Owns hybrid search merge (`search_lexical`/`search_semantic`/`search_hybrid` → `HybridOutcome`), embed ingest (`embed_memory_representations`/`embed_all`), and provider-mismatch detection. Single source of truth for all three search modes; both `cli` and `mcp` delegate here.
 - `vestige-config` — `.vestige/config.toml` round-trip and project identity (PRD §9.3 order: explicit `--name` → git remote hash → repo-path hash). Also resolves `~/.vestige/projects/<id>/memory.sqlite`.
-- `vestige-cli` — the `vestige` binary. Each subcommand is one file under `src/commands/`. Thin adapter: parse → dispatch → format. No business logic.
-- `vestige-mcp` — MCP server (rmcp). Same thin-adapter discipline as the CLI; one tool per file under `src/tools/` (M5).
+- `vestige-cli` — the `vestige` binary. Each subcommand is one file under `src/commands/`. Thin adapter: parse → dispatch into core/engine → format. No business logic.
+- `vestige-mcp` — MCP server (rmcp 0.16). Same thin-adapter discipline as the CLI; one tool per file under `src/tools/`. Six tools shipped: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision`.
 
 ### Storage layout (PRD §9)
 
@@ -86,9 +90,9 @@ Three storage layers must stay separable:
 
 The product principle (PRD §5.2) and the code principle. Memories disclose handle → one-liner → summary → compressed → full → sources, expanded only on demand. Apply the same shape to internal APIs: search returns compact `MemoryCard`s, never full bodies. Files disclose top-down: module doc → types → public API → private helpers → `#[cfg(test)]`.
 
-### V0 milestones
+### Milestones
 
-Build order matches PRD §18.1. M0 (init/status/schema) is shipped (commit `08b64f4`). M1 brings memory CRUD + soft-delete; M3 wires FTS5 search; M5 lights up MCP.
+Build order matches PRD §18.1. **V0 (M0–M5) and V0.1 are shipped** as of v0.2.9 — init/status/schema, memory CRUD + soft-delete/restore, FTS5 search + recall, project context pack, MCP server, and embeddings + hybrid recall. **V0.2 (assimilation inbox)** is the active next milestone; PRD draft TBD.
 
 ## Hard rules (will reject in review)
 
@@ -130,7 +134,7 @@ First-class, but earning their seat. Tests follow the trophy in `CODESTYLE.md`: 
 - **Integration against real SQLite in a `TempDir`** is the primary line of defence. Vestige is mostly a thin layer over SQLite + FTS5 triggers; mocking the DB would test the mock. Pattern is established in `crates/vestige-store/src/lib.rs` tests.
 - **Unit tests for pure logic** with interesting branching: representation derivation, ranking math, ID parsing, source-snippet truncation at UTF-8 boundaries.
 - **CLI smoke tests** under `crates/vestige-cli/tests/` — spawn the built binary against a tmpdir; drive `init → remember → search → forget → restore → context`; assert exit codes and `--json` output.
-- **MCP smoke tests** — in-process stdio harness sending JSON-RPC frames and asserting the structured `{code, message, retryable}` shape on errors. The MCP surface is the agent contract; silent drift breaks the product.
+- **MCP smoke tests** — in-process tests under `crates/vestige-mcp/tests/` calling each tool's `pub async fn` directly (no stdio framing — the rmcp router itself is framework-tested). Asserts the response envelope shape, the structured `{code, message, retryable}` body on errors, and any mode-resolution / fallback behaviour. The MCP surface is the agent contract; silent drift breaks the product.
 
 **Where tests would be waste**
 
