@@ -25,3 +25,6 @@ tracing.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

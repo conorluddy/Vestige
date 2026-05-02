@@ -32,6 +32,7 @@ use vestige_config::discover_config;
 use vestige_store::Store;
 
 pub use server::VestigeServer;
+pub use tools::search::SearchParams;
 
 /// Options forwarded from `vestige mcp` CLI flags.
 pub struct McpOptions {
