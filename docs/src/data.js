@@ -6,7 +6,7 @@ const VESTIGE = {
     name:   'Vestige',
     tag:    'memory infrastructure for coding agents',
     repo:   'https://github.com/conorluddy/Vestige',
-    version:'v0.2.0',
+    version:'v0.2.9',
     license:'MIT',
   },
 
@@ -104,8 +104,8 @@ const VESTIGE = {
 
   roadmap: [
     { v: 'V0',   title: 'Skeleton',            status: 'done',    items: 'init · SQLite · explicit capture · progressive disclosure · FTS recall · context pack · MCP' },
-    { v: 'V0.1', title: 'Embeddings',          status: 'now',     items: 'provider interface · embeddings on summary/compressed · hybrid search · reindex' },
-    { v: 'V0.2', title: 'Assimilation inbox',  status: 'next',    items: 'raw event capture · candidate memories · approve / reject' },
+    { v: 'V0.1', title: 'Embeddings',          status: 'done',    items: 'provider interface · embeddings on summary/compressed · hybrid search · reindex · MCP mode flag · score diagnostics · forget × search invariants' },
+    { v: 'V0.2', title: 'Assimilation inbox',  status: 'now',     items: 'raw event capture · candidate memories · approve / reject' },
     { v: 'V0.3', title: 'Provenance',          status: 'planned', items: 'vestige why · vestige sources · query trace logs' },
     { v: 'V0.4', title: 'Daemon runtime',      status: 'planned', items: 'vestige serve · local API · concurrency · LaunchAgent' },
     { v: 'V0.5', title: 'Dream-lite',          status: 'planned', items: 'project summary refresh · clustering · review-first consolidation' },
