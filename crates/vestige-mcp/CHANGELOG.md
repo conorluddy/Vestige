@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9](https://github.com/conorluddy/Vestige/compare/v0.2.8...v0.2.9) - 2026-05-02
+
+### Documentation
+
+- *(readme)* rewrite V0.1 section as a single linear walkthrough ([#46](https://github.com/conorluddy/Vestige/pull/46))
+
+### Tests
+
+- *(mcp)* smoke tests for vestige_search across all three modes ([#44](https://github.com/conorluddy/Vestige/pull/44))
+
 ## [0.2.7](https://github.com/conorluddy/Vestige/compare/v0.2.6...v0.2.7) - 2026-05-01
 
 ### Features
