@@ -60,7 +60,7 @@ pub fn run_search(
             emit_search_json(outcome.effective_mode, &outcome.scored, &outcome.warnings)
         }
         OutputFormat::Text => {
-            print_scored_list(&outcome.scored, include_parts);
+            print_scored_list(&outcome.scored, &outcome.warnings, include_parts);
             Ok(())
         }
     }
@@ -149,9 +149,21 @@ fn build_embed_provider(ctx: &ProjectContext) -> Result<Box<dyn EmbeddingProvide
     })
 }
 
-fn print_scored_list(scored: &[vestige_core::ScoredCard], include_parts: bool) {
+fn print_scored_list(
+    scored: &[vestige_core::ScoredCard],
+    warnings: &[String],
+    include_parts: bool,
+) {
     if scored.is_empty() {
-        println!("(no matches)");
+        // Cold-start polish: when the engine emitted a warning pointing at
+        // `vestige embed --all`, inline the actionable hint with "(no matches)"
+        // so a reader who skims past the stderr warning still sees it.
+        let cold_start = warnings.iter().any(|w| w.contains("vestige embed --all"));
+        if cold_start {
+            println!("(no matches — try `vestige embed --all` to enable semantic recall)");
+        } else {
+            println!("(no matches)");
+        }
     } else {
         for hit in scored {
             print_scored_opts(hit, include_parts);
