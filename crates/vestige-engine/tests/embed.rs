@@ -5,7 +5,7 @@
 
 use tempfile::TempDir;
 use vestige_core::{build_bundle, MemoryType, NewMemory, ProjectId, RepresentationDepth};
-use vestige_embed::FakeEmbeddingProvider;
+use vestige_embed::{EmbedError, EmbeddingProvider, FakeEmbeddingProvider};
 use vestige_engine::embed::{embed_all, embed_memory_representations, EmbedOutcome};
 use vestige_store::Store;
 
@@ -255,5 +255,101 @@ fn embed_all_skips_soft_deleted_memories() {
         results.is_empty(),
         "embed_all must skip soft-deleted memories, got {} results",
         results.len()
+    );
+}
+
+// === PROVIDER DIMENSION MISMATCH ===
+
+/// Provider that declares one dimension count but returns vectors of a
+/// different length — simulates a misconfigured provider (e.g. declared
+/// 384 but a model upgrade quietly switched to 768) that would otherwise
+/// silently insert un-queryable rows.
+struct LyingProvider {
+    declared_dims: usize,
+    actual_len: usize,
+}
+
+impl EmbeddingProvider for LyingProvider {
+    fn provider_name(&self) -> &'static str {
+        "fake"
+    }
+    fn model_name(&self) -> &str {
+        "lying-test"
+    }
+    fn dimensions(&self) -> usize {
+        self.declared_dims
+    }
+    fn embed(&self, _input: &str) -> Result<Vec<f32>, EmbedError> {
+        Ok(vec![0.0; self.actual_len])
+    }
+}
+
+#[test]
+fn embed_rejects_provider_with_mismatched_vector_length() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("emb-dim-mismatch");
+    seed_project(&mut store, &project);
+
+    let fetched = record_memory_fetched(&mut store, &project, "Mismatch test memory.");
+    let memory_id = fetched.memory.id.clone();
+
+    let provider = LyingProvider {
+        declared_dims: 384,
+        actual_len: 5,
+    };
+    let depths = default_depths();
+
+    let results =
+        embed_memory_representations(&mut store, &fetched, &provider, &depths, false).unwrap();
+
+    // Every requested depth should fail with the mismatch — the boundary check
+    // catches the bad row before record_embedding sees it.
+    assert_eq!(results.len(), depths.len());
+    for r in &results {
+        assert_eq!(
+            r.outcome,
+            EmbedOutcome::Failed,
+            "expected Failed, got {:?}",
+            r.outcome
+        );
+        let msg = r
+            .error
+            .as_ref()
+            .expect("Failed result must carry an error message");
+        assert!(
+            msg.contains("dimension mismatch"),
+            "error must mention 'dimension mismatch', got: {msg}"
+        );
+        assert!(
+            msg.contains("384"),
+            "error must name declared dim 384, got: {msg}"
+        );
+        assert!(
+            msg.contains('5'),
+            "error must name actual length 5, got: {msg}"
+        );
+    }
+
+    // No vector rows persisted — the bogus 5-element vector never reached the store.
+    assert_eq!(
+        count_active_embeddings(&store, &project, &memory_id),
+        0,
+        "no embeddings should have been written for a mismatched provider"
+    );
+
+    // One failed-job row per attempted depth, all with the lying provider's name.
+    let failed_count: i64 = store
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM embedding_jobs
+             WHERE status = 'failed' AND memory_id = ?1 AND model = ?2",
+            rusqlite::params![memory_id.as_str(), "lying-test"],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        failed_count,
+        depths.len() as i64,
+        "expected one failed job row per attempted depth"
     );
 }
