@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8](https://github.com/conorluddy/Vestige/compare/v0.2.7...v0.2.8) - 2026-05-02
+
+### Features
+
+- *(engine)* populate score_parts on semantic search (V0.1 hardening 1/N) ([#40](https://github.com/conorluddy/Vestige/pull/40))
+
 ## [0.2.7](https://github.com/conorluddy/Vestige/compare/v0.2.6...v0.2.7) - 2026-05-01
 
 ### Features
