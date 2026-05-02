@@ -281,3 +281,140 @@ fn search_hybrid_scores_are_in_expected_range() {
         );
     }
 }
+
+// === FORGET × SEMANTIC/HYBRID INVARIANTS ===
+//
+// nearest_neighbours filters m.status='active' AND e.status='active' at the
+// store layer (crates/vestige-store/src/embeddings/nearest.rs:28-37) and that
+// path has direct test coverage. These tests prove the same invariant holds
+// at the engine entrypoints — the surface MCP and the CLI actually call. If a
+// future refactor moves filtering up the stack, these regressions catch it.
+
+#[test]
+fn forget_excludes_from_search_semantic() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("forget-semantic");
+    seed_project(&mut store, &project);
+
+    let provider = FakeEmbeddingProvider::new(64);
+    let kept_text = "Surviving memory about hybrid search ranking.";
+    let kept_id = record_memory(&mut store, &project, kept_text);
+    embed_memory(&mut store, &kept_id, &provider, kept_text);
+
+    let forgotten_text = "Forgotten memory about hybrid search ranking.";
+    let forgotten_id = record_memory(&mut store, &project, forgotten_text);
+    embed_memory(&mut store, &forgotten_id, &provider, forgotten_text);
+
+    store.forget_memory(&forgotten_id).unwrap();
+
+    let outcome = search_semantic(
+        &store,
+        &project,
+        "hybrid search ranking",
+        None,
+        10,
+        &provider,
+    )
+    .unwrap();
+
+    let returned_ids: Vec<_> = outcome.scored.iter().map(|s| &s.card.id).collect();
+    assert!(
+        !returned_ids.contains(&&forgotten_id),
+        "forgotten memory must not appear in semantic results, got: {returned_ids:?}"
+    );
+    assert!(
+        returned_ids.contains(&&kept_id),
+        "non-forgotten memory must still appear, got: {returned_ids:?}"
+    );
+}
+
+#[test]
+fn forget_excludes_from_search_hybrid() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("forget-hybrid");
+    seed_project(&mut store, &project);
+
+    let provider = FakeEmbeddingProvider::new(64);
+    let kept_text = "Surviving memory about agent context windows.";
+    let kept_id = record_memory(&mut store, &project, kept_text);
+    embed_memory(&mut store, &kept_id, &provider, kept_text);
+
+    let forgotten_text = "Forgotten memory about agent context windows.";
+    let forgotten_id = record_memory(&mut store, &project, forgotten_text);
+    embed_memory(&mut store, &forgotten_id, &provider, forgotten_text);
+
+    store.forget_memory(&forgotten_id).unwrap();
+
+    let outcome = search_hybrid(&store, &project, "agent context", None, 10, &provider).unwrap();
+
+    // Hybrid merges both legs — the forgotten memory must drop from BOTH
+    // (FTS via memory_after_soft_delete trigger, vectors via the e.status
+    // filter). Either leg leaking it would break this assertion.
+    let returned_ids: Vec<_> = outcome.scored.iter().map(|s| &s.card.id).collect();
+    assert!(
+        !returned_ids.contains(&&forgotten_id),
+        "forgotten memory must not appear in hybrid results, got: {returned_ids:?}"
+    );
+    assert!(
+        returned_ids.contains(&&kept_id),
+        "non-forgotten memory must still appear, got: {returned_ids:?}"
+    );
+}
+
+#[test]
+fn restore_does_not_re_include_in_semantic_until_reindex() {
+    // PRD §8.4: "embeddings are left stale after restore — they re-embed on
+    // the next vestige embed run." Documents the deliberate choice that
+    // restore alone does not bring a memory back to semantic recall; an
+    // explicit re-embed is required.
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("restore-semantic");
+    seed_project(&mut store, &project);
+
+    let provider = FakeEmbeddingProvider::new(64);
+
+    // Two memories so search_semantic does not hit the cold-start path while
+    // the test memory is in flight; the second memory keeps the project's
+    // embedded_representations count above zero throughout.
+    let anchor_text = "Anchor memory keeping the project embedded.";
+    let anchor_id = record_memory(&mut store, &project, anchor_text);
+    embed_memory(&mut store, &anchor_id, &provider, anchor_text);
+
+    let target_text = "Target memory subjected to forget and restore.";
+    let target_id = record_memory(&mut store, &project, target_text);
+    embed_memory(&mut store, &target_id, &provider, target_text);
+
+    // Sanity: present after embed.
+    let pre = search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    assert!(
+        pre.scored.iter().any(|s| s.card.id == target_id),
+        "target should be present before forget"
+    );
+
+    // After forget: target absent (the existing first invariant).
+    store.forget_memory(&target_id).unwrap();
+    let after_forget = search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    assert!(
+        !after_forget.scored.iter().any(|s| s.card.id == target_id),
+        "target must be absent after forget"
+    );
+
+    // After restore but before re-embed: target STILL absent — embeddings
+    // are stale, nearest_neighbours filters them out.
+    store.restore_memory(&target_id).unwrap();
+    let after_restore =
+        search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    assert!(
+        !after_restore.scored.iter().any(|s| s.card.id == target_id),
+        "target must remain absent after restore until re-embedded (PRD §8.4)"
+    );
+
+    // After explicit re-embed: target present again.
+    embed_memory(&mut store, &target_id, &provider, target_text);
+    let after_reembed =
+        search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    assert!(
+        after_reembed.scored.iter().any(|s| s.card.id == target_id),
+        "target must reappear once re-embedded"
+    );
+}
