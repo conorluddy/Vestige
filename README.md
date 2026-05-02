@@ -98,26 +98,57 @@ Every command supports `--json` for scripting. `VESTIGE_LOG=debug` turns on stru
 
 ## Semantic recall (V0.1)
 
-V0 ships with BM25 lexical search. V0.1 adds embeddings and hybrid recall, so agents can find memories that don't share keywords with the query.
+V0 ships with BM25 lexical search. V0.1 adds embeddings and hybrid recall so agents can find memories that don't share keywords with the query. Embeddings are an optional, rebuildable index over the canonical SQLite store — the lexical path always works, even with no embeddings.
+
+### Walkthrough
+
+Continuing from the same project you initialised above:
 
 ```bash
-# One-time: embed all active memories with the default provider (fake; deterministic, no model download).
 vestige embed --all
-vestige embeddings status
+# → Embedded 4 representations across 2 memories using provider=fake model=deterministic-sha256
+# → Embedded 4; skipped 0; failed 0.
 
-# Search modes:
-vestige search "why did we pick our store" --mode semantic
-vestige search "agent memory layer" --mode hybrid       # merges FTS + vector
-vestige search "agent memory layer" --hybrid --json    # convenience alias + score breakdown
+vestige embeddings status
+# → Provider:  fake
+# → Model:     deterministic-sha256
+# → Memories:                    2 active
+# → Embeddable representations:  4
+# → Embedded representations:    4
+# → Stale embeddings:            0
+
+vestige search "canonical store" --mode hybrid
+# → mem_01K…WWG decision  0.360  Use SQLite as the canonical local store
+# →     [fts=0.500 vec=0.035 imp=0.700 type=0.800]
+
+vestige search "fast scans" --mode semantic --json
+# → {"mode":"semantic","results":[{"id":"mem_01K…XHJ","title":"Brute-force…",
+# →   "score":0.387,"score_parts":{"fts":0.0,"vector":0.387,
+# →   "importance":0.0,"type_boost":0.0,"total":0.387}, …}], "warnings":[]}
 ```
 
-### Real semantic quality (recommended)
+The convenience aliases `--lexical` / `--semantic` / `--hybrid` are equivalent to `--mode <name>`. Pass `--score-parts` on lexical or semantic mode to force the per-component breakdown into the JSON output (always on for hybrid).
 
-The default `fake` provider is deterministic and exists for tests — it doesn't produce semantically meaningful vectors. For real recall, build with the `fastembed` feature, which downloads BAAI/bge-small-en-v1.5 (~60MB, cached at `~/.vestige/models/`) on first use:
+### Choosing a mode
+
+| Mode | Best for | Notes |
+|------|---------|-------|
+| `lexical` (default) | Exact keywords, IDs, command names, error strings. | Always available. BM25 over FTS5. |
+| `semantic` | Paraphrases and concept queries — *"why did we pick our store?"*. | Requires `vestige embed --all` first. Hard error in MCP if no embeddings exist. |
+| `hybrid` | The default for agents. Merges both legs with score diagnostics. | Falls back to lexical (with a warning) when embeddings are missing. |
+
+`vestige recall` shares the same engine; the only difference is `--limit` defaults to `[recall] max_results` from config rather than a fixed `8`.
+
+### Real semantic quality (recommended for production use)
+
+The default `fake` provider is deterministic and exists for tests — it does not produce semantically meaningful vectors. For real recall, build with the `fastembed` feature, which downloads BAAI/bge-small-en-v1.5 (~60 MB, cached at `~/.vestige/models/`) on first use:
 
 ```bash
 cargo install vestige --features fastembed
-# Then in your project's .vestige/config.toml:
+```
+
+```toml
+# .vestige/config.toml
 [embeddings]
 provider = "fastembed"
 ```
@@ -130,13 +161,11 @@ provider = "ollama"
 model = "nomic-embed-text"
 ```
 
-### Embeddings are optional and rebuildable
+### Known limitations
 
-Memories are canonical in SQLite. Embeddings are an index — delete `.vestige` and reseed, or just `vestige reindex --embeddings` to recompute. The lexical fallback always works, even with no embeddings. Hybrid mode falls back to lexical with a warning when embeddings are missing.
-
-### Scaling note
-
-V0.1 uses a brute-force cosine scan over a `BLOB` column (no `vec0` virtual table yet). It's comfortable up to roughly 10k vectors per project; past that, semantic-mode latency starts to show. A future release will swap in an indexed implementation behind the same `Store` API.
+- **Embeddings are an index, not state.** Memories are canonical in SQLite. `vestige reindex --embeddings` rebuilds the vector layer at any time; deleting it never loses memory. Hybrid mode falls back to lexical (with a warning) when embeddings are missing or were produced under a different provider/model/dimensions.
+- **Switching provider/model/dimensions is detected, not auto-cleaned.** When the configured provider drifts away from what the embeddings were generated under, `vestige search` prints a warning at query time and falls back. The stored rows stay until you run `vestige reindex --embeddings` (or `vestige embed --all` after a clean re-index) — automatic stale-sweep is deferred to V0.4.
+- **Brute-force cosine scan, no `vec0` yet.** V0.1 reads all in-project, matching-provider vectors and ranks them in Rust. Comfortable to roughly 10k vectors per project; past that, semantic-mode latency starts to show. A future release will swap in a `vec0` virtual table behind the same `Store` API — the canonical store schema and the engine surface stay unchanged.
 
 ## Plug it into Claude Code (MCP)
 
