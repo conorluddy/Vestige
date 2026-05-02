@@ -187,3 +187,37 @@ fn search_in_uninit_repo_errors_actionably() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("vestige init"));
 }
+
+/// Cold-start polish: when `--mode semantic` is run before `vestige embed
+/// --all`, the engine returns empty results plus a warning pointing at the
+/// fix. The text-mode "(no matches)" line inlines that hint so a reader
+/// who skims past the stderr warning still sees the next step.
+#[test]
+fn semantic_search_with_no_embeddings_inlines_cold_start_hint() {
+    let repo = fresh_repo();
+    assert_ok(&vestige(&repo, &["init", "--name", "cold-start"]), "init");
+    assert_ok(
+        &vestige(&repo, &["note", "add", "Memory exists, no embeddings yet."]),
+        "note add",
+    );
+
+    let out = vestige(&repo, &["search", "memory", "--mode", "semantic"]);
+    assert_ok(&out, "search --mode semantic before embed");
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("(no matches"),
+        "stdout should still anchor on '(no matches', got: {stdout}"
+    );
+    assert!(
+        stdout.contains("vestige embed --all"),
+        "cold-start stdout must inline the actionable hint, got: {stdout}"
+    );
+
+    // The stderr warning is preserved so JSON / scripted callers still see it.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("vestige embed --all"),
+        "stderr warning must remain in place, got: {stderr}"
+    );
+}
