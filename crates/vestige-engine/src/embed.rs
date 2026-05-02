@@ -149,6 +149,33 @@ pub fn embed_memory_representations(
         // Generate and persist the embedding.
         match provider.embed(&repr.content) {
             Ok(vector) => {
+                // Boundary check: a misconfigured provider may return a vector
+                // whose length disagrees with its declared dimensions(). Catch
+                // it here rather than letting a bad row reach the store, where
+                // it would silently fail to match any future query (different
+                // `dimensions` filter) and produce no error.
+                let expected = provider.dimensions();
+                let actual = vector.len();
+                if actual != expected {
+                    let error_msg = format!(
+                        "provider dimension mismatch: declared {expected}, returned {actual}"
+                    );
+                    let _ = store.record_failed_embedding_job(
+                        memory_id,
+                        &repr_id,
+                        depth,
+                        provider.provider_name(),
+                        provider.model_name(),
+                        &error_msg,
+                    );
+                    results.push(EmbedResult {
+                        memory_id: memory_id.clone(),
+                        representation_type: depth.as_str().to_owned(),
+                        outcome: EmbedOutcome::Failed,
+                        error: Some(error_msg),
+                    });
+                    continue;
+                }
                 store.record_embedding(&NewEmbedding {
                     memory_id,
                     representation_id: &repr_id,
