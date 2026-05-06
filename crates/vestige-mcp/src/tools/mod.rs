@@ -5,7 +5,10 @@
 
 pub mod bootstrap;
 pub mod expand;
+pub mod get_candidate;
+pub mod list_candidates;
 pub mod project_context;
+pub mod propose_candidate;
 pub mod record_decision;
 pub mod record_observation;
 pub mod search;

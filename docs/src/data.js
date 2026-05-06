@@ -105,8 +105,8 @@ const VESTIGE = {
   roadmap: [
     { v: 'V0',   title: 'Skeleton',            status: 'done',    items: 'init · SQLite · explicit capture · progressive disclosure · FTS recall · context pack · MCP' },
     { v: 'V0.1', title: 'Embeddings',          status: 'done',    items: 'provider interface · embeddings on summary/compressed · hybrid search · reindex · MCP mode flag · score diagnostics · forget × search invariants' },
-    { v: 'V0.2', title: 'Assimilation inbox',  status: 'now',     items: 'raw event capture · candidate memories · approve / reject' },
-    { v: 'V0.3', title: 'Provenance',           status: 'planned', items: 'vestige why · vestige sources · query trace logs' },
+    { v: 'V0.2', title: 'Assimilation inbox',  status: 'done',    items: 'candidate memories (cand_<ULID>) · vestige inbox / approve / reject · candidate FTS dedup · MCP propose/list/get · auto-memorise proposes candidates · reverse provenance on approval' },
+    { v: 'V0.3', title: 'Provenance',           status: 'now',     items: 'vestige why · vestige sources · query trace logs' },
     { v: 'V0.4', title: 'Memory browser (TUI)', status: 'planned', items: 'interactive vestige browse · list / expand / forget / restore · binds Store directly, no daemon' },
     { v: 'V0.5', title: 'Daemon runtime',       status: 'planned', items: 'vestige serve · local API · concurrency · LaunchAgent' },
     { v: 'V0.6', title: 'Directives',           status: 'planned', items: 'pluggable prompt blocks (.vestige/directives.md) · project-scoped allow/deny rules · injected into auto-memorise + heartbeat ingestion' },
@@ -130,6 +130,10 @@ const VESTIGE = {
     { cmd: 'vestige recall "architecture"',         desc: 'Opinionated recall for agent/user context.' },
     { cmd: 'vestige show mem_01 --depth full',      desc: 'Expand a memory by depth.' },
     { cmd: 'vestige forget mem_01',                 desc: 'Soft-delete a memory.' },
+    { cmd: 'vestige candidate add --type decision --body "..."', desc: 'V0.2 — propose a candidate memory for review.' },
+    { cmd: 'vestige inbox',                         desc: 'V0.2 — list pending candidates awaiting review.' },
+    { cmd: 'vestige approve cand_01',               desc: 'V0.2 — promote a candidate to a durable memory.' },
+    { cmd: 'vestige reject cand_01 --reason not_durable', desc: 'V0.2 — reject a candidate; never enters recall.' },
     { cmd: 'vestige mcp',                           desc: 'Start the MCP server bound to the current repo.' },
   ],
 };

@@ -71,7 +71,7 @@ config ──→ core
 - `vestige-engine` — orchestration layer added in V0.1. Owns hybrid search merge (`search_lexical`/`search_semantic`/`search_hybrid` → `HybridOutcome`), embed ingest (`embed_memory_representations`/`embed_all`), and provider-mismatch detection. Single source of truth for all three search modes; both `cli` and `mcp` delegate here.
 - `vestige-config` — `.vestige/config.toml` round-trip and project identity (PRD §9.3 order: explicit `--name` → git remote hash → repo-path hash). Also resolves `~/.vestige/projects/<id>/memory.sqlite`.
 - `vestige-cli` — the `vestige` binary. Each subcommand is one file under `src/commands/`. Thin adapter: parse → dispatch into core/engine → format. No business logic.
-- `vestige-mcp` — MCP server (rmcp 0.16). Same thin-adapter discipline as the CLI; one tool per file under `src/tools/`. Six tools shipped: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision`.
+- `vestige-mcp` — MCP server (rmcp 0.16). Same thin-adapter discipline as the CLI; one tool per file under `src/tools/`. Nine tools shipped: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision` (V0), plus `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate` (V0.2).
 
 ### Storage layout (PRD §9)
 
@@ -92,7 +92,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5) and V0.1 are shipped** as of v0.2.9 — init/status/schema, memory CRUD + soft-delete/restore, FTS5 search + recall, project context pack, MCP server, and embeddings + hybrid recall. **V0.2 (assimilation inbox)** is the active next milestone; PRD draft TBD.
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, and V0.2 are shipped** as of v0.2.9. V0.2 adds the assimilation inbox (candidate review layer), `vestige candidate add` / `vestige inbox` / `vestige approve` / `vestige reject`, three new MCP tools (`vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate`), and the auto-memorise skill now proposes candidates rather than writing durable memory. See `docs/v0.2.md` for the full walkthrough. **V0.3 is the active next milestone.**
 
 ## Hard rules (will reject in review)
 

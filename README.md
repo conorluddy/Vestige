@@ -94,6 +94,19 @@ vestige forget   mem_01HXXXXXXXXXXXXXXXXXX
 vestige restore  mem_01HXXXXXXXXXXXXXXXXXX
 ```
 
+Candidate inbox (V0.2):
+
+```bash
+vestige candidate add --type decision \
+  --body "Prefer append-only migrations — existing DBs cannot re-run mutated files." \
+  --importance 0.9
+
+vestige inbox                                # list pending candidates
+vestige inbox show cand_01HXXXXXXXXXXXXXXXXXX
+vestige approve cand_01HXXXXXXXXXXXXXXXXXX   # promotes to mem_<ULID>
+vestige reject  cand_01HXXXXXXXXXXXXXXXXXX --reason not_durable
+```
+
 Every command supports `--json` for scripting. `VESTIGE_LOG=debug` turns on structured stderr logs.
 
 ## Semantic recall (V0.1)
@@ -270,9 +283,28 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 - **No daemon, no background threads.** Each CLI invocation opens SQLite, does its work, closes.
 - **MCP exposes intent, not mechanics.** No raw SQL tools. No destructive defaults.
 
-## Status
+## What's shipped
 
-V0 is complete. All 12 PRD §23 Definition-of-Done items are shipped:
+### V0.2 — Assimilation inbox
+
+V0.2 adds a review layer between agent capture and durable memory. Agents propose candidates (`cand_<ULID>`) that queue in an inbox, invisible to recall, until a human approves or rejects them. This keeps the memory store trustworthy — everything recalled has been seen by a human, not just emitted by an LLM.
+
+- `vestige candidate add` — propose a candidate with type, body, rationale, confidence, importance, and optional source attachment.
+- `vestige inbox` / `vestige inbox show` — list and inspect pending candidates.
+- `vestige approve` — promote a candidate to a full `mem_<ULID>` with full provenance.
+- `vestige reject` — dismiss with a reason (`duplicate`, `wrong`, `not_durable`, `too_noisy`, `stale`). Rejected candidates are audited but never recalled.
+- Three new MCP tools: `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate`. Approval/rejection tools are CLI-only until the review policy is proven.
+- `vestige-auto-memorise` skill now proposes candidates rather than writing durable memories. Explicit capture skills (`vestige-record-decision` etc.) still write directly.
+
+See [`docs/v0.2.md`](docs/v0.2.md) for the full walkthrough.
+
+### V0.1 — Semantic recall
+
+V0.1 adds embeddings and hybrid recall so agents can find memories that don't share keywords with the query. See the [Semantic recall (V0.1)](#semantic-recall-v01) section below.
+
+### V0 — Core memory layer
+
+All 12 PRD §23 Definition-of-Done items are shipped:
 
 - `vestige init` / `status` (M0)
 - Memory CRUD with soft delete + restore (M1)
@@ -281,11 +313,9 @@ V0 is complete. All 12 PRD §23 Definition-of-Done items are shipped:
 - Project context pack (M4)
 - MCP server with six tools, `--read-only` flag (M5)
 
-42 tests passing across unit, store integration, and CLI/MCP smoke. `cargo clippy --all-targets -- -D warnings` clean.
-
 ## Roadmap
 
-V0.1 adds embeddings (sqlite-vec) and hybrid FTS+vector search. V0.2 introduces the assimilation inbox for automatic capture. Full roadmap in `vestige_prd.md` §20.
+V0.3 is the active next milestone. Full roadmap in `vestige_prd.md` §20.
 
 ## Contributing
 

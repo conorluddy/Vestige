@@ -1,6 +1,6 @@
-//! Newtype ID wrappers — [`MemoryId`], [`ProjectId`], and [`EmbeddingId`].
+//! Newtype ID wrappers — [`MemoryId`], [`ProjectId`], [`EmbeddingId`], and [`CandidateId`].
 //!
-//! All IDs carry a mandatory prefix (`mem_`, `proj_`, `emb_`) followed by a
+//! All IDs carry a mandatory prefix (`mem_`, `proj_`, `emb_`, `cand_`) followed by a
 //! ULID. The prefix check is enforced at parse time via [`FromStr`], so any
 //! value of these types is proof-of-validity through the type system. Never
 //! pass bare `String`s where a typed ID belongs.
@@ -19,6 +19,7 @@ use crate::error::CoreError;
 const MEMORY_PREFIX: &str = "mem_";
 const PROJECT_PREFIX: &str = "proj_";
 const EMBEDDING_PREFIX: &str = "emb_";
+const CANDIDATE_PREFIX: &str = "cand_";
 
 // === PUBLIC TYPES ===
 
@@ -168,6 +169,55 @@ impl FromStr for EmbeddingId {
     }
 }
 
+/// A validated candidate identifier of the form `cand_<ULID>`.
+///
+/// Used by the V0.2 assimilation inbox for candidates awaiting review.
+/// Construct with [`CandidateId::generate`] for new candidates, or parse
+/// an existing string with [`FromStr`]. Rejects any string that lacks the
+/// `cand_` prefix; returns [`CoreError::InvalidCandidateId`] on failure.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CandidateId(String);
+
+impl CandidateId {
+    /// Validate and wrap a pre-formed candidate ID string.
+    pub fn new(id: impl Into<String>) -> Result<Self, CoreError> {
+        let s = id.into();
+        if !s.starts_with(CANDIDATE_PREFIX) {
+            return Err(CoreError::InvalidCandidateId { value: s });
+        }
+        Ok(Self(s))
+    }
+
+    /// Generate a new candidate ID using a fresh ULID.
+    pub fn generate() -> Self {
+        Self(format!("{CANDIDATE_PREFIX}{}", Ulid::new()))
+    }
+
+    /// Borrow the underlying string representation (e.g. for SQL bindings).
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CandidateId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for CandidateId {
+    type Err = CoreError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with(CANDIDATE_PREFIX) {
+            return Err(CoreError::InvalidCandidateId {
+                value: s.to_string(),
+            });
+        }
+        Ok(Self(s.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +259,39 @@ mod tests {
     fn embedding_id_display_matches_as_str() {
         let id = EmbeddingId::new();
         assert_eq!(id.to_string(), id.as_str());
+    }
+
+    #[test]
+    fn candidate_id_generate_has_correct_prefix() {
+        let id = CandidateId::generate();
+        assert!(id.as_str().starts_with("cand_"));
+    }
+
+    #[test]
+    fn candidate_id_roundtrip() {
+        let id = CandidateId::generate();
+        let parsed = CandidateId::from_str(id.as_str()).unwrap();
+        assert_eq!(id, parsed);
+        assert_eq!(id.to_string(), id.as_str());
+    }
+
+    #[test]
+    fn candidate_id_new_validates_prefix() {
+        assert!(CandidateId::new("cand_01ARZ3NDEKTSV4RRFFQ69G5FAV").is_ok());
+        assert!(matches!(
+            CandidateId::new("mem_foo"),
+            Err(CoreError::InvalidCandidateId { .. })
+        ));
+    }
+
+    #[test]
+    fn candidate_id_rejects_wrong_prefix() {
+        assert!(CandidateId::from_str("mem_foo").is_err());
+        assert!(CandidateId::from_str("proj_bar").is_err());
+    }
+
+    #[test]
+    fn candidate_id_rejects_empty() {
+        assert!(CandidateId::from_str("").is_err());
     }
 }
