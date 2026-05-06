@@ -79,6 +79,57 @@ impl FromStr for MemoryType {
     }
 }
 
+/// Lifecycle status for a candidate in the assimilation inbox (V0.2).
+///
+/// Candidates begin as `Pending` and transition to `Approved`, `Rejected`,
+/// or `Superseded` after review. Once in a terminal state, no further
+/// state transitions are permitted. Serialises as snake_case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateStatus {
+    /// Awaiting agent or human review — the default state on creation.
+    Pending,
+    /// Accepted and promoted to a full memory row.
+    Approved,
+    /// Dismissed — a `RejectionReason` and optional note are attached.
+    Rejected,
+    /// Replaced by a newer or higher-confidence candidate.
+    Superseded,
+}
+
+impl CandidateStatus {
+    /// Return the canonical lowercase string for SQL storage and JSON output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Superseded => "superseded",
+        }
+    }
+}
+
+impl fmt::Display for CandidateStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for CandidateStatus {
+    type Err = CoreError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "pending" => Ok(Self::Pending),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "superseded" => Ok(Self::Superseded),
+            other => Err(CoreError::Validation(format!(
+                "invalid candidate status: `{other}`"
+            ))),
+        }
+    }
+}
+
 /// Soft-delete status for a memory row. `vestige forget` sets `Deleted`;
 /// `vestige restore` sets it back to `Active`. No row is ever physically
 /// removed — see CLAUDE.md "Soft-delete only" rule.
@@ -325,5 +376,36 @@ mod tests {
             MemoryType::from_str("bogus"),
             Err(CoreError::InvalidMemoryType(_))
         ));
+    }
+
+    #[test]
+    fn candidate_status_roundtrip() {
+        for (input, expected) in [
+            ("pending", CandidateStatus::Pending),
+            ("approved", CandidateStatus::Approved),
+            ("rejected", CandidateStatus::Rejected),
+            ("superseded", CandidateStatus::Superseded),
+        ] {
+            let parsed = CandidateStatus::from_str(input).unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.to_string(), input);
+        }
+    }
+
+    #[test]
+    fn candidate_status_is_case_insensitive() {
+        assert_eq!(
+            CandidateStatus::from_str("Pending").unwrap(),
+            CandidateStatus::Pending
+        );
+        assert_eq!(
+            CandidateStatus::from_str("APPROVED").unwrap(),
+            CandidateStatus::Approved
+        );
+    }
+
+    #[test]
+    fn candidate_status_rejects_unknown() {
+        assert!(CandidateStatus::from_str("unknown").is_err());
     }
 }

@@ -74,14 +74,26 @@ fn derive_title(body: &str) -> String {
 }
 
 /// Return a borrow of the text up to (but not including) the first sentence
-/// terminator (`.`, `!`, `?`, or `\n`), trimmed of surrounding whitespace.
-/// Returns the full string when no terminator is found.
+/// terminator, trimmed of surrounding whitespace. Returns the full string
+/// when no terminator is found.
+///
+/// `!`, `?`, and `\n` always terminate. `.` only terminates when followed by
+/// whitespace or end-of-string — so "V0.2", "e.g.", "1.5", and "config.toml"
+/// stay in the one-liner instead of being chopped at the period.
 fn first_sentence(body: &str) -> &str {
-    if let Some(end) = body.find(['.', '!', '?', '\n']) {
-        body[..end].trim()
-    } else {
-        body
+    let mut chars = body.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '!' | '?' | '\n' => return body[..i].trim(),
+            '.' => match chars.peek().map(|(_, c)| *c) {
+                None => return body[..i].trim(),
+                Some(n) if n.is_whitespace() => return body[..i].trim(),
+                _ => continue,
+            },
+            _ => continue,
+        }
     }
+    body
 }
 
 /// Truncate `s` at the last complete word boundary that keeps the result
@@ -133,5 +145,30 @@ mod tests {
         let body = "First sentence. Second sentence with more detail.";
         let d = derive(body);
         assert_eq!(d.one_liner, "First sentence");
+    }
+
+    #[test]
+    fn period_inside_token_is_not_a_sentence_break() {
+        let d = derive("V0.2 ships the assimilation inbox.");
+        assert_eq!(d.one_liner, "V0.2 ships the assimilation inbox");
+        assert!(d.title.starts_with("V0.2"));
+    }
+
+    #[test]
+    fn period_in_filename_is_not_a_sentence_break() {
+        let d = derive("Edit config.toml then restart.");
+        assert_eq!(d.one_liner, "Edit config.toml then restart");
+    }
+
+    #[test]
+    fn decimal_numbers_stay_intact() {
+        let d = derive("Confidence threshold is 0.75.");
+        assert_eq!(d.one_liner, "Confidence threshold is 0.75");
+    }
+
+    #[test]
+    fn exclamation_still_terminates() {
+        let d = derive("Whoa! Second part.");
+        assert_eq!(d.one_liner, "Whoa");
     }
 }
