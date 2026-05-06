@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/conorluddy/Vestige/compare/v0.2.9...v0.3.0) - 2026-05-06
+
 ## [0.2.9](https://github.com/conorluddy/Vestige/compare/v0.2.8...v0.2.9) - 2026-05-02
 
 ### Documentation
