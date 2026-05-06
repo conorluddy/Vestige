@@ -112,7 +112,12 @@ fn run_list(args: InboxArgs) -> Result<()> {
             emit_json(&Envelope { candidates: items })
         }
         OutputFormat::Text => {
-            println!("Pending candidates: {}", candidates.len());
+            let header = if args.include_rejected {
+                "Candidates (pending + rejected)"
+            } else {
+                "Pending candidates"
+            };
+            println!("{header}: {}", candidates.len());
             println!();
             for c in &candidates {
                 let id_short = &c.id.as_str()[..c.id.as_str().len().min(20)];
@@ -186,13 +191,40 @@ fn run_show(args: InboxShowArgs) -> Result<()> {
                 println!();
                 println!("  Duplicate of candidate: {dup_cand}");
             }
-            if candidate.status == vestige_core::CandidateStatus::Pending {
-                println!();
-                println!("  Approve: vestige approve {}", candidate.id);
-                println!(
-                    "  Reject:  vestige reject {} --reason <reason>",
-                    candidate.id
-                );
+            match candidate.status {
+                vestige_core::CandidateStatus::Pending => {
+                    println!();
+                    println!("  Approve: vestige approve {}", candidate.id);
+                    println!(
+                        "  Reject:  vestige reject {} --reason <reason>",
+                        candidate.id
+                    );
+                }
+                vestige_core::CandidateStatus::Approved => {
+                    println!();
+                    if let Some(mem_id) = &candidate.approved_memory_id {
+                        println!("  Approved as: {mem_id}");
+                    }
+                    if let Some(reviewed) = &candidate.reviewed_at {
+                        println!("  Reviewed at: {reviewed}");
+                    }
+                }
+                vestige_core::CandidateStatus::Rejected => {
+                    println!();
+                    if let Some(reason) = &candidate.rejection_reason {
+                        println!("  Rejection reason: {}", reason.as_str());
+                    }
+                    if let Some(note) = &candidate.review_note {
+                        println!("  Review note: {note}");
+                    }
+                    if let Some(reviewed) = &candidate.reviewed_at {
+                        println!("  Reviewed at: {reviewed}");
+                    }
+                }
+                vestige_core::CandidateStatus::Superseded => {
+                    println!();
+                    println!("  Superseded.");
+                }
             }
             Ok(())
         }
