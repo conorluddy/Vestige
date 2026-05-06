@@ -92,7 +92,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5), V0.1, and V0.2 are shipped** as of v0.2.9 <!-- TODO: confirm crate version — T8 may have bumped this; check [workspace.package].version in Cargo.toml before merge -->. V0.2 adds the assimilation inbox (candidate review layer), `vestige candidate add` / `vestige inbox` / `vestige approve` / `vestige reject`, three new MCP tools (`vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate`), and the auto-memorise skill now proposes candidates rather than writing durable memory. See `docs/v0.2.md` for the full walkthrough. **V0.3 is the active next milestone.**
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, and V0.2 are shipped** as of v0.2.9. V0.2 adds the assimilation inbox (candidate review layer), `vestige candidate add` / `vestige inbox` / `vestige approve` / `vestige reject`, three new MCP tools (`vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate`), and the auto-memorise skill now proposes candidates rather than writing durable memory. See `docs/v0.2.md` for the full walkthrough. **V0.3 is the active next milestone.**
 
 ## Hard rules (will reject in review)
 
