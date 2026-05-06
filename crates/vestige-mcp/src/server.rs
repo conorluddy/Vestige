@@ -48,7 +48,10 @@ impl VestigeServer {
                 + Self::expand_router()
                 + Self::project_context_router()
                 + Self::record_observation_router()
-                + Self::record_decision_router(),
+                + Self::record_decision_router()
+                + Self::propose_candidate_router()
+                + Self::list_candidates_router()
+                + Self::get_candidate_router(),
         }
     }
 }

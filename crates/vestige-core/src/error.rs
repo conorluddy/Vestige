@@ -57,4 +57,23 @@ pub enum CoreError {
     /// `vestige-core`. Retryable if the underlying operation is idempotent.
     #[error("storage: {0}")]
     Storage(String),
+
+    /// A string failed the `cand_` prefix check during construction or parsing
+    /// of a [`CandidateId`](crate::CandidateId).
+    #[error("invalid candidate id: `{value}` — must start with `cand_`")]
+    InvalidCandidateId { value: String },
+
+    /// A [`CandidateId`](crate::CandidateId) was provided but no matching
+    /// candidate row exists in the store.
+    #[error("candidate not found: {id}")]
+    CandidateNotFound { id: String },
+
+    /// A candidate operation requires `status = Pending` but the candidate
+    /// is in a different state.
+    #[error("candidate `{id}` is not pending (status: {status})")]
+    CandidateNotPending { id: String, status: String },
+
+    /// A raw string could not be parsed as a [`RejectionReason`](crate::RejectionReason).
+    #[error("invalid rejection reason: `{value}`")]
+    InvalidRejectionReason { value: String },
 }

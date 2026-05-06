@@ -67,6 +67,14 @@ enum Command {
     Skills(commands::skills::SkillsArgs),
     /// Start the MCP server over stdio so an agent can read/write project memory.
     Mcp(commands::mcp::McpArgs),
+    /// Propose a memory candidate for the assimilation inbox.
+    Candidate(commands::candidate::CandidateArgs),
+    /// List, inspect, and manage the assimilation inbox.
+    Inbox(commands::inbox::InboxArgs),
+    /// Approve a pending candidate and promote it to a full memory.
+    Approve(commands::approve::ApproveArgs),
+    /// Reject a pending candidate with a reason.
+    Reject(commands::reject::RejectArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
@@ -98,5 +106,9 @@ fn main() -> Result<()> {
         Command::Reindex(args) => commands::reindex::run(args),
         Command::Skills(args) => commands::skills::run(args),
         Command::Mcp(args) => commands::mcp::run(args),
+        Command::Candidate(args) => commands::candidate::run(args),
+        Command::Inbox(args) => commands::inbox::run(args),
+        Command::Approve(args) => commands::approve::run(args),
+        Command::Reject(args) => commands::reject::run(args),
     }
 }

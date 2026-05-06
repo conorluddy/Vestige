@@ -21,6 +21,13 @@
 //!   skip-if-current logic; returns [`embed::EmbedResult`] lists.
 //! - [`error`] — typed [`error::EngineError`] and [`error::Result`].
 
+pub mod candidate;
 pub mod embed;
 pub mod error;
 pub mod search;
+
+// Re-export public candidate surface so callers don't need `vestige_engine::candidate::*`.
+pub use candidate::{
+    approve_candidate, propose_candidate, reject_candidate, ApprovalOutcome, ApprovalOverrides,
+    ProposeOutcome, SimilarCandidate, SimilarMemory,
+};

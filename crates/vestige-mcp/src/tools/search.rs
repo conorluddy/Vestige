@@ -171,6 +171,15 @@ fn engine_err_to_data(e: EngineError) -> ErrorData {
         EngineError::EmbeddingsUnavailable(_) => {
             err("EMBEDDINGS_UNAVAILABLE", e.to_string(), false)
         }
+        // Candidate-specific errors are not reachable from the search tool, but
+        // must be covered because `EngineError` is non-exhaustive in the future.
+        EngineError::CandidateNotFound { .. } => err("CANDIDATE_NOT_FOUND", e.to_string(), false),
+        EngineError::CandidateNotPending { .. } => {
+            err("CANDIDATE_NOT_PENDING", e.to_string(), false)
+        }
+        EngineError::OutOfScope => err("OUT_OF_SCOPE", e.to_string(), false),
+        EngineError::Validation { .. } => err("VALIDATION_ERROR", e.to_string(), false),
+        EngineError::Core(_) => err("CORE_ERROR", e.to_string(), false),
     }
 }
 

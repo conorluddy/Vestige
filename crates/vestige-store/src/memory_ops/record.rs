@@ -128,6 +128,43 @@ impl Store {
         Ok(())
     }
 
+    /// Insert a single source row into `memory_sources` for an existing memory.
+    ///
+    /// Used by the approval path in `vestige-engine` to attach candidate provenance
+    /// and reverse-provenance links after `record_memory` has already committed the
+    /// memory bundle. The store has no multi-source variant of `record_memory`
+    /// (single-source is the common case); callers that need extra rows call this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on any SQLite failure (FK violation if the
+    /// `memory_id` does not exist, I/O errors, etc.).
+    pub fn add_memory_source(
+        &mut self,
+        memory_id: &MemoryId,
+        source_type: &str,
+        source_ref: Option<&str>,
+        source_content: Option<&str>,
+    ) -> Result<()> {
+        use ulid::Ulid;
+        let id = format!("src_{}", Ulid::new());
+        let now_str = rfc3339(OffsetDateTime::now_utc())?;
+        self.connection().execute(
+            "INSERT INTO memory_sources
+                 (id, memory_id, source_type, source_ref, source_content, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                id,
+                memory_id.as_str(),
+                source_type,
+                source_ref,
+                source_content,
+                now_str
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Append a status-transition event for `id` to the `memory_events` journal.
     ///
     /// Looks up `project_id` from the `memories` row, then inserts one

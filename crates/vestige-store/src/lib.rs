@@ -28,11 +28,13 @@
 //! 3. `memory_fts` / `memory_vectors` — disposable acceleration; rebuildable
 //!    from layer 2.
 
+mod candidate_ops;
 mod embeddings;
 mod helpers;
 mod memory_ops;
 mod project;
 
+pub use candidate_ops::{CandidateFilter, CandidateHit};
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
 pub use vestige_core::MemoryCounts;
 
@@ -81,6 +83,7 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 const MIGRATION_INIT: &str = include_str!("migrations/0001_init.sql");
 const MIGRATION_FTS: &str = include_str!("migrations/0002_fts.sql");
 const MIGRATION_EMBEDDINGS: &str = include_str!("migrations/0003_embeddings.sql");
+const MIGRATION_CANDIDATES: &str = include_str!("migrations/0004_candidates.sql");
 
 /// Build the ordered migration set from the embedded SQL files.
 ///
@@ -91,6 +94,7 @@ fn migrations() -> Migrations<'static> {
         M::up(MIGRATION_INIT),
         M::up(MIGRATION_FTS),
         M::up(MIGRATION_EMBEDDINGS),
+        M::up(MIGRATION_CANDIDATES),
     ])
 }
 
@@ -104,6 +108,7 @@ fn migrations() -> Migrations<'static> {
 /// - `project.rs` — upsert and fetch project rows
 /// - `memory_ops.rs` — memory CRUD, FTS search, soft-delete, event logging
 /// - `embeddings.rs` — vector insert/stale/delete, nearest-neighbour scan
+/// - `candidate_ops/` — candidate inbox CRUD, FTS dedup search, lifecycle
 pub struct Store {
     conn: Connection,
     path: PathBuf,

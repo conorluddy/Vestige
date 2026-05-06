@@ -13,8 +13,9 @@
 //! | `EmbeddingsUnavailable` | `EMBEDDINGS_UNAVAILABLE` | `false` |
 
 use thiserror::Error;
+use vestige_core::CandidateStatus;
 
-/// Errors produced by the engine search and embed pipelines.
+/// Errors produced by the engine search, embed, and candidate pipelines.
 #[derive(Debug, Error)]
 pub enum EngineError {
     /// Store operation failed.
@@ -23,6 +24,10 @@ pub enum EngineError {
     /// the MCP boundary so agents know a retry may succeed.
     #[error("store: {0}")]
     Store(#[from] vestige_store::StoreError),
+
+    /// A `vestige-core` domain operation failed (e.g. `build_bundle` validation).
+    #[error("core: {0}")]
+    Core(#[from] vestige_core::CoreError),
 
     /// Embedding provider operation failed.
     ///
@@ -41,6 +46,31 @@ pub enum EngineError {
     /// back gracefully to lexical search.
     #[error("embeddings unavailable: {0}")]
     EmbeddingsUnavailable(String),
+
+    /// A candidate was not found for the given ID.
+    #[error("candidate not found: `{id}`")]
+    CandidateNotFound {
+        /// The candidate ID that was looked up.
+        id: String,
+    },
+
+    /// The candidate is not in `Pending` status and cannot be transitioned.
+    #[error("candidate is not pending (status = {status})")]
+    CandidateNotPending {
+        /// The actual status found.
+        status: CandidateStatus,
+    },
+
+    /// The candidate belongs to a different project than the caller's scope.
+    #[error("candidate is out of scope for this project")]
+    OutOfScope,
+
+    /// Input validation failed (e.g. `duplicate_of` set with a non-Duplicate reason).
+    #[error("validation: {message}")]
+    Validation {
+        /// Human-readable description of what failed.
+        message: String,
+    },
 }
 
 /// Convenience alias — `EngineError` as the error type.
