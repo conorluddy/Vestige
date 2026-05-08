@@ -229,10 +229,10 @@ mod tests {
     }
 
     #[test]
-    fn list_returns_ten_skills() {
+    fn list_returns_fifteen_skills() {
         let skills = list();
         assert!(skills.iter().any(|s| s.name == "vestige-auto-memorise"));
-        assert_eq!(skills.len(), 10);
+        assert_eq!(skills.len(), 15);
     }
 
     #[test]

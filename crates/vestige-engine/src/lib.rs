@@ -20,14 +20,40 @@
 //! - [`embed`] — per-memory and bulk embedding ingest with idempotent
 //!   skip-if-current logic; returns [`embed::EmbedResult`] lists.
 //! - [`error`] — typed [`error::EngineError`] and [`error::Result`].
+//! - [`trace`] — engine tracing hook; single write site for `query_events`.
 
 pub mod candidate;
+pub mod context;
 pub mod embed;
 pub mod error;
+pub mod provenance;
+pub mod replay;
 pub mod search;
+pub mod trace;
+pub mod trace_read;
 
 // Re-export public candidate surface so callers don't need `vestige_engine::candidate::*`.
 pub use candidate::{
     approve_candidate, propose_candidate, reject_candidate, ApprovalOutcome, ApprovalOverrides,
     ProposeOutcome, SimilarCandidate, SimilarMemory,
 };
+
+// Re-export Caller and trace helpers so CLI/MCP can import them without knowing
+// the module path.
+pub use trace::{write_trace_configured, Caller};
+
+// Re-export TracesConfig so callers can resolve and pass it to engine functions
+// without an explicit vestige-config import on the caller side.
+pub use vestige_config::TracesConfig;
+
+// Re-export provenance surface so callers don't need `vestige_engine::provenance::*`.
+pub use provenance::{
+    list_sources, walk_provenance, CandidateProvenance, EventEntry, MemoryProvenance,
+    ProvenanceWalk, SourceListing, SourceReceipt, SubjectId,
+};
+
+// Re-export trace read surface so CLI and MCP don't need the module path.
+pub use trace_read::{get_trace, list_traces, ListFilters, TraceCard, TraceDetail};
+
+// Re-export replay surface so CLI and MCP don't need the module path.
+pub use replay::{replay_trace, ReplayDiff, ReplayResult, ReplayResultSet, ScoreChange};

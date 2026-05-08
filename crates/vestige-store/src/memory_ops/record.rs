@@ -17,6 +17,9 @@ impl Store {
     /// The journal is append-only — this is the only write path. `event_type`
     /// should follow dot-namespaced convention (`"memory.recorded"`,
     /// `"memory.forgotten"`, etc.). `payload_json` is optional free-form JSON.
+    /// `memory_id` populates the indexed column added in migration 0005 for
+    /// direct journal lookups; pass `None` for project-scoped events that are
+    /// not tied to a specific memory.
     ///
     /// Side-effect: inserts one row into `memory_events`.
     pub fn record_event(
@@ -112,14 +115,17 @@ impl Store {
         })
         .to_string();
         let event_id = format!("evt_{}", Ulid::new());
+        // Populate memory_id directly (migration 0005) in addition to payload_json
+        // so future lookups via the indexed column skip JSON extraction.
         tx.execute(
-            "INSERT INTO memory_events (id, project_id, event_type, payload_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO memory_events (id, project_id, event_type, payload_json, memory_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 event_id,
                 m.project_id.as_str(),
                 "memory.recorded",
                 payload,
+                m.id.as_str(),
                 created_str,
             ],
         )?;
@@ -169,6 +175,8 @@ impl Store {
     ///
     /// Looks up `project_id` from the `memories` row, then inserts one
     /// `memory_events` row with `{ "memory_id": "…" }` as the payload.
+    /// Populates the indexed `memory_id` column directly (migration 0005) for
+    /// fast lookups without JSON extraction.
     /// Called by `forget_memory` and `restore_memory`; not for direct use.
     pub(crate) fn append_status_event(
         &self,
@@ -183,10 +191,11 @@ impl Store {
         )?;
         let payload = serde_json::json!({ "memory_id": id.as_str() }).to_string();
         let event_id = format!("evt_{}", Ulid::new());
+        // Populate memory_id directly (migration 0005) alongside payload_json.
         self.connection().execute(
-            "INSERT INTO memory_events (id, project_id, event_type, payload_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![event_id, project_id, event_type, payload, when],
+            "INSERT INTO memory_events (id, project_id, event_type, payload_json, memory_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![event_id, project_id, event_type, payload, id.as_str(), when],
         )?;
         Ok(())
     }

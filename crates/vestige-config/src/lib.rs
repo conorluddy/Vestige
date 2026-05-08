@@ -37,8 +37,10 @@ pub use identity::{
 };
 pub use paths::{discover_config, read_config, storage_path_for, write_config};
 pub use schema::{
-    embeddings_config_for, EmbeddingsConfigSection, McpConfig, RecallConfig, SearchConfigSection,
-    StorageConfig, VestigeConfig,
+    embeddings_config_for, traces_config_for, AssimilationConfig, CaptureMode,
+    EmbeddingsConfigSection, McpConfig, RecallConfig, SearchConfigSection, StorageConfig,
+    TracesConfig, VestigeConfig, TRACES_DEFAULT_MAX_PER_PROJECT,
+    TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES,
 };
 
 /// The in-repo config directory name. Always `.vestige`.

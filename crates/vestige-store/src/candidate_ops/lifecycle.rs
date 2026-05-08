@@ -76,10 +76,12 @@ impl Store {
             rusqlite::params![id.as_str()],
             |r| r.get(0),
         )?;
+        // Populate memory_id directly (migration 0005) so provenance lookups
+        // can find this approval event via the indexed column without JSON extraction.
         tx.execute(
-            "INSERT INTO memory_events (id, project_id, event_type, payload_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![event_id, project_id, "candidate.approved", payload, now_str,],
+            "INSERT INTO memory_events (id, project_id, event_type, payload_json, memory_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![event_id, project_id, "candidate.approved", payload, memory_id.as_str(), now_str,],
         )?;
 
         tx.commit()?;

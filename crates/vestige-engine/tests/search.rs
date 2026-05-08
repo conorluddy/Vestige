@@ -4,10 +4,12 @@
 //! or model downloads are required.
 
 use tempfile::TempDir;
+use vestige_config::TracesConfig;
 use vestige_core::RepresentationDepth;
 use vestige_core::{build_bundle, MemoryType, NewMemory, ProjectId, SearchMode};
 use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 use vestige_engine::search::{search_hybrid, search_lexical, search_semantic};
+use vestige_engine::Caller;
 use vestige_store::{NewEmbedding, Store};
 
 // === HELPERS ===
@@ -77,7 +79,16 @@ fn search_lexical_happy_path_returns_ranked_hits() {
         "Vestige is a local-first memory layer for coding agents.",
     );
 
-    let outcome = search_lexical(&store, &project, "memory layer", None, 10).unwrap();
+    let outcome = search_lexical(
+        &store,
+        &project,
+        "memory layer",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Lexical);
     assert!(outcome.warnings.is_empty());
@@ -91,7 +102,16 @@ fn search_lexical_empty_query_returns_empty_no_warning() {
     seed_project(&mut store, &project);
     record_memory(&mut store, &project, "Some content.");
 
-    let outcome = search_lexical(&store, &project, "", None, 10).unwrap();
+    let outcome = search_lexical(
+        &store,
+        &project,
+        "",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Lexical);
     assert!(
@@ -110,7 +130,16 @@ fn search_lexical_whitespace_only_query_returns_empty_no_warning() {
     let project = ProjectId::from_slug("lex-whitespace");
     seed_project(&mut store, &project);
 
-    let outcome = search_lexical(&store, &project, "   \t  ", None, 10).unwrap();
+    let outcome = search_lexical(
+        &store,
+        &project,
+        "   \t  ",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Lexical);
     assert!(outcome.warnings.is_empty());
@@ -127,7 +156,17 @@ fn search_semantic_no_embeddings_returns_empty_with_warning() {
     record_memory(&mut store, &project, "Memory with no embeddings.");
 
     let provider = FakeEmbeddingProvider::default();
-    let outcome = search_semantic(&store, &project, "memory", None, 10, &provider).unwrap();
+    let outcome = search_semantic(
+        &store,
+        &project,
+        "memory",
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Semantic);
     assert!(outcome.scored.is_empty(), "no embeddings → no results");
@@ -150,7 +189,17 @@ fn search_semantic_with_embeddings_returns_hits_scored_by_similarity() {
     let memory_id = record_memory(&mut store, &project, query);
     embed_memory(&mut store, &memory_id, &provider, query);
 
-    let outcome = search_semantic(&store, &project, query, None, 10, &provider).unwrap();
+    let outcome = search_semantic(
+        &store,
+        &project,
+        query,
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Semantic);
     assert!(outcome.warnings.is_empty());
@@ -179,7 +228,17 @@ fn search_semantic_populates_score_parts_with_vector_component() {
     let memory_id = record_memory(&mut store, &project, text);
     embed_memory(&mut store, &memory_id, &provider, text);
 
-    let outcome = search_semantic(&store, &project, text, None, 10, &provider).unwrap();
+    let outcome = search_semantic(
+        &store,
+        &project,
+        text,
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert!(!outcome.scored.is_empty(), "should have results");
     let top = &outcome.scored[0];
@@ -214,7 +273,17 @@ fn search_hybrid_no_embeddings_falls_back_to_lexical() {
     record_memory(&mut store, &project, "Hybrid search without embeddings.");
 
     let provider = FakeEmbeddingProvider::default();
-    let outcome = search_hybrid(&store, &project, "search", None, 10, &provider).unwrap();
+    let outcome = search_hybrid(
+        &store,
+        &project,
+        "search",
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(
         outcome.effective_mode,
@@ -240,7 +309,17 @@ fn search_hybrid_with_both_legs_merges_and_deduplicates() {
     let memory_id = record_memory(&mut store, &project, text);
     embed_memory(&mut store, &memory_id, &provider, text);
 
-    let outcome = search_hybrid(&store, &project, "agents memory", None, 10, &provider).unwrap();
+    let outcome = search_hybrid(
+        &store,
+        &project,
+        "agents memory",
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Hybrid);
     assert!(outcome.warnings.is_empty());
@@ -269,8 +348,17 @@ fn search_hybrid_scores_are_in_expected_range() {
     let memory_id = record_memory(&mut store, &project, text);
     embed_memory(&mut store, &memory_id, &provider, text);
 
-    let outcome =
-        search_hybrid(&store, &project, "vestige knowledge", None, 10, &provider).unwrap();
+    let outcome = search_hybrid(
+        &store,
+        &project,
+        "vestige knowledge",
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(outcome.effective_mode, SearchMode::Hybrid);
     for result in &outcome.scored {
@@ -314,6 +402,8 @@ fn forget_excludes_from_search_semantic() {
         None,
         10,
         &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
     )
     .unwrap();
 
@@ -345,7 +435,17 @@ fn forget_excludes_from_search_hybrid() {
 
     store.forget_memory(&forgotten_id).unwrap();
 
-    let outcome = search_hybrid(&store, &project, "agent context", None, 10, &provider).unwrap();
+    let outcome = search_hybrid(
+        &store,
+        &project,
+        "agent context",
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     // Hybrid merges both legs — the forgotten memory must drop from BOTH
     // (FTS via memory_after_soft_delete trigger, vectors via the e.status
@@ -385,7 +485,17 @@ fn restore_does_not_re_include_in_semantic_until_reindex() {
     embed_memory(&mut store, &target_id, &provider, target_text);
 
     // Sanity: present after embed.
-    let pre = search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    let pre = search_semantic(
+        &store,
+        &project,
+        target_text,
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     assert!(
         pre.scored.iter().any(|s| s.card.id == target_id),
         "target should be present before forget"
@@ -393,7 +503,17 @@ fn restore_does_not_re_include_in_semantic_until_reindex() {
 
     // After forget: target absent (the existing first invariant).
     store.forget_memory(&target_id).unwrap();
-    let after_forget = search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    let after_forget = search_semantic(
+        &store,
+        &project,
+        target_text,
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     assert!(
         !after_forget.scored.iter().any(|s| s.card.id == target_id),
         "target must be absent after forget"
@@ -402,8 +522,17 @@ fn restore_does_not_re_include_in_semantic_until_reindex() {
     // After restore but before re-embed: target STILL absent — embeddings
     // are stale, nearest_neighbours filters them out.
     store.restore_memory(&target_id).unwrap();
-    let after_restore =
-        search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    let after_restore = search_semantic(
+        &store,
+        &project,
+        target_text,
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     assert!(
         !after_restore.scored.iter().any(|s| s.card.id == target_id),
         "target must remain absent after restore until re-embedded (PRD §8.4)"
@@ -411,8 +540,17 @@ fn restore_does_not_re_include_in_semantic_until_reindex() {
 
     // After explicit re-embed: target present again.
     embed_memory(&mut store, &target_id, &provider, target_text);
-    let after_reembed =
-        search_semantic(&store, &project, target_text, None, 10, &provider).unwrap();
+    let after_reembed = search_semantic(
+        &store,
+        &project,
+        target_text,
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     assert!(
         after_reembed.scored.iter().any(|s| s.card.id == target_id),
         "target must reappear once re-embedded"

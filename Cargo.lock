@@ -3565,9 +3565,13 @@ version = "0.3.0"
 dependencies = [
  "rusqlite",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "time",
  "tracing",
+ "ulid",
+ "vestige-config",
  "vestige-core",
  "vestige-embed",
  "vestige-store",

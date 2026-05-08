@@ -11,10 +11,11 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
-use vestige_config::embeddings_config_for;
+use vestige_config::{embeddings_config_for, traces_config_for};
 use vestige_core::{resolve_default_mode, MemoryType, ScoredCard, SearchMode};
 use vestige_embed::{build_provider, EmbeddingProvider};
 use vestige_engine::error::EngineError;
+use vestige_engine::Caller;
 
 use crate::server::{err, ok_json, Inner, VestigeServer};
 
@@ -98,6 +99,7 @@ impl VestigeServer {
             .transpose()
             .map_err(|e| err("INVALID_TYPE", e.to_string(), false))?;
 
+        let traces_cfg = traces_config_for(inner.config.traces.as_ref());
         let outcome = match mode {
             SearchMode::Lexical => vestige_engine::search::search_lexical(
                 &inner.store,
@@ -105,6 +107,8 @@ impl VestigeServer {
                 &p.query,
                 type_filter,
                 p.limit,
+                Caller::Mcp,
+                &traces_cfg,
             )
             .map_err(engine_err_to_data)?,
             SearchMode::Semantic => {
@@ -135,6 +139,8 @@ impl VestigeServer {
                     type_filter,
                     p.limit,
                     provider.as_ref(),
+                    Caller::Mcp,
+                    &traces_cfg,
                 )
                 .map_err(engine_err_to_data)?
             }
@@ -147,6 +153,8 @@ impl VestigeServer {
                     type_filter,
                     p.limit,
                     provider.as_ref(),
+                    Caller::Mcp,
+                    &traces_cfg,
                 )
                 .map_err(engine_err_to_data)?
             }
@@ -180,6 +188,7 @@ fn engine_err_to_data(e: EngineError) -> ErrorData {
         EngineError::OutOfScope => err("OUT_OF_SCOPE", e.to_string(), false),
         EngineError::Validation { .. } => err("VALIDATION_ERROR", e.to_string(), false),
         EngineError::Core(_) => err("CORE_ERROR", e.to_string(), false),
+        EngineError::TraceNotFound { .. } => err("TRACE_NOT_FOUND", e.to_string(), false),
     }
 }
 

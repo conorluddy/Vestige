@@ -51,7 +51,8 @@ impl VestigeServer {
                 + Self::record_decision_router()
                 + Self::propose_candidate_router()
                 + Self::list_candidates_router()
-                + Self::get_candidate_router(),
+                + Self::get_candidate_router()
+                + Self::trace_router(),
         }
     }
 }

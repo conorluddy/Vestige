@@ -13,6 +13,7 @@ function VestigePage() {
       <Storage />
       <SchemaSection />
       <Embeddings />
+      <Provenance />
       <Features />
       <CLI />
       <Roadmap />

@@ -20,6 +20,7 @@ const MEMORY_PREFIX: &str = "mem_";
 const PROJECT_PREFIX: &str = "proj_";
 const EMBEDDING_PREFIX: &str = "emb_";
 const CANDIDATE_PREFIX: &str = "cand_";
+const TRACE_PREFIX: &str = "trace_";
 
 // === PUBLIC TYPES ===
 
@@ -218,6 +219,52 @@ impl FromStr for CandidateId {
     }
 }
 
+/// A validated query trace identifier of the form `trace_<ULID>`.
+///
+/// Traces are write-only audit records produced by every search/expand/context
+/// call (PRD §6.3, §8.1). Construct with [`TraceId::new`] for new traces, or
+/// parse an existing string with [`FromStr`]. Rejects any string that lacks the
+/// `trace_` prefix; returns [`CoreError::InvalidId`] on failure.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TraceId(String);
+
+impl TraceId {
+    /// Generate a new trace ID using a fresh ULID.
+    pub fn new() -> Self {
+        Self(format!("{TRACE_PREFIX}{}", Ulid::new()))
+    }
+
+    /// Borrow the underlying string representation (e.g. for SQL bindings).
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for TraceId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for TraceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for TraceId {
+    type Err = CoreError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with(TRACE_PREFIX) {
+            return Err(CoreError::InvalidId(format!(
+                "trace id must start with `{TRACE_PREFIX}`, got `{s}`"
+            )));
+        }
+        Ok(Self(s.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +340,39 @@ mod tests {
     #[test]
     fn candidate_id_rejects_empty() {
         assert!(CandidateId::from_str("").is_err());
+    }
+
+    #[test]
+    fn trace_id_new_has_correct_prefix() {
+        let id = TraceId::new();
+        assert!(id.as_str().starts_with("trace_"), "got: {}", id.as_str());
+    }
+
+    #[test]
+    fn trace_id_roundtrip() {
+        let id = TraceId::new();
+        let parsed = TraceId::from_str(id.as_str()).unwrap();
+        assert_eq!(id, parsed);
+        assert_eq!(id.to_string(), id.as_str());
+    }
+
+    #[test]
+    fn trace_id_rejects_wrong_prefix() {
+        // Wrong prefix — `mem_` should be rejected.
+        assert!(TraceId::from_str("mem_01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err());
+        assert!(TraceId::from_str("proj_foo").is_err());
+        assert!(TraceId::from_str("cand_foo").is_err());
+        assert!(TraceId::from_str("emb_foo").is_err());
+    }
+
+    #[test]
+    fn trace_id_rejects_empty() {
+        assert!(TraceId::from_str("").is_err());
+    }
+
+    #[test]
+    fn trace_id_display_matches_as_str() {
+        let id = TraceId::new();
+        assert_eq!(id.to_string(), id.as_str());
     }
 }
