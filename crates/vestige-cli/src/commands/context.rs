@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Args;
-use vestige_core::{build_pack, ContextOptions, ContextSources, ListFilter, MemoryType};
+use vestige_engine::context::get_project_context;
+use vestige_engine::Caller;
 
 use crate::context as cli_ctx;
 use crate::output::{emit_json, OutputFormat};
@@ -23,56 +24,15 @@ pub struct ContextArgs {
 pub fn run(args: ContextArgs) -> Result<()> {
     let ctx = cli_ctx::load()?;
 
-    let summary = ctx
-        .store
-        .list_memories(
-            &ctx.project_id,
-            &ListFilter {
-                include_deleted: false,
-                r#type: Some(MemoryType::ProjectSummary),
-                limit: Some(1),
-            },
-        )?
-        .into_iter()
-        .next();
-
-    let decisions = ctx.store.list_memories(
+    let outcome = get_project_context(
+        &ctx.store,
         &ctx.project_id,
-        &ListFilter {
-            include_deleted: false,
-            r#type: Some(MemoryType::Decision),
-            limit: Some(args.per_section),
-        },
+        &ctx.config.project_name,
+        args.per_section,
+        args.budget_tokens,
+        Caller::Cli,
     )?;
-    let open_questions = ctx.store.list_memories(
-        &ctx.project_id,
-        &ListFilter {
-            include_deleted: false,
-            r#type: Some(MemoryType::OpenQuestion),
-            limit: Some(args.per_section),
-        },
-    )?;
-    let recent = ctx.store.list_memories(
-        &ctx.project_id,
-        &ListFilter {
-            include_deleted: false,
-            r#type: None,
-            limit: Some(args.per_section),
-        },
-    )?;
-
-    let pack = build_pack(
-        ContextSources {
-            project_name: ctx.config.project_name.clone(),
-            summary,
-            decisions,
-            open_questions,
-            recent,
-        },
-        ContextOptions {
-            budget_tokens: args.budget_tokens,
-        },
-    );
+    let pack = outcome.pack;
 
     match OutputFormat::pick(args.json) {
         OutputFormat::Json => emit_json(&pack),

@@ -33,9 +33,11 @@ mod embeddings;
 mod helpers;
 mod memory_ops;
 mod project;
+mod trace_ops;
 
 pub use candidate_ops::{CandidateFilter, CandidateHit};
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
+pub use trace_ops::NewQueryEvent;
 pub use vestige_core::MemoryCounts;
 
 use std::path::{Path, PathBuf};

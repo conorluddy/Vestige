@@ -28,6 +28,9 @@ use vestige_store::{EmbeddingStatus, Store, VectorFilter};
 #[allow(unused_imports)] // referenced by intra-doc-links
 use crate::error::EngineError;
 use crate::error::Result;
+use crate::trace::{
+    elapsed_since, search_params_json, start_timer, write_trace, Caller, TraceKind, TracePayload,
+};
 
 // === TYPES ===
 
@@ -66,6 +69,10 @@ pub struct HybridOutcome {
 /// without a warning. The caller decides whether to surface that fact to
 /// the user or agent.
 ///
+/// `caller` identifies the surface that initiated this recall (CLI or MCP).
+/// One `query_events` row is written after the search completes; a write
+/// failure is logged but never propagated (PRD §10.5).
+///
 /// # Errors
 ///
 /// Returns [`EngineError::Store`] on SQLite failure.
@@ -75,7 +82,9 @@ pub fn search_lexical(
     query: &str,
     type_filter: Option<MemoryType>,
     limit: u32,
+    caller: Caller,
 ) -> Result<HybridOutcome> {
+    let t0 = start_timer();
     let cleaned = sanitize_fts_query(query);
     let scored = if cleaned.is_empty() {
         Vec::new()
@@ -91,6 +100,30 @@ pub fn search_lexical(
         )?;
         rank_hits(hits)
     };
+    let latency = elapsed_since(t0);
+
+    let result_ids: Vec<MemoryId> = scored.iter().map(|c| c.card.id.clone()).collect();
+    let result_scores: Vec<f64> = scored.iter().map(|c| c.score).collect();
+    let type_filter_str = type_filter.map(|t| t.as_str().to_string());
+    let params_json = search_params_json(limit, type_filter_str.as_deref());
+
+    write_trace(
+        store,
+        &TracePayload {
+            project_id,
+            kind: TraceKind::Search,
+            mode_requested: Some(SearchMode::Lexical),
+            mode_resolved: Some(SearchMode::Lexical),
+            query_text: Some(query),
+            params_json: Some(params_json),
+            caller,
+            provider: None,
+            provider_model: None,
+            result_ids: Some(&result_ids),
+            result_scores: Some(&result_scores),
+            latency,
+        },
+    );
 
     Ok(HybridOutcome {
         scored,
@@ -111,6 +144,11 @@ pub fn search_lexical(
 /// matches the pattern in MCP's semantic tool path (it checks first and
 /// surfaces `EMBEDDINGS_UNAVAILABLE` before calling here).
 ///
+/// `caller` identifies the surface that initiated this recall (CLI or MCP).
+/// One `query_events` row is written after the search completes; a write
+/// failure is logged but never propagated (PRD §10.5). Provider and model
+/// are recorded when the search runs; they are null only for lexical.
+///
 /// # Errors
 ///
 /// Returns [`EngineError::Embed`] when the provider fails to embed the query,
@@ -122,9 +160,31 @@ pub fn search_semantic(
     type_filter: Option<MemoryType>,
     limit: u32,
     provider: &dyn EmbeddingProvider,
+    caller: Caller,
 ) -> Result<HybridOutcome> {
+    let t0 = start_timer();
     let status = store.embedding_status(project_id)?;
     if status.embedded_representations == 0 {
+        let latency = elapsed_since(t0);
+        let type_filter_str = type_filter.map(|t| t.as_str().to_string());
+        let params_json = search_params_json(limit, type_filter_str.as_deref());
+        write_trace(
+            store,
+            &TracePayload {
+                project_id,
+                kind: TraceKind::Search,
+                mode_requested: Some(SearchMode::Semantic),
+                mode_resolved: Some(SearchMode::Semantic),
+                query_text: Some(query),
+                params_json: Some(params_json),
+                caller,
+                provider: Some(provider.provider_name()),
+                provider_model: Some(provider.model_name()),
+                result_ids: Some(&[]),
+                result_scores: Some(&[]),
+                latency,
+            },
+        );
         return Ok(HybridOutcome {
             scored: vec![],
             warnings: vec!["no embeddings; run `vestige embed --all` first".to_string()],
@@ -161,6 +221,30 @@ pub fn search_semantic(
             });
         }
     }
+    let latency = elapsed_since(t0);
+
+    let result_ids: Vec<MemoryId> = scored.iter().map(|c| c.card.id.clone()).collect();
+    let result_scores: Vec<f64> = scored.iter().map(|c| c.score).collect();
+    let type_filter_str = type_filter.map(|t| t.as_str().to_string());
+    let params_json = search_params_json(limit, type_filter_str.as_deref());
+
+    write_trace(
+        store,
+        &TracePayload {
+            project_id,
+            kind: TraceKind::Search,
+            mode_requested: Some(SearchMode::Semantic),
+            mode_resolved: Some(SearchMode::Semantic),
+            query_text: Some(query),
+            params_json: Some(params_json),
+            caller,
+            provider: Some(provider.provider_name()),
+            provider_model: Some(provider.model_name()),
+            result_ids: Some(&result_ids),
+            result_scores: Some(&result_scores),
+            latency,
+        },
+    );
 
     Ok(HybridOutcome {
         scored,
@@ -184,6 +268,11 @@ pub fn search_semantic(
 ///    independently normalised to [0, 1], and [`merge_hits`] combines them
 ///    using the weights in [`HybridOpts::default`].
 ///
+/// `caller` identifies the surface that initiated this recall (CLI or MCP).
+/// One `query_events` row is written after the search completes; a write
+/// failure is logged but never propagated (PRD §10.5). Provider and model
+/// are recorded even on fallback, so the trace shows what was configured.
+///
 /// # Errors
 ///
 /// Returns [`EngineError::Embed`] when the provider fails to embed the query,
@@ -196,7 +285,9 @@ pub fn search_hybrid(
     type_filter: Option<MemoryType>,
     limit: u32,
     provider: &dyn EmbeddingProvider,
+    caller: Caller,
 ) -> Result<HybridOutcome> {
+    let t0 = start_timer();
     let status = store.embedding_status(project_id)?;
     let mismatch = provider_mismatch_message(&status, provider);
 
@@ -206,9 +297,51 @@ pub fn search_hybrid(
             None => "hybrid falling back to lexical: no embeddings (run `vestige embed --all` to enable semantic recall)".to_string(),
         };
         // Delegate to lexical for the actual results, then overlay mode + warning.
-        let lexical = search_lexical(store, project_id, query, type_filter, limit)?;
+        // We do NOT call search_lexical here because that would write a second
+        // trace row with Lexical mode. Instead, execute the FTS query inline
+        // and write a single Hybrid→Lexical fallback trace.
+        let cleaned = sanitize_fts_query(query);
+        let fallback_scored = if cleaned.is_empty() {
+            Vec::new()
+        } else {
+            let hits = store.search_memories(
+                project_id,
+                &cleaned,
+                &SearchFilter {
+                    r#type: type_filter,
+                    limit: Some(limit),
+                    ..Default::default()
+                },
+            )?;
+            rank_hits(hits)
+        };
+        let latency = elapsed_since(t0);
+
+        let result_ids: Vec<MemoryId> = fallback_scored.iter().map(|c| c.card.id.clone()).collect();
+        let result_scores: Vec<f64> = fallback_scored.iter().map(|c| c.score).collect();
+        let type_filter_str = type_filter.map(|t| t.as_str().to_string());
+        let params_json = search_params_json(limit, type_filter_str.as_deref());
+
+        write_trace(
+            store,
+            &TracePayload {
+                project_id,
+                kind: TraceKind::Search,
+                mode_requested: Some(SearchMode::Hybrid),
+                mode_resolved: Some(SearchMode::Lexical),
+                query_text: Some(query),
+                params_json: Some(params_json),
+                caller,
+                provider: Some(provider.provider_name()),
+                provider_model: Some(provider.model_name()),
+                result_ids: Some(&result_ids),
+                result_scores: Some(&result_scores),
+                latency,
+            },
+        );
+
         return Ok(HybridOutcome {
-            scored: lexical.scored,
+            scored: fallback_scored,
             warnings: vec![warning],
             effective_mode: SearchMode::Lexical,
         });
@@ -275,6 +408,30 @@ pub fn search_hybrid(
         ..HybridOpts::default()
     };
     let scored = merge_hits(candidates, &fts_scores, &vector_scores, &opts);
+    let latency = elapsed_since(t0);
+
+    let result_ids: Vec<MemoryId> = scored.iter().map(|c| c.card.id.clone()).collect();
+    let result_scores: Vec<f64> = scored.iter().map(|c| c.score).collect();
+    let type_filter_str = type_filter.map(|t| t.as_str().to_string());
+    let params_json = search_params_json(limit, type_filter_str.as_deref());
+
+    write_trace(
+        store,
+        &TracePayload {
+            project_id,
+            kind: TraceKind::Search,
+            mode_requested: Some(SearchMode::Hybrid),
+            mode_resolved: Some(SearchMode::Hybrid),
+            query_text: Some(query),
+            params_json: Some(params_json),
+            caller,
+            provider: Some(provider.provider_name()),
+            provider_model: Some(provider.model_name()),
+            result_ids: Some(&result_ids),
+            result_scores: Some(&result_scores),
+            latency,
+        },
+    );
 
     Ok(HybridOutcome {
         scored,

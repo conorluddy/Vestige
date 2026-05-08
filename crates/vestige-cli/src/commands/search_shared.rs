@@ -16,6 +16,7 @@ use anyhow::Result;
 use vestige_core::{resolve_default_mode, MemoryType, SearchMode};
 use vestige_embed::{build_provider, EmbedError, EmbeddingProvider};
 use vestige_engine::search::{search_hybrid, search_lexical, search_semantic, HybridOutcome};
+use vestige_engine::Caller;
 
 use crate::context::ProjectContext;
 use crate::output::{emit_search_json, print_scored_opts, OutputFormat};
@@ -89,6 +90,7 @@ fn dispatch(
             query,
             type_filter,
             limit,
+            Caller::Cli,
         )?),
         SearchMode::Semantic => {
             let provider = build_embed_provider(ctx)?;
@@ -99,6 +101,7 @@ fn dispatch(
                 type_filter,
                 limit,
                 &*provider,
+                Caller::Cli,
             )?)
         }
         SearchMode::Hybrid => {
@@ -110,6 +113,7 @@ fn dispatch(
                 type_filter,
                 limit,
                 &*provider,
+                Caller::Cli,
             )?)
         }
     }

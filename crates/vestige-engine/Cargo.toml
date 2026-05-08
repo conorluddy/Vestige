@@ -18,6 +18,9 @@ vestige-store.workspace = true
 vestige-embed.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+ulid.workspace = true
 tracing.workspace = true
 
 [features]

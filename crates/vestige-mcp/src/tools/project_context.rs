@@ -1,5 +1,6 @@
 //! `vestige_get_project_context` tool — returns a budget-bounded context pack
-//! for the current project. Adapts `build_context_pack` (shared in `tools/mod.rs`).
+//! for the current project. Delegates to `vestige_engine::context::get_project_context`
+//! which is the single trace-write site for context calls.
 
 use rmcp::{
     handler::server::wrapper::Parameters,
@@ -9,8 +10,10 @@ use rmcp::{
 };
 use serde::Deserialize;
 
-use crate::server::{ok_json, VestigeServer};
-use crate::tools::build_context_pack;
+use vestige_engine::context::get_project_context;
+use vestige_engine::Caller;
+
+use crate::server::{err, ok_json, VestigeServer};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct ProjectContextParams {
@@ -40,7 +43,15 @@ impl VestigeServer {
         Parameters(p): Parameters<ProjectContextParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let inner = self.inner.lock().await;
-        let pack = build_context_pack(&inner, p.per_section, p.budget_tokens)?;
-        ok_json(&pack)
+        let outcome = get_project_context(
+            &inner.store,
+            &inner.project_id,
+            &inner.config.project_name,
+            p.per_section,
+            p.budget_tokens,
+            Caller::Mcp,
+        )
+        .map_err(|e| err("STORE_FAILED", e.to_string(), true))?;
+        ok_json(&outcome.pack)
     }
 }
