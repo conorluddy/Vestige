@@ -29,6 +29,7 @@ pub mod error;
 pub mod provenance;
 pub mod search;
 pub mod trace;
+pub mod trace_read;
 
 // Re-export public candidate surface so callers don't need `vestige_engine::candidate::*`.
 pub use candidate::{
@@ -44,3 +45,6 @@ pub use provenance::{
     list_sources, walk_provenance, CandidateProvenance, EventEntry, MemoryProvenance,
     ProvenanceWalk, SourceListing, SourceReceipt, SubjectId,
 };
+
+// Re-export trace read surface so CLI and MCP don't need the module path.
+pub use trace_read::{get_trace, list_traces, ListFilters, TraceCard, TraceDetail};

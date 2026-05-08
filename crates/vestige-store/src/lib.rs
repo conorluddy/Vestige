@@ -39,7 +39,7 @@ mod trace_ops;
 pub use candidate_ops::{CandidateFilter, CandidateHit};
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
 pub use provenance::{ProvenanceEvent, SourceReceiptRow};
-pub use trace_ops::NewQueryEvent;
+pub use trace_ops::{NewQueryEvent, QueryEventRow, TraceFilter};
 pub use vestige_core::MemoryCounts;
 
 use std::path::{Path, PathBuf};

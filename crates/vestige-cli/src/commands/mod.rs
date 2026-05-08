@@ -28,4 +28,5 @@ pub mod show;
 pub mod skills;
 pub mod sources;
 pub mod status;
+pub mod trace;
 pub mod why;

@@ -184,6 +184,7 @@ fn engine_err_to_data(e: EngineError) -> ErrorData {
         EngineError::OutOfScope => err("OUT_OF_SCOPE", e.to_string(), false),
         EngineError::Validation { .. } => err("VALIDATION_ERROR", e.to_string(), false),
         EngineError::Core(_) => err("CORE_ERROR", e.to_string(), false),
+        EngineError::TraceNotFound { .. } => err("TRACE_NOT_FOUND", e.to_string(), false),
     }
 }
 
