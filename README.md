@@ -285,6 +285,22 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 
 ## What's shipped
 
+### V0.3 — Provenance and Receipts
+
+V0.3 makes the memory store **inspectable end-to-end**. Every memory is now answerable to "where did this come from?" and every recall is answerable to "what did the agent ask, and what did it get?".
+
+- `vestige why <mem_or_cand_id>` — templated provenance walk: recorded event, candidate back-reference (if promoted from the inbox), source receipts, and full status history.
+- `vestige sources <id>` — raw typed source rows for any memory or candidate, filterable by kind (`file`, `commit`, `url`, `agent_session`, `mcp_call`, `candidate`, `manual`).
+- `vestige trace` / `vestige trace <trace_id>` — list and inspect the `query_events` log. Every `search`, `expand`, and `context` call now writes one trace row, tagged `caller=cli` or `caller=mcp`.
+- `vestige trace replay <trace_id>` — re-run a stored trace against the current store; diffs added / removed / score-changed memories explicitly.
+- `vestige_expand depth=provenance` (MCP) — structured provenance walk over the MCP surface without adding a new tool.
+- `vestige_trace` (MCP) — new tool; `action=list|show|replay` for agent-side trace inspection.
+- `[traces]` config block — tune the FIFO cap (`max_per_project`, default 10 000), `query_text` truncation, and per-surface (`cli` / `mcp`) toggles. Safe to omit — all defaults are production-ready.
+
+All provenance and trace data is project-scoped and never leaks across repos.
+
+See [`docs/v0.3.md`](docs/v0.3.md) for the full walkthrough. Full spec: [`docs/prd/vestige_v_0_3_provenance_prd.md`](docs/prd/vestige_v_0_3_provenance_prd.md).
+
 ### V0.2 — Assimilation inbox
 
 V0.2 adds a review layer between agent capture and durable memory. Agents propose candidates (`cand_<ULID>`) that queue in an inbox, invisible to recall, until a human approves or rejects them. This keeps the memory store trustworthy — everything recalled has been seen by a human, not just emitted by an LLM.
@@ -315,11 +331,12 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.3 is the active next milestone. Full roadmap in `vestige_prd.md` §20.
+V0.4 is the active next milestone. Full roadmap in `vestige_prd.md` §20.
 
 ## Contributing
 
 - `vestige_prd.md` — the product spec. Every architectural decision traces back here.
+- [`docs/prd/vestige_v_0_3_provenance_prd.md`](docs/prd/vestige_v_0_3_provenance_prd.md) — V0.3 Provenance and Receipts spec.
 - `CLAUDE.md` — short-form orientation for Claude Code (or any agent) editing this repo.
 - `CODESTYLE.md` — the bar for PRs. Includes 7 non-negotiable Vestige-specific architecture rules.
 
