@@ -38,8 +38,13 @@ pub use candidate::{
     ProposeOutcome, SimilarCandidate, SimilarMemory,
 };
 
-// Re-export Caller so CLI/MCP can import it without knowing the module path.
-pub use trace::Caller;
+// Re-export Caller and trace helpers so CLI/MCP can import them without knowing
+// the module path.
+pub use trace::{write_trace_configured, Caller};
+
+// Re-export TracesConfig so callers can resolve and pass it to engine functions
+// without an explicit vestige-config import on the caller side.
+pub use vestige_config::TracesConfig;
 
 // Re-export provenance surface so callers don't need `vestige_engine::provenance::*`.
 pub use provenance::{

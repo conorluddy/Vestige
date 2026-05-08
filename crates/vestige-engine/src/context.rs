@@ -15,6 +15,7 @@
 //! are logged at `warn` and swallowed; the function returns the recall result
 //! regardless.
 
+use vestige_config::TracesConfig;
 use vestige_core::{
     build_pack, project_detail, ContextOptions, ContextSources, FetchedMemory, ListFilter,
     MemoryId, MemoryType, ProjectId, RepresentationDepth,
@@ -23,8 +24,8 @@ use vestige_store::Store;
 
 use crate::error::{EngineError, Result};
 use crate::trace::{
-    context_params_json, elapsed_since, expand_params_json, start_timer, write_trace, Caller,
-    TraceKind, TracePayload,
+    context_params_json, elapsed_since, expand_params_json, start_timer, write_trace_configured,
+    Caller, TraceKind, TracePayload,
 };
 
 // === TYPES ===
@@ -59,6 +60,7 @@ pub fn expand_memory(
     id: &MemoryId,
     depth: RepresentationDepth,
     caller: Caller,
+    traces: &TracesConfig,
 ) -> Result<ExpandOutcome> {
     let t0 = start_timer();
 
@@ -79,7 +81,7 @@ pub fn expand_memory(
     let latency = elapsed_since(t0);
     let params_json = expand_params_json(depth.as_str());
 
-    write_trace(
+    write_trace_configured(
         store,
         &TracePayload {
             project_id,
@@ -95,6 +97,7 @@ pub fn expand_memory(
             result_scores: None,
             latency,
         },
+        traces,
     );
 
     Ok(ExpandOutcome { fetched, content })
@@ -113,6 +116,7 @@ pub fn get_project_context(
     per_section: u32,
     budget_tokens: usize,
     caller: Caller,
+    traces: &TracesConfig,
 ) -> Result<ContextOutcome> {
     let t0 = start_timer();
 
@@ -169,7 +173,7 @@ pub fn get_project_context(
     let latency = elapsed_since(t0);
     let params_json = context_params_json(budget_tokens, per_section);
 
-    write_trace(
+    write_trace_configured(
         store,
         &TracePayload {
             project_id,
@@ -185,6 +189,7 @@ pub fn get_project_context(
             result_scores: None,
             latency,
         },
+        traces,
     );
 
     Ok(ContextOutcome { pack })

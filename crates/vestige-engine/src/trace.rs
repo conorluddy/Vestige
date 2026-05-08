@@ -1,7 +1,8 @@
 //! Engine tracing hook — single write site for all recall `query_events` rows.
 //!
 //! Every recall path (`search_*`, `expand`, `get_project_context`) calls
-//! [`write_trace`] after it resolves its result. Mutation paths (record,
+//! [`write_trace_configured`] (config-driven) or [`write_trace`] (legacy
+//! default-cap path) after it resolves its result. Mutation paths (record,
 //! forget, restore, approve, reject) never call this module.
 //!
 //! # Placement discipline
@@ -20,14 +21,29 @@
 //!
 //! # FIFO eviction
 //!
-//! [`TRACE_CAP`] rows per project are kept. After every insert the store
-//! checks the count and deletes the oldest `(count - cap)` rows in one SQL
-//! statement. In tests the cap can be overridden via [`write_trace_with_cap`].
+//! Rows per project are kept up to the configured `max_per_project` (default
+//! [`TRACE_CAP`]). After every insert the store checks the count and deletes
+//! the oldest `(count - cap)` rows in one SQL statement.
+//! In tests the cap can be overridden via [`write_trace_with_cap`].
+//!
+//! # Config-driven behaviour (V0.3 M7)
+//!
+//! [`write_trace_configured`] accepts a [`TracesConfig`] and applies:
+//! - `enabled = false` → skip the write entirely.
+//! - `trace_caller_cli / trace_caller_mcp` → skip writes for that surface.
+//! - `max_per_project` → FIFO cap instead of [`TRACE_CAP`].
+//! - `truncate_query_text_bytes` → `query_text` is byte-truncated at the
+//!   nearest UTF-8 codepoint boundary before writing.
+//!
+//! The legacy [`write_trace`] and [`write_trace_with_cap`] keep their
+//! existing signatures unchanged for compatibility with tests and any
+//! call sites that pre-date config support.
 
 use std::time::Instant;
 
 use serde::Serialize;
 use tracing::warn;
+use vestige_config::TracesConfig;
 use vestige_core::{MemoryId, ProjectId, SearchMode};
 use vestige_store::{NewQueryEvent, Store};
 
@@ -158,7 +174,77 @@ pub fn write_trace_with_cap(store: &Store, payload: &TracePayload<'_>, cap: usiz
     }
 }
 
+/// Config-driven trace write — the preferred call site for all engine recall
+/// paths that have access to a resolved [`TracesConfig`].
+///
+/// Applies the following checks before writing:
+/// 1. `enabled = false` → skip (no-op).
+/// 2. `trace_caller_cli / trace_caller_mcp = false` → skip for that surface.
+/// 3. `query_text` is truncated to `truncate_query_text_bytes` at the nearest
+///    UTF-8 codepoint boundary (bytes, not chars — PRD bytes-not-chars rule).
+/// 4. `max_per_project` drives FIFO eviction instead of [`TRACE_CAP`].
+///
+/// On store failure the error is logged at `warn` and the function returns
+/// without propagating — PRD §10.5 failure-isolation rule.
+pub fn write_trace_configured(store: &Store, payload: &TracePayload<'_>, cfg: &TracesConfig) {
+    // 1. Master switch.
+    if !cfg.enabled {
+        return;
+    }
+
+    // 2. Per-surface toggle.
+    match payload.caller {
+        Caller::Cli if !cfg.trace_caller_cli => return,
+        Caller::Mcp if !cfg.trace_caller_mcp => return,
+        _ => {}
+    }
+
+    // 3. Truncate query_text at a UTF-8 codepoint boundary.
+    let truncated_query: Option<String>;
+    let query_text = match payload.query_text {
+        Some(q) if q.len() > cfg.truncate_query_text_bytes => {
+            truncated_query = Some(truncate_at_char_boundary(q, cfg.truncate_query_text_bytes));
+            truncated_query.as_deref()
+        }
+        other => other,
+    };
+
+    // 4. Build a payload with the (possibly truncated) query_text and delegate.
+    let effective = TracePayload {
+        project_id: payload.project_id,
+        kind: payload.kind,
+        mode_requested: payload.mode_requested,
+        mode_resolved: payload.mode_resolved,
+        query_text,
+        params_json: payload.params_json.clone(),
+        caller: payload.caller,
+        provider: payload.provider,
+        provider_model: payload.provider_model,
+        result_ids: payload.result_ids,
+        result_scores: payload.result_scores,
+        latency: payload.latency,
+    };
+    write_trace_with_cap(store, &effective, cfg.max_per_project);
+}
+
 // === HELPERS ===
+
+/// Truncate `s` to at most `max_bytes` bytes, stepping back to the nearest
+/// UTF-8 codepoint boundary so the result is always valid UTF-8.
+///
+/// PRD rule: truncation is byte-based, not char-based — consistent with the
+/// 2 KiB source-snippet cap in `vestige-core`.
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    // Walk backwards from max_bytes to find the nearest codepoint boundary.
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
 
 fn search_mode_str(mode: SearchMode) -> &'static str {
     match mode {

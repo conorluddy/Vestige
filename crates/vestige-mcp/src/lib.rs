@@ -32,10 +32,12 @@ use vestige_config::discover_config;
 use vestige_store::Store;
 
 pub use server::VestigeServer;
+pub use tools::expand::ExpandParams;
 pub use tools::get_candidate::GetCandidateParams;
 pub use tools::list_candidates::ListCandidatesParams;
 pub use tools::propose_candidate::{ProposeCandidateParams, ProposeSource};
 pub use tools::search::SearchParams;
+pub use tools::trace::TraceParams;
 
 /// Options forwarded from `vestige mcp` CLI flags.
 pub struct McpOptions {

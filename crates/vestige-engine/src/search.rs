@@ -27,9 +27,12 @@ use vestige_store::{EmbeddingStatus, Store, VectorFilter};
 
 #[allow(unused_imports)] // referenced by intra-doc-links
 use crate::error::EngineError;
+use vestige_config::TracesConfig;
+
 use crate::error::Result;
 use crate::trace::{
-    elapsed_since, search_params_json, start_timer, write_trace, Caller, TraceKind, TracePayload,
+    elapsed_since, search_params_json, start_timer, write_trace_configured, Caller, TraceKind,
+    TracePayload,
 };
 
 // === TYPES ===
@@ -83,6 +86,7 @@ pub fn search_lexical(
     type_filter: Option<MemoryType>,
     limit: u32,
     caller: Caller,
+    traces: &TracesConfig,
 ) -> Result<HybridOutcome> {
     let t0 = start_timer();
     let cleaned = sanitize_fts_query(query);
@@ -107,7 +111,7 @@ pub fn search_lexical(
     let type_filter_str = type_filter.map(|t| t.as_str().to_string());
     let params_json = search_params_json(limit, type_filter_str.as_deref());
 
-    write_trace(
+    write_trace_configured(
         store,
         &TracePayload {
             project_id,
@@ -123,6 +127,7 @@ pub fn search_lexical(
             result_scores: Some(&result_scores),
             latency,
         },
+        traces,
     );
 
     Ok(HybridOutcome {
@@ -153,6 +158,7 @@ pub fn search_lexical(
 ///
 /// Returns [`EngineError::Embed`] when the provider fails to embed the query,
 /// or [`EngineError::Store`] on SQLite failure.
+#[allow(clippy::too_many_arguments)]
 pub fn search_semantic(
     store: &Store,
     project_id: &ProjectId,
@@ -161,6 +167,7 @@ pub fn search_semantic(
     limit: u32,
     provider: &dyn EmbeddingProvider,
     caller: Caller,
+    traces: &TracesConfig,
 ) -> Result<HybridOutcome> {
     let t0 = start_timer();
     let status = store.embedding_status(project_id)?;
@@ -168,7 +175,7 @@ pub fn search_semantic(
         let latency = elapsed_since(t0);
         let type_filter_str = type_filter.map(|t| t.as_str().to_string());
         let params_json = search_params_json(limit, type_filter_str.as_deref());
-        write_trace(
+        write_trace_configured(
             store,
             &TracePayload {
                 project_id,
@@ -184,6 +191,7 @@ pub fn search_semantic(
                 result_scores: Some(&[]),
                 latency,
             },
+            traces,
         );
         return Ok(HybridOutcome {
             scored: vec![],
@@ -228,7 +236,7 @@ pub fn search_semantic(
     let type_filter_str = type_filter.map(|t| t.as_str().to_string());
     let params_json = search_params_json(limit, type_filter_str.as_deref());
 
-    write_trace(
+    write_trace_configured(
         store,
         &TracePayload {
             project_id,
@@ -244,6 +252,7 @@ pub fn search_semantic(
             result_scores: Some(&result_scores),
             latency,
         },
+        traces,
     );
 
     Ok(HybridOutcome {
@@ -278,6 +287,7 @@ pub fn search_semantic(
 /// Returns [`EngineError::Embed`] when the provider fails to embed the query,
 /// or [`EngineError::Store`] on SQLite failure. Provider mismatch and missing
 /// embeddings are surfaced as warnings, not errors.
+#[allow(clippy::too_many_arguments)]
 pub fn search_hybrid(
     store: &Store,
     project_id: &ProjectId,
@@ -286,6 +296,7 @@ pub fn search_hybrid(
     limit: u32,
     provider: &dyn EmbeddingProvider,
     caller: Caller,
+    traces: &TracesConfig,
 ) -> Result<HybridOutcome> {
     let t0 = start_timer();
     let status = store.embedding_status(project_id)?;
@@ -322,7 +333,7 @@ pub fn search_hybrid(
         let type_filter_str = type_filter.map(|t| t.as_str().to_string());
         let params_json = search_params_json(limit, type_filter_str.as_deref());
 
-        write_trace(
+        write_trace_configured(
             store,
             &TracePayload {
                 project_id,
@@ -338,6 +349,7 @@ pub fn search_hybrid(
                 result_scores: Some(&result_scores),
                 latency,
             },
+            traces,
         );
 
         return Ok(HybridOutcome {
@@ -415,7 +427,7 @@ pub fn search_hybrid(
     let type_filter_str = type_filter.map(|t| t.as_str().to_string());
     let params_json = search_params_json(limit, type_filter_str.as_deref());
 
-    write_trace(
+    write_trace_configured(
         store,
         &TracePayload {
             project_id,
@@ -431,6 +443,7 @@ pub fn search_hybrid(
             result_scores: Some(&result_scores),
             latency,
         },
+        traces,
     );
 
     Ok(HybridOutcome {

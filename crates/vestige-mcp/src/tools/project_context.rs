@@ -10,6 +10,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 
+use vestige_config::traces_config_for;
 use vestige_engine::context::get_project_context;
 use vestige_engine::Caller;
 
@@ -43,6 +44,7 @@ impl VestigeServer {
         Parameters(p): Parameters<ProjectContextParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let inner = self.inner.lock().await;
+        let traces_cfg = traces_config_for(inner.config.traces.as_ref());
         let outcome = get_project_context(
             &inner.store,
             &inner.project_id,
@@ -50,6 +52,7 @@ impl VestigeServer {
             p.per_section,
             p.budget_tokens,
             Caller::Mcp,
+            &traces_cfg,
         )
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))?;
         ok_json(&outcome.pack)

@@ -16,6 +16,7 @@ use std::str::FromStr;
 
 use tempfile::TempDir;
 
+use vestige_config::TracesConfig;
 use vestige_core::{build_bundle, MemoryId, MemoryType, NewMemory, ProjectId, RepresentationDepth};
 use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 use vestige_engine::{replay::replay_trace, search::search_lexical, trace::Caller};
@@ -118,7 +119,16 @@ fn identical_corpus_produces_empty_diff() {
     );
 
     // Run a search to produce a trace.
-    search_lexical(&store, &project, "local-first", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "local-first",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let original_trace_id_str = last_trace_id(&store, &project);
     let trace_id = vestige_core::TraceId::from_str(&original_trace_id_str).unwrap();
 
@@ -157,7 +167,16 @@ fn new_memory_since_original_appears_in_added() {
 
     // Record a memory and search.
     record_memory(&mut store, &project, "Trace replay for agents.");
-    search_lexical(&store, &project, "trace replay", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "trace replay",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let original_trace_id_str = last_trace_id(&store, &project);
     let trace_id = vestige_core::TraceId::from_str(&original_trace_id_str).unwrap();
 
@@ -193,7 +212,16 @@ fn forgotten_memory_appears_in_removed() {
         &project,
         "Replay forget test memory for agents.",
     );
-    search_lexical(&store, &project, "replay forget", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "replay forget",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let original_trace_id_str = last_trace_id(&store, &project);
     let trace_id = vestige_core::TraceId::from_str(&original_trace_id_str).unwrap();
 
@@ -220,7 +248,16 @@ fn original_trace_is_never_mutated() {
     seed_project(&mut store, &project);
     record_memory(&mut store, &project, "Original trace immutability test.");
 
-    search_lexical(&store, &project, "immutability", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "immutability",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let original_id = last_trace_id(&store, &project);
     let trace_id = vestige_core::TraceId::from_str(&original_id).unwrap();
 
@@ -292,7 +329,16 @@ fn replay_writes_new_trace_tagged_with_replay_of() {
     seed_project(&mut store, &project);
     record_memory(&mut store, &project, "Replay trace tagging test.");
 
-    search_lexical(&store, &project, "trace tagging", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "trace tagging",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let original_id = last_trace_id(&store, &project);
     let trace_id = vestige_core::TraceId::from_str(&original_id).unwrap();
     let before_count = trace_count(&store, &project);
@@ -358,6 +404,7 @@ fn semantic_original_with_no_provider_gives_provider_mismatch() {
         10,
         &provider,
         Caller::Cli,
+        &TracesConfig::default(),
     )
     .unwrap();
 
@@ -404,7 +451,16 @@ fn trace_from_other_project_returns_trace_not_found() {
     seed_project(&mut store, &project_b);
 
     record_memory(&mut store, &project_a, "Project A memory.");
-    search_lexical(&store, &project_a, "project a", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project_a,
+        "project a",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let trace_id_str = last_trace_id(&store, &project_a);
     let trace_id = vestige_core::TraceId::from_str(&trace_id_str).unwrap();
 
@@ -432,7 +488,16 @@ fn replay_result_json_shape_matches_prd_10_3() {
     seed_project(&mut store, &project);
     record_memory(&mut store, &project, "JSON shape validation memory.");
 
-    search_lexical(&store, &project, "json shape", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "json shape",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let original_id = last_trace_id(&store, &project);
     let trace_id = vestige_core::TraceId::from_str(&original_id).unwrap();
 
@@ -506,7 +571,16 @@ fn replay_of_replay_is_allowed_and_produces_new_trace() {
     record_memory(&mut store, &project, "Replay chain test memory.");
 
     // Original search → trace 1.
-    search_lexical(&store, &project, "replay chain", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "replay chain",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let trace1_id_str = last_trace_id(&store, &project);
     let trace1_id = vestige_core::TraceId::from_str(&trace1_id_str).unwrap();
 
