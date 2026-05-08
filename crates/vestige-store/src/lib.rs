@@ -84,6 +84,7 @@ const MIGRATION_INIT: &str = include_str!("migrations/0001_init.sql");
 const MIGRATION_FTS: &str = include_str!("migrations/0002_fts.sql");
 const MIGRATION_EMBEDDINGS: &str = include_str!("migrations/0003_embeddings.sql");
 const MIGRATION_CANDIDATES: &str = include_str!("migrations/0004_candidates.sql");
+const MIGRATION_PROVENANCE: &str = include_str!("migrations/0005_provenance.sql");
 
 /// Build the ordered migration set from the embedded SQL files.
 ///
@@ -95,6 +96,7 @@ fn migrations() -> Migrations<'static> {
         M::up(MIGRATION_FTS),
         M::up(MIGRATION_EMBEDDINGS),
         M::up(MIGRATION_CANDIDATES),
+        M::up(MIGRATION_PROVENANCE),
     ])
 }
 
