@@ -24,7 +24,9 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use clap::Args;
 use vestige_core::TraceId;
-use vestige_engine::{get_trace, list_traces, ListFilters, TraceCard, TraceDetail};
+use vestige_engine::{
+    get_trace, list_traces, replay_trace, ListFilters, ReplayResult, TraceCard, TraceDetail,
+};
 
 use crate::context;
 use crate::output::emit_json;
@@ -72,8 +74,11 @@ pub fn run(args: TraceArgs) -> Result<()> {
     match args.trace_id.as_deref() {
         None => run_list(&args),
         Some("replay") => {
-            // M5 stub — replay is out of scope for M4.
-            anyhow::bail!("`vestige trace replay` arrives in M5 — not yet implemented");
+            let replay_id = args
+                .replay_id
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("usage: vestige trace replay <trace_id>"))?;
+            run_replay(replay_id, args.json)
         }
         Some(id) => run_show(id, args.json),
     }
@@ -102,6 +107,41 @@ fn run_list(args: &TraceArgs) -> Result<()> {
         emit_json(&ListEnvelope { traces: &traces })
     } else {
         print_list(&traces);
+        Ok(())
+    }
+}
+
+// === REPLAY ===
+
+fn run_replay(trace_id_str: &str, json: bool) -> Result<()> {
+    use vestige_embed::build_provider;
+    use vestige_engine::trace::Caller;
+
+    let trace_id = TraceId::from_str(trace_id_str)
+        .with_context(|| format!("invalid trace id `{trace_id_str}` — expected `trace_<ULID>`"))?;
+
+    let ctx = context::load()?;
+
+    // Try to build the configured embedding provider. A missing or disabled
+    // provider is not an error here — replay falls back to lexical and surfaces
+    // `provider_match = false` in the output.
+    let provider_box: Option<Box<dyn vestige_embed::EmbeddingProvider>> =
+        build_provider(&ctx.resolve_embeddings_config()).ok();
+    let provider_ref: Option<&dyn vestige_embed::EmbeddingProvider> = provider_box.as_deref();
+
+    let result = replay_trace(
+        &ctx.store,
+        provider_ref,
+        &ctx.project_id,
+        &trace_id,
+        Caller::Cli,
+    )
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if json {
+        emit_json(&result)
+    } else {
+        print_replay(&result);
         Ok(())
     }
 }
@@ -238,4 +278,93 @@ fn print_detail(d: &TraceDetail) {
             }
         }
     }
+}
+
+// === TEXT RENDERING — REPLAY ===
+
+fn print_replay(r: &ReplayResult) {
+    println!("Replaying {}…", r.trace_id);
+    println!();
+
+    println!("Original ({} results):", r.original.result_ids.len());
+    if r.original.result_ids.is_empty() {
+        println!("  (none)");
+    } else {
+        for (i, id) in r.original.result_ids.iter().enumerate() {
+            let score_str = r
+                .original
+                .scores
+                .get(i)
+                .map(|s| format!("  {:.2}", s))
+                .unwrap_or_default();
+            println!("  {}. {id}{score_str}", i + 1);
+        }
+    }
+
+    println!();
+    println!("Now ({} results):", r.current.result_ids.len());
+    if r.current.result_ids.is_empty() {
+        println!("  (none)");
+    } else {
+        let original_score_map: std::collections::HashMap<&str, f64> = r
+            .original
+            .result_ids
+            .iter()
+            .zip(r.original.scores.iter())
+            .map(|(id, &s)| (id.as_str(), s))
+            .collect();
+
+        for (i, id) in r.current.result_ids.iter().enumerate() {
+            let score = r.current.scores.get(i).copied();
+            let annotation = match (score, original_score_map.get(id.as_str()).copied()) {
+                (Some(curr), Some(orig)) => {
+                    let delta = curr - orig;
+                    if delta.abs() < f64::EPSILON {
+                        "   (unchanged)".to_string()
+                    } else if delta > 0.0 {
+                        format!("   (score +{:.2})", delta)
+                    } else {
+                        format!("   (score {:.2})", delta)
+                    }
+                }
+                (Some(_), None) => "   (new)".to_string(),
+                _ => String::new(),
+            };
+            let score_str = score.map(|s| format!("  {:.2}", s)).unwrap_or_default();
+            println!("  {}. {id}{score_str}{annotation}", i + 1);
+        }
+    }
+
+    // Surface dropped results.
+    if !r.diff.removed.is_empty() {
+        for id in &r.diff.removed {
+            println!("  ─ {id}   dropped from results");
+        }
+    }
+
+    println!();
+
+    // Provider line.
+    let provider_line = match (r.provider_match, r.mode_fallback) {
+        (true, false) => "Provider: matches original.".to_string(),
+        (false, true) => "Provider: mismatch or unavailable — ran lexical fallback.".to_string(),
+        (false, false) => "Provider: mismatch with original.".to_string(),
+        (true, true) => "Provider: matches original (mode fell back).".to_string(),
+    };
+    println!("{provider_line}");
+
+    // Corpus drift.
+    let original_count = r.original.result_ids.len() as i64;
+    let current_count = r.current.result_ids.len() as i64;
+    let drift = current_count - original_count;
+    if drift == 0 {
+        println!("Corpus drift: none detected.");
+    } else if drift > 0 {
+        println!("Corpus drift: +{} result(s) since original.", drift);
+    } else {
+        println!("Corpus drift: {} result(s) since original.", drift);
+    }
+
+    let replay_ts = &r.replay_trace_id;
+    println!("Replay trace: {replay_ts}");
 }

@@ -314,6 +314,27 @@ impl Store {
             None => Ok(None),
         }
     }
+
+    /// Fetch the `id` of the most recently written `query_events` row for
+    /// `project_id`, in insertion (ULID) order.
+    ///
+    /// Returns `Ok(None)` when the table is empty for the project. Used by
+    /// the replay path to retrieve the trace ID of the row it just wrote
+    /// without relying on SQLite's `last_insert_rowid` (which is unavailable
+    /// through shared `&Connection` borrows).
+    pub fn fetch_last_trace_id(&self, project_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id FROM query_events
+             WHERE project_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![project_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
 }
 
 // === PRIVATE HELPERS ===
