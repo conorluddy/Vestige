@@ -27,6 +27,7 @@ pub mod context;
 pub mod embed;
 pub mod error;
 pub mod provenance;
+pub mod replay;
 pub mod search;
 pub mod trace;
 pub mod trace_read;
@@ -48,3 +49,6 @@ pub use provenance::{
 
 // Re-export trace read surface so CLI and MCP don't need the module path.
 pub use trace_read::{get_trace, list_traces, ListFilters, TraceCard, TraceDetail};
+
+// Re-export replay surface so CLI and MCP don't need the module path.
+pub use replay::{replay_trace, ReplayDiff, ReplayResult, ReplayResultSet, ScoreChange};
