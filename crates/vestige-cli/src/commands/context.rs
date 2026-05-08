@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Args;
+use vestige_config::traces_config_for;
 use vestige_engine::context::get_project_context;
 use vestige_engine::Caller;
 
@@ -23,6 +24,7 @@ pub struct ContextArgs {
 
 pub fn run(args: ContextArgs) -> Result<()> {
     let ctx = cli_ctx::load()?;
+    let traces_cfg = traces_config_for(ctx.config.traces.as_ref());
 
     let outcome = get_project_context(
         &ctx.store,
@@ -31,6 +33,7 @@ pub fn run(args: ContextArgs) -> Result<()> {
         args.per_section,
         args.budget_tokens,
         Caller::Cli,
+        &traces_cfg,
     )?;
     let pack = outcome.pack;
 

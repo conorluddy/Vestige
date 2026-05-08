@@ -12,6 +12,7 @@ pub mod propose_candidate;
 pub mod record_decision;
 pub mod record_observation;
 pub mod search;
+pub mod trace;
 
 use rmcp::ErrorData;
 use vestige_core::{

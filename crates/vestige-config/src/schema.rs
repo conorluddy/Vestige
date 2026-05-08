@@ -120,6 +120,14 @@ pub struct VestigeConfig {
     /// flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assimilation: Option<AssimilationConfig>,
+
+    /// Optional trace behaviour config (TOML `[traces]`). V0.3+.
+    ///
+    /// `None` when the section is absent — all defaults apply. Presence allows
+    /// disabling trace writes, tuning the FIFO cap, query-text truncation, and
+    /// per-surface toggles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traces: Option<TracesConfig>,
 }
 
 // === SECTION STRUCTS ===
@@ -374,6 +382,100 @@ fn default_capture_mode() -> CaptureMode {
     CaptureMode::Candidate
 }
 
+// === TRACES CONFIG ===
+
+/// Default FIFO cap: maximum `query_events` rows per project.
+pub const TRACES_DEFAULT_MAX_PER_PROJECT: usize = 10_000;
+
+/// Default max bytes stored for `query_text`.
+pub const TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES: usize = 1_024;
+
+fn default_traces_enabled() -> bool {
+    true
+}
+
+fn default_traces_max_per_project() -> usize {
+    TRACES_DEFAULT_MAX_PER_PROJECT
+}
+
+fn default_traces_truncate_query_text_bytes() -> usize {
+    TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES
+}
+
+fn default_traces_caller_cli() -> bool {
+    true
+}
+
+fn default_traces_caller_mcp() -> bool {
+    true
+}
+
+/// Trace-write behaviour for `query_events` (`[traces]` in `.vestige/config.toml`). V0.3+.
+///
+/// All fields default to enabled/permissive so omitting the section is identical
+/// to writing it with all defaults. This avoids disrupting existing projects.
+///
+/// # Wire format
+///
+/// ```toml
+/// [traces]
+/// enabled                    = true
+/// max_per_project            = 10000
+/// truncate_query_text_bytes  = 1024
+/// trace_caller_cli           = true
+/// trace_caller_mcp           = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TracesConfig {
+    /// Master switch. `false` skips all trace writes; existing rows remain
+    /// readable via `vestige trace` and replay. Default: `true`.
+    #[serde(default = "default_traces_enabled")]
+    pub enabled: bool,
+
+    /// FIFO cap: maximum `query_events` rows kept per project. After every
+    /// insert the oldest rows beyond this limit are deleted. Default: `10000`.
+    #[serde(default = "default_traces_max_per_project")]
+    pub max_per_project: usize,
+
+    /// Maximum bytes stored in `query_text`. Truncation happens at the nearest
+    /// UTF-8 codepoint boundary at or below this limit (bytes, not chars —
+    /// consistent with the PRD source-snippet rule). Default: `1024`.
+    #[serde(default = "default_traces_truncate_query_text_bytes")]
+    pub truncate_query_text_bytes: usize,
+
+    /// When `false`, CLI-originated recall calls are not traced. Default: `true`.
+    #[serde(default = "default_traces_caller_cli")]
+    pub trace_caller_cli: bool,
+
+    /// When `false`, MCP-originated recall calls are not traced. Default: `true`.
+    #[serde(default = "default_traces_caller_mcp")]
+    pub trace_caller_mcp: bool,
+}
+
+impl Default for TracesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_per_project: TRACES_DEFAULT_MAX_PER_PROJECT,
+            truncate_query_text_bytes: TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES,
+            trace_caller_cli: true,
+            trace_caller_mcp: true,
+        }
+    }
+}
+
+/// Resolve a [`TracesConfig`] from an optional section, applying all defaults
+/// when the section is absent.
+///
+/// Provided as a free function (mirroring `embeddings_config_for`) rather than
+/// a `From<Option<_>>` impl to avoid orphan-rule conflicts.
+pub fn traces_config_for(section: Option<&TracesConfig>) -> TracesConfig {
+    match section {
+        Some(c) => c.clone(),
+        None => TracesConfig::default(),
+    }
+}
+
 // === METHODS ===
 
 impl VestigeConfig {
@@ -488,5 +590,95 @@ allow_forget             = false
         assert!(config.mcp.allow_propose_candidate);
         assert!(!config.mcp.allow_candidate_approval);
         assert!(!config.mcp.allow_candidate_rejection);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // [traces] config block tests (V0.3 M7)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Full `[traces]` block round-trips through TOML write + read without data loss.
+    #[test]
+    fn traces_config_round_trips() {
+        let toml_str = format!(
+            "{}\n[traces]\nenabled = true\nmax_per_project = 5000\ntruncate_query_text_bytes = 512\ntrace_caller_cli = false\ntrace_caller_mcp = true\n",
+            V0_TOML
+        );
+        let config: VestigeConfig = toml::from_str(&toml_str).expect("must parse with [traces]");
+        let traces = config.traces.clone().expect("[traces] must be Some");
+        assert!(traces.enabled);
+        assert_eq!(traces.max_per_project, 5000);
+        assert_eq!(traces.truncate_query_text_bytes, 512);
+        assert!(!traces.trace_caller_cli);
+        assert!(traces.trace_caller_mcp);
+
+        // Re-serialise and parse again — full round-trip.
+        let re_serialised = toml::to_string_pretty(&config).expect("must serialise");
+        let re_parsed: VestigeConfig =
+            toml::from_str(&re_serialised).expect("re-serialised TOML must parse");
+        let re_traces = re_parsed
+            .traces
+            .expect("[traces] must survive re-serialisation");
+        assert_eq!(re_traces.max_per_project, 5000);
+        assert!(!re_traces.trace_caller_cli);
+    }
+
+    /// When the `[traces]` block is completely absent, all defaults apply.
+    #[test]
+    fn traces_config_absent_block_uses_defaults() {
+        let config: VestigeConfig = toml::from_str(V0_TOML).expect("V0 TOML must parse");
+        assert!(
+            config.traces.is_none(),
+            "absent [traces] must deserialise as None"
+        );
+        // traces_config_for(None) must return defaults.
+        let defaults = traces_config_for(None);
+        assert!(defaults.enabled);
+        assert_eq!(defaults.max_per_project, TRACES_DEFAULT_MAX_PER_PROJECT);
+        assert_eq!(
+            defaults.truncate_query_text_bytes,
+            TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES
+        );
+        assert!(defaults.trace_caller_cli);
+        assert!(defaults.trace_caller_mcp);
+    }
+
+    /// When the block is present but individual keys are missing, each key
+    /// falls back to its own default.
+    #[test]
+    fn traces_config_partial_block_uses_per_key_defaults() {
+        // Only `enabled` is present; every other key must default.
+        let toml_str = format!("{}\n[traces]\nenabled = false\n", V0_TOML);
+        let config: VestigeConfig = toml::from_str(&toml_str).expect("must parse partial [traces]");
+        let traces = config
+            .traces
+            .expect("[traces] must be Some when block present");
+        assert!(!traces.enabled, "explicit false must be honoured");
+        assert_eq!(
+            traces.max_per_project, TRACES_DEFAULT_MAX_PER_PROJECT,
+            "max_per_project must default when absent"
+        );
+        assert_eq!(
+            traces.truncate_query_text_bytes, TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES,
+            "truncate_query_text_bytes must default when absent"
+        );
+        assert!(
+            traces.trace_caller_cli,
+            "trace_caller_cli must default to true"
+        );
+        assert!(
+            traces.trace_caller_mcp,
+            "trace_caller_mcp must default to true"
+        );
+    }
+
+    /// V0 config must not gain a `[traces]` section when re-serialised.
+    #[test]
+    fn traces_config_absent_suppressed_on_serialise() {
+        let config: VestigeConfig = toml::from_str(V0_TOML).expect("V0 TOML must parse");
+        let serialised = toml::to_string_pretty(&config).expect("must serialise");
+        assert!(
+            !serialised.contains("[traces]"),
+            "skip_serializing_if must suppress absent [traces] section"
+        );
     }
 }

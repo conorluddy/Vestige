@@ -22,6 +22,7 @@ use std::time::Instant;
 
 use tempfile::TempDir;
 
+use vestige_config::TracesConfig;
 use vestige_core::{build_bundle, MemoryId, MemoryType, NewMemory, ProjectId, RepresentationDepth};
 use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 use vestige_engine::{
@@ -104,7 +105,16 @@ fn search_lexical_writes_one_trace_row() {
 
     assert_eq!(trace_count(&store, &project), 0, "no traces before search");
 
-    search_lexical(&store, &project, "local-first", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "local-first",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(
         trace_count(&store, &project),
@@ -120,7 +130,16 @@ fn search_lexical_trace_has_correct_kind_and_caller() {
     seed_project(&mut store, &project);
     record_memory(&mut store, &project, "Anything.");
 
-    search_lexical(&store, &project, "anything", None, 10, Caller::Mcp).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "anything",
+        None,
+        10,
+        Caller::Mcp,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     let row = store
         .connection()
@@ -160,7 +179,16 @@ fn search_lexical_records_query_text_and_result_count() {
     seed_project(&mut store, &project);
     record_memory(&mut store, &project, "Vestige memory system for agents.");
 
-    search_lexical(&store, &project, "vestige memory", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "vestige memory",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     let row = store
         .connection()
@@ -201,6 +229,7 @@ fn search_semantic_writes_one_trace_with_provider_info() {
         10,
         &provider,
         Caller::Cli,
+        &TracesConfig::default(),
     )
     .unwrap();
 
@@ -246,7 +275,17 @@ fn search_semantic_no_embeddings_still_writes_trace() {
     record_memory(&mut store, &project, "Some content.");
 
     let provider = FakeEmbeddingProvider::new(64);
-    search_semantic(&store, &project, "query", None, 10, &provider, Caller::Cli).unwrap();
+    search_semantic(
+        &store,
+        &project,
+        "query",
+        None,
+        10,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(
         trace_count(&store, &project),
@@ -278,6 +317,7 @@ fn search_hybrid_writes_one_trace_with_provider_info() {
         10,
         &provider,
         Caller::Cli,
+        &TracesConfig::default(),
     )
     .unwrap();
 
@@ -329,6 +369,7 @@ fn search_hybrid_fallback_writes_single_trace_with_correct_modes() {
         10,
         &provider,
         Caller::Cli,
+        &TracesConfig::default(),
     )
     .unwrap();
 
@@ -384,6 +425,7 @@ fn expand_memory_writes_one_trace_with_kind_expand() {
         &id,
         RepresentationDepth::Summary,
         Caller::Mcp,
+        &TracesConfig::default(),
     )
     .unwrap();
 
@@ -429,7 +471,16 @@ fn get_project_context_writes_one_trace_with_kind_context() {
 
     assert_eq!(trace_count(&store, &project), 0);
 
-    get_project_context(&store, &project, "Trace Test", 8, 1200, Caller::Cli).unwrap();
+    get_project_context(
+        &store,
+        &project,
+        "Trace Test",
+        8,
+        1200,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     assert_eq!(trace_count(&store, &project), 1);
 
@@ -641,7 +692,16 @@ fn search_lexical_trace_records_latency_ms() {
     record_memory(&mut store, &project, "Latency should be recorded.");
 
     let t0 = Instant::now();
-    search_lexical(&store, &project, "latency", None, 10, Caller::Cli).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "latency",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
     let elapsed_ms = t0.elapsed().as_millis() as i64;
 
     let latency_ms: i64 = store
@@ -675,8 +735,26 @@ fn caller_cli_and_mcp_are_stored_correctly() {
     record_memory(&mut store, &project, "Caller variants.");
 
     // Two searches: one from CLI, one from MCP.
-    search_lexical(&store, &project, "caller", None, 10, Caller::Cli).unwrap();
-    search_lexical(&store, &project, "variants", None, 10, Caller::Mcp).unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "caller",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
+    search_lexical(
+        &store,
+        &project,
+        "variants",
+        None,
+        10,
+        Caller::Mcp,
+        &TracesConfig::default(),
+    )
+    .unwrap();
 
     let callers: Vec<String> = store
         .connection()
@@ -688,4 +766,239 @@ fn caller_cli_and_mcp_are_stored_correctly() {
         .collect();
 
     assert_eq!(callers, vec!["cli", "mcp"]);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// === M7 CONFIG-DRIVEN TRACE WRITE TESTS ===
+// ─────────────────────────────────────────────────────────────────
+
+/// Cap = 5, write 10 traces → exactly 5 remain (oldest evicted).
+/// This is the config-driven path (via write_trace_configured) rather than
+/// the legacy write_trace_with_cap path.
+#[test]
+fn config_max_per_project_enforces_cap() {
+    const TEST_CAP: usize = 5;
+    const TOTAL_WRITES: usize = TEST_CAP + 5;
+
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("cfg-cap");
+    seed_project(&mut store, &project);
+
+    let cfg = TracesConfig {
+        max_per_project: TEST_CAP,
+        ..TracesConfig::default()
+    };
+
+    for i in 0..TOTAL_WRITES {
+        record_memory(&mut store, &project, &format!("memory {i}"));
+        search_lexical(
+            &store,
+            &project,
+            &format!("memory {i}"),
+            None,
+            10,
+            Caller::Cli,
+            &cfg,
+        )
+        .unwrap();
+    }
+
+    assert_eq!(
+        trace_count(&store, &project),
+        TEST_CAP,
+        "config cap must leave exactly {TEST_CAP} rows"
+    );
+}
+
+/// `enabled = false` → 0 new trace rows written; existing rows still readable.
+#[test]
+fn config_enabled_false_skips_writes() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("cfg-disabled");
+    seed_project(&mut store, &project);
+    record_memory(&mut store, &project, "Some note.");
+
+    // Write one trace with defaults to prove reads work.
+    search_lexical(
+        &store,
+        &project,
+        "initial",
+        None,
+        10,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        trace_count(&store, &project),
+        1,
+        "baseline: 1 row before disabling"
+    );
+
+    // Now disable tracing and run more searches.
+    let disabled = TracesConfig {
+        enabled: false,
+        ..TracesConfig::default()
+    };
+    for _ in 0..5 {
+        search_lexical(
+            &store,
+            &project,
+            "ignored",
+            None,
+            10,
+            Caller::Cli,
+            &disabled,
+        )
+        .unwrap();
+    }
+
+    // Still exactly 1 row — the disabled writes were no-ops.
+    assert_eq!(
+        trace_count(&store, &project),
+        1,
+        "enabled=false must not write any new rows"
+    );
+}
+
+/// `trace_caller_cli = false` → CLI searches not traced; MCP searches still are.
+#[test]
+fn config_trace_caller_cli_false_skips_cli_only() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("cfg-no-cli");
+    seed_project(&mut store, &project);
+    record_memory(&mut store, &project, "Some note.");
+
+    let no_cli = TracesConfig {
+        trace_caller_cli: false,
+        ..TracesConfig::default()
+    };
+
+    // CLI call — must be skipped.
+    search_lexical(
+        &store,
+        &project,
+        "cli query",
+        None,
+        10,
+        Caller::Cli,
+        &no_cli,
+    )
+    .unwrap();
+    assert_eq!(
+        trace_count(&store, &project),
+        0,
+        "CLI trace must be suppressed"
+    );
+
+    // MCP call — must still be recorded.
+    search_lexical(
+        &store,
+        &project,
+        "mcp query",
+        None,
+        10,
+        Caller::Mcp,
+        &no_cli,
+    )
+    .unwrap();
+    assert_eq!(
+        trace_count(&store, &project),
+        1,
+        "MCP trace must still be written when only cli is disabled"
+    );
+}
+
+/// `trace_caller_mcp = false` → MCP searches not traced; CLI searches still are.
+/// Mirror of the CLI toggle test to confirm independence.
+#[test]
+fn config_trace_caller_mcp_false_skips_mcp_only() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("cfg-no-mcp");
+    seed_project(&mut store, &project);
+    record_memory(&mut store, &project, "Some note.");
+
+    let no_mcp = TracesConfig {
+        trace_caller_mcp: false,
+        ..TracesConfig::default()
+    };
+
+    // MCP call — must be skipped.
+    search_lexical(
+        &store,
+        &project,
+        "mcp query",
+        None,
+        10,
+        Caller::Mcp,
+        &no_mcp,
+    )
+    .unwrap();
+    assert_eq!(
+        trace_count(&store, &project),
+        0,
+        "MCP trace must be suppressed"
+    );
+
+    // CLI call — must still be recorded.
+    search_lexical(
+        &store,
+        &project,
+        "cli query",
+        None,
+        10,
+        Caller::Cli,
+        &no_mcp,
+    )
+    .unwrap();
+    assert_eq!(
+        trace_count(&store, &project),
+        1,
+        "CLI trace must still be written when only mcp is disabled"
+    );
+}
+
+/// `truncate_query_text_bytes = 16` with a 100-byte multi-byte UTF-8 query →
+/// stored `query_text` is ≤ 16 bytes AND a valid UTF-8 string.
+#[test]
+fn config_truncate_query_text_at_utf8_boundary() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("cfg-trunc");
+    seed_project(&mut store, &project);
+
+    let cfg = TracesConfig {
+        truncate_query_text_bytes: 16,
+        ..TracesConfig::default()
+    };
+
+    // Build a 100-byte query with multi-byte UTF-8 characters (3 bytes each in Japanese).
+    // Each 日 is 3 bytes in UTF-8. 34 chars × 3 bytes = 102 bytes total.
+    let long_query = "日".repeat(34);
+    assert!(
+        long_query.len() >= 100,
+        "query must be ≥ 100 bytes for this test"
+    );
+
+    search_lexical(&store, &project, &long_query, None, 10, Caller::Cli, &cfg).unwrap();
+
+    let stored: Option<String> = store
+        .connection()
+        .query_row(
+            "SELECT query_text FROM query_events WHERE project_id = ?1",
+            rusqlite::params![project.as_str()],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    let stored_text = stored.expect("query_text must be written");
+    assert!(
+        stored_text.len() <= 16,
+        "stored query_text must be ≤ 16 bytes, got {} bytes",
+        stored_text.len()
+    );
+    // Validate it's still valid UTF-8 (String::from_utf8 would panic if not).
+    assert!(
+        std::str::from_utf8(stored_text.as_bytes()).is_ok(),
+        "stored query_text must be valid UTF-8 after truncation"
+    );
 }

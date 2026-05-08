@@ -47,6 +47,7 @@ pub fn build_init_config(
         embeddings: None,
         search: None,
         assimilation: None,
+        traces: None,
     }
 }
 

@@ -11,7 +11,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
-use vestige_config::embeddings_config_for;
+use vestige_config::{embeddings_config_for, traces_config_for};
 use vestige_core::{resolve_default_mode, MemoryType, ScoredCard, SearchMode};
 use vestige_embed::{build_provider, EmbeddingProvider};
 use vestige_engine::error::EngineError;
@@ -99,6 +99,7 @@ impl VestigeServer {
             .transpose()
             .map_err(|e| err("INVALID_TYPE", e.to_string(), false))?;
 
+        let traces_cfg = traces_config_for(inner.config.traces.as_ref());
         let outcome = match mode {
             SearchMode::Lexical => vestige_engine::search::search_lexical(
                 &inner.store,
@@ -107,6 +108,7 @@ impl VestigeServer {
                 type_filter,
                 p.limit,
                 Caller::Mcp,
+                &traces_cfg,
             )
             .map_err(engine_err_to_data)?,
             SearchMode::Semantic => {
@@ -138,6 +140,7 @@ impl VestigeServer {
                     p.limit,
                     provider.as_ref(),
                     Caller::Mcp,
+                    &traces_cfg,
                 )
                 .map_err(engine_err_to_data)?
             }
@@ -151,6 +154,7 @@ impl VestigeServer {
                     p.limit,
                     provider.as_ref(),
                     Caller::Mcp,
+                    &traces_cfg,
                 )
                 .map_err(engine_err_to_data)?
             }

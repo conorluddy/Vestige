@@ -13,6 +13,7 @@
 use std::str::FromStr;
 
 use anyhow::Result;
+use vestige_config::traces_config_for;
 use vestige_core::{resolve_default_mode, MemoryType, SearchMode};
 use vestige_embed::{build_provider, EmbedError, EmbeddingProvider};
 use vestige_engine::search::{search_hybrid, search_lexical, search_semantic, HybridOutcome};
@@ -83,6 +84,7 @@ fn dispatch(
     limit: u32,
     mode: SearchMode,
 ) -> Result<HybridOutcome> {
+    let traces_cfg = traces_config_for(ctx.config.traces.as_ref());
     match mode {
         SearchMode::Lexical => Ok(search_lexical(
             &ctx.store,
@@ -91,6 +93,7 @@ fn dispatch(
             type_filter,
             limit,
             Caller::Cli,
+            &traces_cfg,
         )?),
         SearchMode::Semantic => {
             let provider = build_embed_provider(ctx)?;
@@ -102,6 +105,7 @@ fn dispatch(
                 limit,
                 &*provider,
                 Caller::Cli,
+                &traces_cfg,
             )?)
         }
         SearchMode::Hybrid => {
@@ -114,6 +118,7 @@ fn dispatch(
                 limit,
                 &*provider,
                 Caller::Cli,
+                &traces_cfg,
             )?)
         }
     }
