@@ -79,6 +79,8 @@ enum Command {
     Why(commands::why::WhyArgs),
     /// List source receipts attached to a memory or candidate.
     Sources(commands::sources::SourcesArgs),
+    /// List recent query traces or inspect one in detail.
+    Trace(commands::trace::TraceArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
@@ -116,5 +118,6 @@ fn main() -> Result<()> {
         Command::Reject(args) => commands::reject::run(args),
         Command::Why(args) => commands::why::run(args),
         Command::Sources(args) => commands::sources::run(args),
+        Command::Trace(args) => commands::trace::run(args),
     }
 }

@@ -71,6 +71,13 @@ pub enum EngineError {
         /// Human-readable description of what failed.
         message: String,
     },
+
+    /// A query trace was not found for the given ID in the current project.
+    #[error("trace not found: `{id}`")]
+    TraceNotFound {
+        /// The trace ID that was looked up.
+        id: String,
+    },
 }
 
 /// Convenience alias — `EngineError` as the error type.

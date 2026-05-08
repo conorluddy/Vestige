@@ -1,4 +1,4 @@
-//! `query_events` write path — record one trace row and evict oldest when over cap.
+//! `query_events` write and read paths.
 //!
 //! All recall paths (search / expand / context) write exactly one row per call.
 //! Mutations (record, forget, restore, approve, reject) write zero rows — this
@@ -10,11 +10,70 @@
 //! exceeds `cap` we delete the oldest `(count - cap)` rows in a single
 //! DELETE statement. The cap is enforced by the engine layer, which passes it
 //! in; keeping it here avoids a second trip to the DB for the count query.
+//!
+//! # Read paths
+//!
+//! [`TraceFilter`] drives [`Store::fetch_traces`] (list) and
+//! [`Store::fetch_trace`] (single-row lookup). Both are project-scoped.
 
 use time::OffsetDateTime;
 use ulid::Ulid;
 
 use crate::{helpers::rfc3339, Result, Store};
+
+// === READ TYPES ===
+
+/// Filters for the trace list query.
+///
+/// All fields are optional; an empty `TraceFilter` returns up to `limit` most
+/// recent traces for the project in reverse chronological order.
+#[derive(Debug, Default)]
+pub struct TraceFilter<'a> {
+    /// Only return traces of this kind (`"search"`, `"expand"`, `"context"`).
+    pub kind: Option<&'a str>,
+    /// Only return traces from this caller (`"cli"` or `"mcp"`).
+    pub caller: Option<&'a str>,
+    /// Only return traces created at or after this RFC-3339 timestamp.
+    pub since: Option<&'a str>,
+    /// Maximum number of rows to return (default 10 in the engine layer).
+    pub limit: u32,
+}
+
+/// One row from `query_events`, used for both list cards and full detail.
+///
+/// All nullable columns are `Option<String>` to reflect the schema faithfully;
+/// the engine layer converts into richer presentation types.
+#[derive(Debug, Clone)]
+pub struct QueryEventRow {
+    /// `trace_<ULID>` primary key.
+    pub id: String,
+    /// `"search"` | `"expand"` | `"context"`.
+    pub kind: String,
+    /// Requested search mode; `None` for expand / context.
+    pub mode_requested: Option<String>,
+    /// Resolved search mode after fallback; `None` for expand / context.
+    pub mode_resolved: Option<String>,
+    /// Free-text query, truncated to ≤ 1 KiB.
+    pub query_text: Option<String>,
+    /// JSON-serialised extra parameters.
+    pub params_json: Option<String>,
+    /// `"cli"` | `"mcp"`.
+    pub caller: String,
+    /// Embedding provider name.
+    pub provider: Option<String>,
+    /// Embedding model name.
+    pub provider_model: Option<String>,
+    /// JSON array of result memory IDs in order.
+    pub result_ids_json: Option<String>,
+    /// JSON array of scores parallel to `result_ids_json`.
+    pub result_scores_json: Option<String>,
+    /// Number of results returned.
+    pub result_count: u32,
+    /// Wall-clock latency in milliseconds.
+    pub latency_ms: u64,
+    /// RFC-3339 creation timestamp.
+    pub created_at: String,
+}
 
 /// Everything needed to insert one `query_events` row.
 ///
@@ -155,4 +214,125 @@ impl Store {
         )?;
         Ok(count as usize)
     }
+
+    /// List `query_events` rows for a project, most-recent first.
+    ///
+    /// Applies optional `kind`, `caller`, and `since` filters from
+    /// [`TraceFilter`]. The `limit` is always applied; callers should default
+    /// to 10 when unset.
+    ///
+    /// This is intentionally a simple cursor — no offset pagination, since
+    /// the PRD does not require it for V0.3 and the default cap (10 000) keeps
+    /// the result set bounded.
+    pub fn fetch_traces(
+        &self,
+        project_id: &str,
+        filter: &TraceFilter<'_>,
+    ) -> Result<Vec<QueryEventRow>> {
+        // Build the WHERE clause dynamically to avoid injecting NULLs into
+        // SQL comparisons. SQLite handles `col = NULL` as false, not as IS NULL,
+        // so we need to actually omit the clause when the filter is absent.
+        let mut conditions = vec!["project_id = ?1".to_string()];
+        let mut idx = 2usize;
+
+        let mut kind_ph = None;
+        let mut caller_ph = None;
+        let mut since_ph = None;
+
+        if filter.kind.is_some() {
+            conditions.push(format!("kind = ?{idx}"));
+            kind_ph = Some(idx);
+            idx += 1;
+        }
+        if filter.caller.is_some() {
+            conditions.push(format!("caller = ?{idx}"));
+            caller_ph = Some(idx);
+            idx += 1;
+        }
+        if filter.since.is_some() {
+            conditions.push(format!("created_at >= ?{idx}"));
+            since_ph = Some(idx);
+            idx += 1;
+        }
+        let limit_ph = idx;
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT id, kind, mode_requested, mode_resolved, query_text, params_json,
+                    caller, provider, provider_model,
+                    result_ids_json, result_scores_json, result_count, latency_ms, created_at
+             FROM query_events
+             WHERE {where_clause}
+             ORDER BY created_at DESC
+             LIMIT ?{limit_ph}"
+        );
+
+        let mut stmt = self.connection().prepare(&sql)?;
+
+        // Bind positional parameters in declaration order.
+        // rusqlite requires we bind them by index; collect into a params vec.
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(project_id.to_string())];
+        if let (Some(_), Some(k)) = (kind_ph, filter.kind) {
+            params.push(Box::new(k.to_string()));
+        }
+        if let (Some(_), Some(c)) = (caller_ph, filter.caller) {
+            params.push(Box::new(c.to_string()));
+        }
+        if let (Some(_), Some(s)) = (since_ph, filter.since) {
+            params.push(Box::new(s.to_string()));
+        }
+        params.push(Box::new(filter.limit as i64));
+
+        let rows = stmt
+            .query_map(
+                rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+                row_to_query_event,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
+    /// Fetch a single `query_events` row by `trace_id`, scoped to `project_id`.
+    ///
+    /// Returns `Ok(None)` when the trace does not exist for the project (either
+    /// genuinely absent or belonging to a different project).
+    pub fn fetch_trace(&self, project_id: &str, trace_id: &str) -> Result<Option<QueryEventRow>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id, kind, mode_requested, mode_resolved, query_text, params_json,
+                    caller, provider, provider_model,
+                    result_ids_json, result_scores_json, result_count, latency_ms, created_at
+             FROM query_events
+             WHERE id = ?1 AND project_id = ?2",
+        )?;
+
+        let mut rows =
+            stmt.query_map(rusqlite::params![trace_id, project_id], row_to_query_event)?;
+
+        match rows.next() {
+            Some(r) => Ok(Some(r?)),
+            None => Ok(None),
+        }
+    }
+}
+
+// === PRIVATE HELPERS ===
+
+fn row_to_query_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueryEventRow> {
+    Ok(QueryEventRow {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        mode_requested: row.get(2)?,
+        mode_resolved: row.get(3)?,
+        query_text: row.get(4)?,
+        params_json: row.get(5)?,
+        caller: row.get(6)?,
+        provider: row.get(7)?,
+        provider_model: row.get(8)?,
+        result_ids_json: row.get(9)?,
+        result_scores_json: row.get(10)?,
+        result_count: row.get::<_, i64>(11)? as u32,
+        latency_ms: row.get::<_, i64>(12)? as u64,
+        created_at: row.get(13)?,
+    })
 }

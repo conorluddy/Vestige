@@ -200,6 +200,7 @@ fn map_engine_error(e: EngineError) -> ErrorData {
         EngineError::Embed(e) => err("EMBED_FAILED", e.to_string(), false),
         EngineError::EmbeddingsUnavailable(msg) => err("EMBEDDINGS_UNAVAILABLE", msg, false),
         EngineError::Core(e) => err("CORE_ERROR", e.to_string(), false),
+        EngineError::TraceNotFound { .. } => err("TRACE_NOT_FOUND", e.to_string(), false),
     }
 }
 
