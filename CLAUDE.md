@@ -16,6 +16,8 @@ Vestige is a local-first, repo-pinned memory layer for coding agents. CLI + MCP 
 
 Authoritative product spec: `vestige_prd.md`. Read it before designing anything new — every architectural decision in this codebase traces back to it.
 
+V0.3 Provenance and Receipts spec: `docs/prd/vestige_v_0_3_provenance_prd.md`.
+
 
 ## Build, test, run
 
@@ -46,6 +48,13 @@ cargo run -p vestige -- search "..." --mode hybrid        # V0.1
 cargo run -p vestige -- skills install                    # writes to both .claude/skills/ and .agents/skills/
 cargo run -p vestige -- skills install --target agents    # only .agents/skills/ (agentskills.io / Codex)
 cargo run -p vestige -- skills list --json                # 10 skills + version
+
+# V0.3 — provenance and trace commands
+cargo run -p vestige -- why <mem_or_cand_id>              # templated provenance walk for a memory or candidate
+cargo run -p vestige -- sources <mem_or_cand_id>          # raw typed source receipts; --kind to filter
+cargo run -p vestige -- trace                             # list recent query traces (default 10)
+cargo run -p vestige -- trace <trace_id>                  # full detail for one trace
+cargo run -p vestige -- trace replay <trace_id>           # re-run trace; diff against original
 
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige -- status
@@ -92,7 +101,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5), V0.1, and V0.2 are shipped** as of v0.2.9. V0.2 adds the assimilation inbox (candidate review layer), `vestige candidate add` / `vestige inbox` / `vestige approve` / `vestige reject`, three new MCP tools (`vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate`), and the auto-memorise skill now proposes candidates rather than writing durable memory. See `docs/v0.2.md` for the full walkthrough. **V0.3 is the active next milestone.**
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, and V0.3 are shipped** as of v0.3.0. V0.2 added the assimilation inbox (candidate review layer). V0.3 adds the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. See `docs/v0.2.md` and `docs/v0.3.md` for full walkthroughs. **V0.4 is the active next milestone.**
 
 ## Hard rules (will reject in review)
 
