@@ -33,10 +33,12 @@ mod embeddings;
 mod helpers;
 mod memory_ops;
 mod project;
+mod provenance;
 mod trace_ops;
 
 pub use candidate_ops::{CandidateFilter, CandidateHit};
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
+pub use provenance::{ProvenanceEvent, SourceReceiptRow};
 pub use trace_ops::NewQueryEvent;
 pub use vestige_core::MemoryCounts;
 

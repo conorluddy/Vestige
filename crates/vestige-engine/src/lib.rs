@@ -26,6 +26,7 @@ pub mod candidate;
 pub mod context;
 pub mod embed;
 pub mod error;
+pub mod provenance;
 pub mod search;
 pub mod trace;
 
@@ -37,3 +38,9 @@ pub use candidate::{
 
 // Re-export Caller so CLI/MCP can import it without knowing the module path.
 pub use trace::Caller;
+
+// Re-export provenance surface so callers don't need `vestige_engine::provenance::*`.
+pub use provenance::{
+    list_sources, walk_provenance, CandidateProvenance, EventEntry, MemoryProvenance,
+    ProvenanceWalk, SourceListing, SourceReceipt, SubjectId,
+};

@@ -75,6 +75,10 @@ enum Command {
     Approve(commands::approve::ApproveArgs),
     /// Reject a pending candidate with a reason.
     Reject(commands::reject::RejectArgs),
+    /// Show a provenance walk for a memory or candidate.
+    Why(commands::why::WhyArgs),
+    /// List source receipts attached to a memory or candidate.
+    Sources(commands::sources::SourcesArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
@@ -110,5 +114,7 @@ fn main() -> Result<()> {
         Command::Inbox(args) => commands::inbox::run(args),
         Command::Approve(args) => commands::approve::run(args),
         Command::Reject(args) => commands::reject::run(args),
+        Command::Why(args) => commands::why::run(args),
+        Command::Sources(args) => commands::sources::run(args),
     }
 }
