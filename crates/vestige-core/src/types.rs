@@ -14,6 +14,99 @@ use crate::ids::{MemoryId, ProjectId};
 
 // === ENUMERATIONS ===
 
+/// Typed evidence category for a `memory_sources` or `candidate_sources` row (PRD §8.4).
+///
+/// `source_type` columns are currently free-form `TEXT` in the schema;
+/// `SourceKind` narrows them via application-layer validation — no SQL `CHECK`
+/// constraint is added so migrations remain forward-compatible.
+///
+/// **Write policy**: [`SourceKind::parse`] rejects unknown values so unrecognised
+/// kinds are caught at the boundary before persisting. Use [`SourceKind::from_str_for_read`]
+/// when reading back from the store — it accepts any stored string to preserve
+/// forward read-compatibility for future kinds added without a migration.
+///
+/// **Variants**:
+/// - `file` — a file path in the local repo.
+/// - `commit` — a git commit SHA or range.
+/// - `url` — a web URL.
+/// - `agent_session` — an agent session identifier (e.g. Claude Code session).
+/// - `mcp_call` — an MCP tool call reference.
+/// - `candidate` — reverse-provenance link written on candidate approval (V0.2).
+/// - `manual` — recorded with `vestige *.add` and no `--source` flag.
+/// - `trace` — forward-link to a `query_events` row (`trace_<ULID>`);
+///   reserved for memories captured during a recall session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    /// A file path in the local repo.
+    File,
+    /// A git commit SHA or range.
+    Commit,
+    /// A web URL.
+    Url,
+    /// An agent session identifier.
+    AgentSession,
+    /// An MCP tool call reference.
+    McpCall,
+    /// Reverse-provenance link written on candidate approval (V0.2).
+    Candidate,
+    /// Recorded with no `--source` flag — human-authored with no evidence ref.
+    Manual,
+    /// Forward-link to a `query_events` row; reserved for trace-captured memories.
+    Trace,
+}
+
+impl SourceKind {
+    /// Return the canonical snake_case string for SQL storage and JSON output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Commit => "commit",
+            Self::Url => "url",
+            Self::AgentSession => "agent_session",
+            Self::McpCall => "mcp_call",
+            Self::Candidate => "candidate",
+            Self::Manual => "manual",
+            Self::Trace => "trace",
+        }
+    }
+
+    /// Parse a `source_kind` string for **write** paths. Rejects unknown values
+    /// with [`CoreError::InvalidSourceKind`] so no unrecognised kind is persisted.
+    ///
+    /// Use [`SourceKind::from_str_for_read`] when mapping rows read back from
+    /// the store, where forward-compatibility matters.
+    pub fn parse(s: &str) -> Result<Self, CoreError> {
+        match s {
+            "file" => Ok(Self::File),
+            "commit" => Ok(Self::Commit),
+            "url" => Ok(Self::Url),
+            "agent_session" => Ok(Self::AgentSession),
+            "mcp_call" => Ok(Self::McpCall),
+            "candidate" => Ok(Self::Candidate),
+            "manual" => Ok(Self::Manual),
+            "trace" => Ok(Self::Trace),
+            other => Err(CoreError::InvalidSourceKind(other.to_string())),
+        }
+    }
+}
+
+impl fmt::Display for SourceKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for SourceKind {
+    type Err = CoreError;
+    /// Parses via [`SourceKind::parse`] — rejects unknown kinds. Use this on
+    /// write paths. For read-back from the store prefer
+    /// [`SourceKind::from_str_for_read`].
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 /// Semantic classification of a memory, used to bias ranking and context
 /// assembly. Serialises as snake_case (e.g. `"project_summary"`).
 ///
@@ -407,5 +500,60 @@ mod tests {
     #[test]
     fn candidate_status_rejects_unknown() {
         assert!(CandidateStatus::from_str("unknown").is_err());
+    }
+
+    #[test]
+    fn source_kind_roundtrip_all_variants() {
+        let variants = [
+            ("file", SourceKind::File),
+            ("commit", SourceKind::Commit),
+            ("url", SourceKind::Url),
+            ("agent_session", SourceKind::AgentSession),
+            ("mcp_call", SourceKind::McpCall),
+            ("candidate", SourceKind::Candidate),
+            ("manual", SourceKind::Manual),
+            ("trace", SourceKind::Trace),
+        ];
+        for (s, expected) in variants {
+            let parsed = SourceKind::parse(s).unwrap();
+            assert_eq!(parsed, expected, "parse failed for `{s}`");
+            assert_eq!(parsed.as_str(), s, "as_str mismatch for `{s}`");
+            assert_eq!(parsed.to_string(), s, "Display mismatch for `{s}`");
+        }
+    }
+
+    #[test]
+    fn source_kind_from_str_matches_parse() {
+        // FromStr and parse must be identical on write paths.
+        assert_eq!(
+            SourceKind::from_str("file").unwrap(),
+            SourceKind::parse("file").unwrap()
+        );
+    }
+
+    #[test]
+    fn source_kind_rejects_unknown_on_write() {
+        assert!(matches!(
+            SourceKind::parse("clipboard"),
+            Err(CoreError::InvalidSourceKind(_))
+        ));
+        assert!(matches!(
+            SourceKind::parse(""),
+            Err(CoreError::InvalidSourceKind(_))
+        ));
+        assert!(matches!(
+            SourceKind::parse("AGENT_SESSION"),
+            Err(CoreError::InvalidSourceKind(_))
+        ));
+    }
+
+    #[test]
+    fn source_kind_serde_roundtrip() {
+        let kind = SourceKind::AgentSession;
+        let json = serde_json::to_string(&kind).unwrap();
+        // serde(rename_all = "snake_case") produces the canonical string.
+        assert_eq!(json, r#""agent_session""#);
+        let decoded: SourceKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, kind);
     }
 }

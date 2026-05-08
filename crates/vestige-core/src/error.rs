@@ -76,4 +76,9 @@ pub enum CoreError {
     /// A raw string could not be parsed as a [`RejectionReason`](crate::RejectionReason).
     #[error("invalid rejection reason: `{value}`")]
     InvalidRejectionReason { value: String },
+
+    /// A raw string could not be parsed as a [`SourceKind`](crate::SourceKind).
+    /// Only raised on write paths — unknown kinds are accepted for read-back.
+    #[error("invalid source kind: `{0}` — must be one of: file, commit, url, agent_session, mcp_call, candidate, manual, trace")]
+    InvalidSourceKind(String),
 }

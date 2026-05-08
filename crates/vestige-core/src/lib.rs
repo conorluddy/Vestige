@@ -17,14 +17,14 @@ pub mod types;
 // === ERRORS & IDS ===
 // ========================================
 pub use error::{CoreError, Result};
-pub use ids::{CandidateId, EmbeddingId, MemoryId, ProjectId};
+pub use ids::{CandidateId, EmbeddingId, MemoryId, ProjectId, TraceId};
 
 // ========================================
 // === DOMAIN TYPES ===
 // ========================================
 pub use types::{
     CandidateStatus, Memory, MemoryCounts, MemoryEvent, MemorySource, MemoryStatus, MemoryType,
-    ProjectRecord, Representation, RepresentationDepth,
+    ProjectRecord, Representation, RepresentationDepth, SourceKind,
 };
 
 // ========================================
