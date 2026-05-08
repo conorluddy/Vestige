@@ -20,14 +20,20 @@
 //! - [`embed`] — per-memory and bulk embedding ingest with idempotent
 //!   skip-if-current logic; returns [`embed::EmbedResult`] lists.
 //! - [`error`] — typed [`error::EngineError`] and [`error::Result`].
+//! - [`trace`] — engine tracing hook; single write site for `query_events`.
 
 pub mod candidate;
+pub mod context;
 pub mod embed;
 pub mod error;
 pub mod search;
+pub mod trace;
 
 // Re-export public candidate surface so callers don't need `vestige_engine::candidate::*`.
 pub use candidate::{
     approve_candidate, propose_candidate, reject_candidate, ApprovalOutcome, ApprovalOverrides,
     ProposeOutcome, SimilarCandidate, SimilarMemory,
 };
+
+// Re-export Caller so CLI/MCP can import it without knowing the module path.
+pub use trace::Caller;

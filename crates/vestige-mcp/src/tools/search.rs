@@ -15,6 +15,7 @@ use vestige_config::embeddings_config_for;
 use vestige_core::{resolve_default_mode, MemoryType, ScoredCard, SearchMode};
 use vestige_embed::{build_provider, EmbeddingProvider};
 use vestige_engine::error::EngineError;
+use vestige_engine::Caller;
 
 use crate::server::{err, ok_json, Inner, VestigeServer};
 
@@ -105,6 +106,7 @@ impl VestigeServer {
                 &p.query,
                 type_filter,
                 p.limit,
+                Caller::Mcp,
             )
             .map_err(engine_err_to_data)?,
             SearchMode::Semantic => {
@@ -135,6 +137,7 @@ impl VestigeServer {
                     type_filter,
                     p.limit,
                     provider.as_ref(),
+                    Caller::Mcp,
                 )
                 .map_err(engine_err_to_data)?
             }
@@ -147,6 +150,7 @@ impl VestigeServer {
                     type_filter,
                     p.limit,
                     provider.as_ref(),
+                    Caller::Mcp,
                 )
                 .map_err(engine_err_to_data)?
             }
