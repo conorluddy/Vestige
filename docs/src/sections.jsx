@@ -143,7 +143,7 @@ function Recall() {
 function MCP() {
   const { mcpTools } = window.VESTIGE;
   return (
-    <Section id="fig03" n="04" title="MCP surface." lede="Six tools. Two write, four read. Destructive ops require a human.">
+    <Section id="fig03" n="04" title="MCP surface." lede="Seven tools. Two write, five read. Destructive ops require a human.">
       <MCPFlow />
       <div className="vt-frame" style={{ marginTop: 20, fontFamily: 'var(--vt-font-mono)', fontSize: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 90px', padding: '8px 14px', borderBottom: '1px solid var(--vt-rule)', background: 'var(--vt-panel)', color: 'var(--vt-muted)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
@@ -168,13 +168,14 @@ function MCP() {
 function Skills() {
   const { skills } = window.VESTIGE;
   const kindColor = {
-    auto:      'var(--vt-accent)',
-    capture:   'var(--vt-info)',
-    retrieve:  'var(--vt-mint)',
-    lifecycle: 'var(--vt-muted)',
+    auto:       'var(--vt-accent)',
+    capture:    'var(--vt-info)',
+    retrieve:   'var(--vt-mint)',
+    lifecycle:  'var(--vt-muted)',
+    provenance: 'var(--vt-faint)',
   };
   return (
-    <Section id="skills" n="05" title="Skills surface." lede="Ten agent skills, bundled in the binary. Installed by vestige init into .claude/skills/ (Claude Code) AND .agents/skills/ (agentskills.io standard, read by Codex). Compliant with the open standard at agentskills.io.">
+    <Section id="skills" n="05" title="Skills surface." lede="Fifteen agent skills, bundled in the binary. Installed by vestige init into .claude/skills/ (Claude Code) AND .agents/skills/ (agentskills.io standard, read by Codex). Compliant with the open standard at agentskills.io.">
       <pre className="vt-pre" style={{ marginBottom: 18 }}>{`# Ships with the binary — cargo install / brew users get them too.
 vestige skills install                  # writes to BOTH .claude/skills/ and .agents/skills/
 vestige skills install --target agents  # only .agents/skills/ (Codex)
@@ -245,7 +246,7 @@ function Embeddings() {
 function Features() {
   const { features } = window.VESTIGE;
   return (
-    <Section id="features" n="09" title="Defaults.">
+    <Section id="features" n="10" title="Defaults.">
       <div className="vt-frame hard" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         {features.map((f, i) => (
           <div key={i} style={{
@@ -263,17 +264,79 @@ function Features() {
   );
 }
 
+// ── Provenance ───────────────────────────────────────────
+function Provenance() {
+  return (
+    <Section id="provenance" n="09" title="Provenance." lede="V0.3 makes every memory answerable: where it came from, what evidence backs it, and what the agent asked.">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Why</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            Full provenance walk — raw events, candidate back-reference, source receipts. Works for any memory or pre-approval candidate.
+          </p>
+          <pre className="vt-pre">{`vestige why mem_01JWXXXXXXXXXXXXXXXXXX
+
+mem_01JWXX…  decision  status=active
+
+Provenance walk:
+  ◆ Promoted from candidate cand_01JVXX…
+  ◇ candidate.proposed  2026-05-08 11:23:47
+  ◇ candidate.approved  2026-05-08 11:24:03
+
+Sources (2):
+  ─ src_01JW…  candidate      cand_01JVXX…
+  ─ src_01JV…  agent_session  current`}</pre>
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Trace receipts</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            Every recall call writes a <code>query_events</code> row automatically. Inspect or replay any trace to answer "would I get the same memories today?".
+          </p>
+          <pre className="vt-pre">{`vestige trace trace_01JWXXXXXXXXXXXXXXXXXX
+
+trace_01JWXX…  search · hybrid  caller=mcp
+Time: 2026-05-08 14:02:11 (43ms)
+Query: "ULID migration ordering"
+Results (2):
+  1. mem_01JWXX…  0.83
+  2. mem_01HVXX…  0.61
+
+vestige trace replay trace_01JWXXXXXXXXXXXXXXXXXX
+→ corpus_drift: 1 (mem_01KAXX… added)`}</pre>
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Config</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            Tracing is on by default. Tune or disable per-surface in <code>.vestige/config.toml</code>.
+          </p>
+          <pre className="vt-pre">{`[traces]
+enabled                   = true
+max_per_project           = 10000
+truncate_query_text_bytes = 1024
+trace_caller_cli          = true
+trace_caller_mcp          = true`}</pre>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 // ── CLI reference (tabbed) ───────────────────────────────
 function CLI() {
   const { commands } = window.VESTIGE;
   const [tab, setTab] = sUseState(0);
+  // Groups are derived from the `group` field on each command entry.
+  // Named lookups replace the previous magic-number slice/index approach
+  // so that appending new commands to data.js never shifts an existing tab.
+  const byGroup = (g) => commands.filter(c => c.group === g);
   const groups = [
-    { name: 'capture',   cmds: commands.slice(2, 7) },
-    { name: 'recall',    cmds: [commands[7], commands[8], commands[9], commands[10]] },
-    { name: 'lifecycle', cmds: [commands[0], commands[1], commands[11], commands[12]] },
+    { name: 'capture',    cmds: byGroup('capture') },
+    { name: 'recall',     cmds: byGroup('recall') },
+    { name: 'lifecycle',  cmds: byGroup('lifecycle') },
+    { name: 'provenance', cmds: byGroup('provenance') },
   ];
   return (
-    <Section id="cli" n="10" title="CLI reference." lede="Thirteen commands. Pipe-friendly. Deterministic.">
+    <Section id="cli" n="11" title="CLI reference." lede="Twenty-two commands. Pipe-friendly. Deterministic.">
       <div className="vt-frame hard">
         <div style={{ display: 'flex', borderBottom: '1px solid var(--vt-ink)' }}>
           {groups.map((g, i) => (
@@ -307,7 +370,7 @@ function CLI() {
 function Roadmap() {
   const { roadmap } = window.VESTIGE;
   return (
-    <Section id="roadmap" n="11" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
+    <Section id="roadmap" n="12" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
       <div className="vt-frame hard">
         <div style={{ display: 'grid', gridTemplateColumns: '60px 180px 1fr 80px', padding: '10px 14px', background: 'var(--vt-ink)', color: 'var(--vt-bg)', fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
           <span>ver</span><span>title</span><span>scope</span><span style={{ textAlign: 'right' }}>state</span>
@@ -350,4 +413,4 @@ function Footer() {
   );
 }
 
-Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Features, CLI, Roadmap, Footer });
+Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Provenance, Features, CLI, Roadmap, Footer });

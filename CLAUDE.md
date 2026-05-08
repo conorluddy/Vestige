@@ -47,7 +47,7 @@ cargo run -p vestige -- embeddings status                 # V0.1
 cargo run -p vestige -- search "..." --mode hybrid        # V0.1
 cargo run -p vestige -- skills install                    # writes to both .claude/skills/ and .agents/skills/
 cargo run -p vestige -- skills install --target agents    # only .agents/skills/ (agentskills.io / Codex)
-cargo run -p vestige -- skills list --json                # 10 skills + version
+cargo run -p vestige -- skills list --json                # 15 skills + version
 
 # V0.3 — provenance and trace commands
 cargo run -p vestige -- why <mem_or_cand_id>              # templated provenance walk for a memory or candidate
@@ -80,7 +80,7 @@ config ──→ core
 - `vestige-engine` — orchestration layer added in V0.1. Owns hybrid search merge (`search_lexical`/`search_semantic`/`search_hybrid` → `HybridOutcome`), embed ingest (`embed_memory_representations`/`embed_all`), and provider-mismatch detection. Single source of truth for all three search modes; both `cli` and `mcp` delegate here.
 - `vestige-config` — `.vestige/config.toml` round-trip and project identity (PRD §9.3 order: explicit `--name` → git remote hash → repo-path hash). Also resolves `~/.vestige/projects/<id>/memory.sqlite`.
 - `vestige-cli` — the `vestige` binary. Each subcommand is one file under `src/commands/`. Thin adapter: parse → dispatch into core/engine → format. No business logic.
-- `vestige-mcp` — MCP server (rmcp 0.16). Same thin-adapter discipline as the CLI; one tool per file under `src/tools/`. Nine tools shipped: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision` (V0), plus `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate` (V0.2).
+- `vestige-mcp` — MCP server (rmcp 0.16). Same thin-adapter discipline as the CLI; one tool per file under `src/tools/`. Ten tools shipped: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision` (V0), plus `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate` (V0.2), `vestige_trace` (V0.3).
 
 ### Storage layout (PRD §9)
 
