@@ -56,6 +56,9 @@ cargo run -p vestige -- trace                             # list recent query tr
 cargo run -p vestige -- trace <trace_id>                  # full detail for one trace
 cargo run -p vestige -- trace replay <trace_id>           # re-run trace; diff against original
 
+# V0.4 — interactive memory browser (TUI)
+cargo run -p vestige -- browse                            # M1 scaffolding: tabs + counts only
+
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige -- status
 ```

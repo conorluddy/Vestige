@@ -7,6 +7,20 @@ use crate::{Result, Store};
 use super::{row_to_candidate, row_to_candidate_source};
 
 impl Store {
+    /// Count pending candidates for this project.
+    ///
+    /// Returns the number of `candidate_memories` rows with `status = 'pending'`
+    /// scoped to `project_id`. Used by `vestige browse` to render the inbox tab
+    /// count. Approved and rejected candidates are excluded.
+    pub fn pending_candidate_count(&self, project_id: &vestige_core::ProjectId) -> Result<i64> {
+        let mut stmt = self.connection().prepare(
+            "SELECT COUNT(*) FROM candidate_memories
+             WHERE project_id = ?1 AND status = 'pending'",
+        )?;
+        let count: i64 = stmt.query_row(rusqlite::params![project_id.as_str()], |r| r.get(0))?;
+        Ok(count)
+    }
+
     /// Fetch a candidate by ID, joining all sources.
     ///
     /// Returns `None` if no row with that ID exists (any status). Callers
@@ -72,6 +86,75 @@ mod tests {
         store
             .ensure_project(project_id, "Test", Some("/tmp/test"), None)
             .unwrap();
+    }
+
+    #[test]
+    fn pending_candidate_count_matches_lifecycle() {
+        use vestige_core::{MemoryId, RejectionReason};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = open_store(&tmp);
+        let proj = ProjectId::from_slug("test-pending-count");
+        insert_project(&mut store, &proj);
+
+        assert_eq!(store.pending_candidate_count(&proj).unwrap(), 0);
+
+        let mut ids = Vec::new();
+        for body in ["alpha", "beta", "gamma"] {
+            let bundle = build_candidate_bundle(NewCandidate {
+                project_id: proj.clone(),
+                proposed_type: MemoryType::Note,
+                body: body.to_string(),
+                rationale: None,
+                title_override: None,
+                importance: 0.5,
+                confidence: 0.5,
+                source: None,
+                duplicate_of_memory_id: None,
+                duplicate_of_candidate_id: None,
+            })
+            .unwrap();
+            ids.push(bundle.id.clone());
+            store.record_candidate(&bundle).unwrap();
+        }
+        assert_eq!(store.pending_candidate_count(&proj).unwrap(), 3);
+
+        let approved_mem = MemoryId::new();
+        store
+            .mark_candidate_approved(&ids[0], &approved_mem)
+            .unwrap();
+        store
+            .mark_candidate_rejected(&ids[1], &RejectionReason::Wrong, None, None)
+            .unwrap();
+        assert_eq!(store.pending_candidate_count(&proj).unwrap(), 1);
+    }
+
+    #[test]
+    fn pending_candidate_count_is_project_scoped() {
+        let tmp = TempDir::new().unwrap();
+        let mut store = open_store(&tmp);
+        let proj_a = ProjectId::from_slug("test-scope-a");
+        let proj_b = ProjectId::from_slug("test-scope-b");
+        insert_project(&mut store, &proj_a);
+        insert_project(&mut store, &proj_b);
+
+        let bundle = build_candidate_bundle(NewCandidate {
+            project_id: proj_a.clone(),
+            proposed_type: MemoryType::Note,
+            body: "scoped".to_string(),
+            rationale: None,
+            title_override: None,
+            importance: 0.5,
+            confidence: 0.5,
+            source: None,
+            duplicate_of_memory_id: None,
+            duplicate_of_candidate_id: None,
+        })
+        .unwrap();
+        store.record_candidate(&bundle).unwrap();
+
+        assert_eq!(store.pending_candidate_count(&proj_a).unwrap(), 1);
+        assert_eq!(store.pending_candidate_count(&proj_b).unwrap(), 0);
     }
 
     #[test]
