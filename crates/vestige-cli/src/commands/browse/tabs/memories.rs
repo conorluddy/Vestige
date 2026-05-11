@@ -42,13 +42,16 @@ const LIST_CAP: u32 = 500;
 /// reads but N is bounded by the search limit (default 50) and SQLite is
 /// local — measured below 5ms for typical projects.
 pub fn reload_list(app: &mut App, store: &Store, project_id: &ProjectId) -> Result<()> {
+    let filter_text = app.memories.filter_text.trim().to_string();
+    let kind = app.memories_kind_filter;
+    let status = app.memories_status_filter;
+    let result = if filter_text.is_empty() {
+        load_unfiltered(store, project_id, kind, status)
+    } else {
+        load_filtered(store, project_id, &filter_text, kind, status)
+    };
     let state = &mut app.memories;
     state.load_error = None;
-    let result = if state.filter_text.trim().is_empty() {
-        load_unfiltered(store, project_id)
-    } else {
-        load_filtered(store, project_id, state.filter_text.trim())
-    };
     match result {
         Ok(cards) => {
             state.items = cards;
@@ -165,29 +168,52 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
 
 // === PRIVATE ===
 
-fn load_unfiltered(store: &Store, project_id: &ProjectId) -> Result<Vec<MemoryCard>> {
+fn load_unfiltered(
+    store: &Store,
+    project_id: &ProjectId,
+    kind: Option<MemoryType>,
+    status: Option<MemoryStatus>,
+) -> Result<Vec<MemoryCard>> {
+    // For unfiltered: include_deleted is true unless an explicit Active filter
+    // is set. If Deleted-only is set, we still pull both then post-filter.
+    let include_deleted = !matches!(status, Some(MemoryStatus::Active));
     let filter = ListFilter {
-        include_deleted: true,
-        r#type: None,
+        include_deleted,
+        r#type: kind,
         limit: Some(LIST_CAP),
     };
     let fetched = store.list_memories(project_id, &filter)?;
-    Ok(fetched.iter().map(project_card).collect())
+    let mut cards: Vec<MemoryCard> = fetched.iter().map(project_card).collect();
+    if matches!(status, Some(MemoryStatus::Deleted)) {
+        cards.retain(|c| c.status == MemoryStatus::Deleted);
+    }
+    Ok(cards)
 }
 
-fn load_filtered(store: &Store, project_id: &ProjectId, query: &str) -> Result<Vec<MemoryCard>> {
+fn load_filtered(
+    store: &Store,
+    project_id: &ProjectId,
+    query: &str,
+    kind: Option<MemoryType>,
+    status: Option<MemoryStatus>,
+) -> Result<Vec<MemoryCard>> {
     // `search_memories` is FTS5-only — soft-deleted rows are excluded by the
     // FTS sync triggers (V0 invariant). So a non-empty filter scopes to active
-    // memories regardless of the M2 "show deleted by default" rule. That's the
-    // intended UX: filter results are signal, not history.
+    // memories regardless of the M2 "show deleted by default" rule.
     let filter = SearchFilter {
-        r#type: None,
+        r#type: kind,
         limit: Some(LIST_CAP),
         mode: vestige_core::SearchMode::Lexical,
         include_score_parts: false,
     };
     let hits = store.search_memories(project_id, query, &filter)?;
-    Ok(hits.iter().map(|h| project_card(&h.fetched)).collect())
+    let mut cards: Vec<MemoryCard> = hits.iter().map(|h| project_card(&h.fetched)).collect();
+    if matches!(status, Some(MemoryStatus::Deleted)) {
+        // FTS excludes deleted, so this will always be empty — leave a friendly
+        // hint by letting the empty-state render naturally.
+        cards.clear();
+    }
+    Ok(cards)
 }
 
 fn draw_list(frame: &mut Frame, area: Rect, app: &App) {

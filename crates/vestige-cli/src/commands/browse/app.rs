@@ -93,6 +93,11 @@ pub enum Action {
     PromptChar(char),
     PromptBackspace,
     PromptSubmit,
+    // Command palette (`:`).
+    OpenPalette,
+    PaletteChar(char),
+    PaletteBackspace,
+    PaletteSubmit,
     None,
 }
 
@@ -151,6 +156,15 @@ impl Modal {
 pub struct StatusFlash {
     pub text: String,
     pub is_error: bool,
+}
+
+/// Command palette state — opened with `:`, typed into, submitted with Enter.
+///
+/// `error` carries the last parse/execute error (cleared on the next keystroke).
+#[derive(Debug, Clone, Default)]
+pub struct CommandPalette {
+    pub buffer: String,
+    pub error: Option<String>,
 }
 
 /// Per-tab state for the Memories tab. Owned by [`App`].
@@ -330,6 +344,13 @@ pub struct App {
     pub traces: TracesTabState,
     pub modal: Option<Modal>,
     pub status_flash: Option<StatusFlash>,
+    pub palette: Option<CommandPalette>,
+    /// Optional kind filter for the Memories tab.
+    pub memories_kind_filter: Option<vestige_core::MemoryType>,
+    /// Optional status filter for the Memories tab. `None` = active+deleted.
+    pub memories_status_filter: Option<vestige_core::MemoryStatus>,
+    /// Optional caller filter for the Traces tab.
+    pub traces_caller_filter: Option<String>,
 }
 
 // === PUBLIC API ===
@@ -347,6 +368,10 @@ impl App {
             traces: TracesTabState::default(),
             modal: None,
             status_flash: None,
+            palette: None,
+            memories_kind_filter: None,
+            memories_status_filter: None,
+            traces_caller_filter: None,
         }
     }
 
@@ -361,9 +386,11 @@ impl App {
             Action::PrevTab => self.tab = self.tab.prev(),
             Action::ToggleHelp => self.help_open = !self.help_open,
             Action::CloseOverlay => {
-                // Precedence: modal > help > filter > sub-view.
+                // Precedence: modal > palette > help > filter > sub-view.
                 if self.modal.is_some() {
                     self.modal = None;
+                } else if self.palette.is_some() {
+                    self.palette = None;
                 } else if self.help_open {
                     self.help_open = false;
                 } else if self.tab == Tab::Memories && self.memories.filter_focused {
@@ -413,7 +440,11 @@ impl App {
             | Action::RequestReject
             | Action::RequestReplay
             | Action::ConfirmYes
-            | Action::PromptSubmit => {}
+            | Action::PromptSubmit
+            | Action::OpenPalette
+            | Action::PaletteChar(_)
+            | Action::PaletteBackspace
+            | Action::PaletteSubmit => {}
         }
     }
 }
@@ -558,6 +589,18 @@ mod tests {
         assert!(a.modal.is_none(), "modal closes first");
         assert!(a.help_open, "help untouched until modal is closed");
         assert_eq!(a.memories.detail_view, DetailView::Why, "subview untouched");
+    }
+
+    #[test]
+    fn close_overlay_dismisses_palette_after_modal() {
+        let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
+        a.help_open = true;
+        a.palette = Some(CommandPalette::default());
+        a.handle(Action::CloseOverlay);
+        assert!(a.palette.is_none(), "palette closes before help");
+        assert!(a.help_open, "help still open");
+        a.handle(Action::CloseOverlay);
+        assert!(!a.help_open, "help closes second");
     }
 
     #[test]

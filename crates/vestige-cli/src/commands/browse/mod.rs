@@ -248,6 +248,24 @@ fn apply_action(
         Action::ConfirmYes => {
             apply_confirmed_mutation(app, store, project_id)?;
         }
+        Action::OpenPalette => {
+            app.palette = Some(app::CommandPalette::default());
+        }
+        Action::PaletteChar(c) => {
+            if let Some(p) = &mut app.palette {
+                p.buffer.push(c);
+                p.error = None;
+            }
+        }
+        Action::PaletteBackspace => {
+            if let Some(p) = &mut app.palette {
+                p.buffer.pop();
+                p.error = None;
+            }
+        }
+        Action::PaletteSubmit => {
+            execute_palette(app, store, project_id)?;
+        }
         Action::RequestReplay => {
             if app.tab == Tab::Traces {
                 tabs::traces::replay_selected(app, store, project_id)?;
@@ -399,6 +417,192 @@ fn parse_reject_reason(input: &str) -> vestige_core::RejectionReason {
     }
     vestige_core::RejectionReason::from_str(trimmed)
         .unwrap_or_else(|_| vestige_core::RejectionReason::Other(trimmed.to_string()))
+}
+
+fn execute_palette(app: &mut App, store: &mut Store, project_id: &ProjectId) -> Result<()> {
+    let raw = match app.palette.as_ref() {
+        Some(p) => p.buffer.trim().to_string(),
+        None => return Ok(()),
+    };
+    if raw.is_empty() {
+        app.palette = None;
+        return Ok(());
+    }
+    let (cmd, rest) = match raw.split_once(' ') {
+        Some((c, r)) => (c.to_string(), r.trim().to_string()),
+        None => (raw.clone(), String::new()),
+    };
+    let result: std::result::Result<Option<String>, String> = match cmd.as_str() {
+        "q" | "quit" => {
+            app.should_quit = true;
+            Ok(None)
+        }
+        "help" => {
+            app.help_open = true;
+            Ok(None)
+        }
+        "goto" => execute_goto(app, store, project_id, &rest),
+        "kind" => execute_kind(app, store, project_id, &rest),
+        "status" => execute_status(app, store, project_id, &rest),
+        "caller" => execute_caller(app, store, project_id, &rest),
+        "search" => execute_search_cmd(app, store, project_id, &rest),
+        other => Err(format!("unknown command: {other}")),
+    };
+    match result {
+        Ok(flash) => {
+            app.palette = None;
+            if let Some(text) = flash {
+                app.status_flash = Some(app::StatusFlash {
+                    text,
+                    is_error: false,
+                });
+            }
+        }
+        Err(msg) => {
+            if let Some(p) = &mut app.palette {
+                p.error = Some(msg);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn execute_goto(
+    app: &mut App,
+    store: &Store,
+    project_id: &ProjectId,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    let id = arg.trim();
+    if id.is_empty() {
+        return Err("usage: goto <mem_…|cand_…|trace_…>".into());
+    }
+    if let Some(stripped) = id.strip_prefix("mem_") {
+        let _ = stripped;
+        if let Some(pos) = app.memories.items.iter().position(|c| c.id.as_str() == id) {
+            app.tab = Tab::Memories;
+            app.memories.selected = pos;
+            tabs::memories::refresh_detail(app, store).map_err(|e| e.to_string())?;
+            return Ok(Some(format!("→ {id}")));
+        }
+        return Err(format!("no memory in current list with id {id}"));
+    }
+    if id.starts_with("cand_") {
+        if let Some(pos) = app
+            .candidates
+            .items
+            .iter()
+            .position(|c| c.id.as_str() == id)
+        {
+            app.tab = Tab::Candidates;
+            app.candidates.selected = pos;
+            tabs::candidates::refresh_detail(app, store).map_err(|e| e.to_string())?;
+            return Ok(Some(format!("→ {id}")));
+        }
+        return Err(format!("no candidate in current list with id {id}"));
+    }
+    if id.starts_with("trace_") {
+        if let Some(pos) = app.traces.items.iter().position(|c| c.trace_id == id) {
+            app.tab = Tab::Traces;
+            app.traces.selected = pos;
+            tabs::traces::refresh_detail(app, store, project_id).map_err(|e| e.to_string())?;
+            return Ok(Some(format!("→ {id}")));
+        }
+        return Err(format!("no trace in current list with id {id}"));
+    }
+    Err(format!(
+        "id must start with mem_, cand_, or trace_; got {id}"
+    ))
+}
+
+fn execute_kind(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    use std::str::FromStr;
+    if app.tab != Tab::Memories {
+        return Err(":kind only applies to the Memories tab".into());
+    }
+    if arg.is_empty() || arg == "all" {
+        app.memories_kind_filter = None;
+        tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+        return Ok(Some("kind: all".into()));
+    }
+    let kind = vestige_core::MemoryType::from_str(arg)
+        .map_err(|_| format!("unknown memory type: {arg}"))?;
+    app.memories_kind_filter = Some(kind);
+    tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+    Ok(Some(format!("kind: {arg}")))
+}
+
+fn execute_status(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    if app.tab != Tab::Memories {
+        return Err(":status only applies to the Memories tab".into());
+    }
+    app.memories_status_filter = match arg {
+        "" | "all" => None,
+        "active" => Some(vestige_core::MemoryStatus::Active),
+        "deleted" => Some(vestige_core::MemoryStatus::Deleted),
+        other => {
+            return Err(format!(
+                "status must be active | deleted | all; got {other}"
+            ))
+        }
+    };
+    tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+    Ok(Some(format!(
+        "status: {}",
+        if arg.is_empty() { "all" } else { arg }
+    )))
+}
+
+fn execute_caller(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    if app.tab != Tab::Traces {
+        return Err(":caller only applies to the Traces tab".into());
+    }
+    app.traces_caller_filter = match arg {
+        "" | "all" => None,
+        "cli" | "mcp" => Some(arg.to_string()),
+        other => return Err(format!("caller must be cli | mcp | all; got {other}")),
+    };
+    tabs::traces::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+    Ok(Some(format!(
+        "caller: {}",
+        if arg.is_empty() { "all" } else { arg }
+    )))
+}
+
+fn execute_search_cmd(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    let text = arg.trim().to_string();
+    match app.tab {
+        Tab::Memories => {
+            app.memories.filter_text = text.clone();
+            tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+        }
+        Tab::Candidates => {
+            app.candidates.filter_text = text.clone();
+            tabs::candidates::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+        }
+        Tab::Traces => return Err(":search not supported on Traces yet".into()),
+    }
+    Ok(Some(format!("search: {text}")))
 }
 
 fn past_tense(modal: &app::Modal) -> &'static str {

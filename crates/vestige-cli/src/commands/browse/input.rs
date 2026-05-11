@@ -59,7 +59,13 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
             _ => Action::None,
         };
     }
+    if app.palette.is_some() {
+        return map_palette_key(key);
+    }
     if app.tab == super::app::Tab::Memories && app.memories.filter_focused {
+        return map_filter_key(key);
+    }
+    if app.tab == super::app::Tab::Candidates && app.candidates.filter_focused {
         return map_filter_key(key);
     }
     match key.code {
@@ -78,6 +84,7 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::HalfPageDown,
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::HalfPageUp,
         KeyCode::Char('/') => Action::OpenFilter,
+        KeyCode::Char(':') => Action::OpenPalette,
         // Provenance sub-views — only meaningful on the Memories tab. The
         // dispatcher in `mod.rs` no-ops these on other tabs.
         KeyCode::Char('w') => Action::ShowWhy,
@@ -110,6 +117,17 @@ fn map_filter_key(key: &KeyEvent) -> Action {
         KeyCode::Backspace => Action::FilterBackspace,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
         KeyCode::Char(c) => Action::FilterChar(c),
+        _ => Action::None,
+    }
+}
+
+fn map_palette_key(key: &KeyEvent) -> Action {
+    match key.code {
+        KeyCode::Esc => Action::CloseOverlay,
+        KeyCode::Enter => Action::PaletteSubmit,
+        KeyCode::Backspace => Action::PaletteBackspace,
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+        KeyCode::Char(c) => Action::PaletteChar(c),
         _ => Action::None,
     }
 }
@@ -276,6 +294,42 @@ mod tests {
         assert_eq!(
             map_event(&press(KeyCode::Char('/'), KeyModifiers::NONE), &a),
             Action::OpenFilter
+        );
+    }
+
+    #[test]
+    fn colon_opens_palette() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char(':'), KeyModifiers::NONE), &a),
+            Action::OpenPalette
+        );
+    }
+
+    #[test]
+    fn palette_text_input_dispatch() {
+        let mut a = app(false);
+        a.palette = Some(super::super::app::CommandPalette::default());
+        assert_eq!(
+            map_event(&press(KeyCode::Char('q'), KeyModifiers::NONE), &a),
+            Action::PaletteChar('q')
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Backspace, KeyModifiers::NONE), &a),
+            Action::PaletteBackspace
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Enter, KeyModifiers::NONE), &a),
+            Action::PaletteSubmit
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Esc, KeyModifiers::NONE), &a),
+            Action::CloseOverlay
+        );
+        // Tab is also swallowed
+        assert_eq!(
+            map_event(&press(KeyCode::Tab, KeyModifiers::NONE), &a),
+            Action::None
         );
     }
 

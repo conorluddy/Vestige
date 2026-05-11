@@ -16,7 +16,7 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Modal, Tab};
+use super::app::{App, CommandPalette, Modal, Tab};
 
 // === PUBLIC API ===
 
@@ -81,6 +81,11 @@ fn draw_body(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
+    // When the palette is open, the status line is taken over by the prompt.
+    if let Some(palette) = &app.palette {
+        draw_palette(frame, area, palette);
+        return;
+    }
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(1), Constraint::Length(40)])
@@ -91,7 +96,15 @@ fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
     let left_text = if let Some(flash) = &app.status_flash {
         flash.text.clone()
     } else {
-        format!("Vestige · {}", app.project_name)
+        // Always show live counts so the user knows the size of each tab
+        // without flipping through them.
+        format!(
+            "Vestige · {} · [Mem {} · Cand {} · Trc {}]",
+            app.project_name,
+            app.memories.items.len(),
+            app.candidates.items.len(),
+            app.traces.items.len(),
+        )
     };
     let left_style = match &app.status_flash {
         Some(f) if f.is_error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -107,7 +120,7 @@ fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
-    let popup = centred_rect(60, 60, area);
+    let popup = centred_rect(70, 90, area);
     frame.render_widget(Clear, popup);
 
     let lines = vec![
@@ -118,6 +131,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("  g / G             first / last"),
         Line::from("  Ctrl-d / Ctrl-u   half-page down / up"),
         Line::from("  /                 focus filter"),
+        Line::from("  :                 command palette (:help inside it lists commands)"),
         Line::from("  w                 why — provenance walk"),
         Line::from("  s                 sources — typed receipts"),
         Line::from("  t                 traces-of — which queries returned this"),
@@ -211,6 +225,22 @@ fn subject_label(modal: &Modal) -> &'static str {
         Modal::ConfirmForget(_) | Modal::ConfirmRestore(_) => "memory",
         Modal::ConfirmApprove(_) | Modal::PromptRejectReason { .. } => "candidate",
     }
+}
+
+fn draw_palette(frame: &mut Frame, area: Rect, palette: &CommandPalette) {
+    let text = match &palette.error {
+        Some(err) => format!(":{}    [{err}]", palette.buffer),
+        None => format!(":{}_", palette.buffer),
+    };
+    let style = if palette.error.is_some() {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    };
+    let paragraph = Paragraph::new(Span::styled(text, style)).alignment(Alignment::Left);
+    frame.render_widget(paragraph, area);
 }
 
 fn active_tab_style(no_color: bool) -> Style {
@@ -372,6 +402,58 @@ mod tests {
         let out = render(&app);
         assert!(out.contains("Confirm restore"), "got: {out}");
         assert!(out.contains("Restore memory"));
+    }
+
+    #[test]
+    fn palette_renders_in_status_line() {
+        let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
+        app.palette = Some(super::super::app::CommandPalette {
+            buffer: "goto mem_01HX".into(),
+            error: None,
+        });
+        let out = render(&app);
+        assert!(out.contains(":goto mem_01HX"), "got: {out}");
+    }
+
+    #[test]
+    fn palette_error_renders_in_red() {
+        let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
+        app.palette = Some(super::super::app::CommandPalette {
+            buffer: "kind bogus".into(),
+            error: Some("unknown memory type: bogus".into()),
+        });
+        let out = render(&app);
+        assert!(out.contains("unknown memory type"), "got: {out}");
+    }
+
+    #[test]
+    fn status_line_shows_live_counts() {
+        let counts = Counts {
+            memories_active: 47,
+            candidates_pending: 3,
+            traces: 184,
+        };
+        let mut app = App::new(Tab::Memories, counts, "proj_demo".into());
+        // Populate item lengths to drive the live count
+        for _ in 0..5 {
+            app.memories
+                .items
+                .push(vestige_core::MemoryCard {
+                    id: vestige_core::MemoryId::new(),
+                    r#type: vestige_core::MemoryType::Note,
+                    status: vestige_core::MemoryStatus::Active,
+                    title: "x".into(),
+                    one_liner: "y".into(),
+                    importance: 0.5,
+                    created_at: time::OffsetDateTime::now_utc(),
+                    updated_at: time::OffsetDateTime::now_utc(),
+                    available_depths: vec![],
+                });
+        }
+        let out = render(&app);
+        assert!(out.contains("Mem 5"), "live mem count; got: {out}");
+        assert!(out.contains("Cand 0"));
+        assert!(out.contains("Trc 0"));
     }
 
     #[test]

@@ -30,7 +30,9 @@ const LIST_LIMIT: u32 = 200;
 // === PUBLIC API ===
 
 pub fn reload_list(app: &mut App, store: &Store, project_id: &ProjectId) -> Result<()> {
+    let caller_owned = app.traces_caller_filter.clone();
     let filters = ListFilters {
+        caller: caller_owned.as_deref(),
         limit: LIST_LIMIT,
         ..ListFilters::default()
     };
