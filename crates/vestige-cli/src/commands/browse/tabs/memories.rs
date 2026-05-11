@@ -26,7 +26,9 @@ use vestige_core::{
 };
 use vestige_store::Store;
 
-use crate::commands::browse::app::App;
+use crate::commands::browse::app::{App, DetailView};
+
+const TRACES_OF_LIMIT: u32 = 50;
 
 const LIST_CAP: u32 = 500;
 
@@ -61,6 +63,48 @@ pub fn reload_list(app: &mut App, store: &Store, project_id: &ProjectId) -> Resu
         }
     }
     refresh_detail(app, store)?;
+    Ok(())
+}
+
+/// Switch the detail pane to a provenance sub-view, loading its data on first
+/// request and caching until the cursor moves. View order from `w` / `s` / `t`:
+/// - [`DetailView::Why`]      — `fetch_memory_events`
+/// - [`DetailView::Sources`]  — `fetch_memory_sources`
+/// - [`DetailView::TracesOf`] — `fetch_traces_for_memory`
+pub fn ensure_provenance(
+    app: &mut App,
+    store: &Store,
+    project_id: &ProjectId,
+    view: DetailView,
+) -> Result<()> {
+    let state = &mut app.memories;
+    let Some(id) = state.selected_id().cloned() else {
+        return Ok(());
+    };
+    match view {
+        DetailView::Why => {
+            if state.provenance.events.is_none() {
+                let events = store.fetch_memory_events(&id).unwrap_or_default();
+                state.provenance.events = Some(events);
+            }
+        }
+        DetailView::Sources => {
+            if state.provenance.sources.is_none() {
+                let sources = store.fetch_memory_sources(&id, None).unwrap_or_default();
+                state.provenance.sources = Some(sources);
+            }
+        }
+        DetailView::TracesOf => {
+            if state.provenance.traces_of.is_none() {
+                let traces = store
+                    .fetch_traces_for_memory(project_id.as_str(), &id, TRACES_OF_LIMIT)
+                    .unwrap_or_default();
+                state.provenance.traces_of = Some(traces);
+            }
+        }
+        DetailView::Default => {}
+    }
+    state.detail_view = view;
     Ok(())
 }
 
@@ -206,7 +250,13 @@ fn kind_style(t: MemoryType, status: MemoryStatus) -> Style {
 }
 
 fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
-    let block = Block::default().borders(Borders::ALL).title("Detail");
+    let (title, breadcrumb): (&str, Option<&str>) = match app.memories.detail_view {
+        DetailView::Default => ("Detail", None),
+        DetailView::Why => ("Detail · why", Some("Esc — back to detail")),
+        DetailView::Sources => ("Detail · sources", Some("Esc — back to detail")),
+        DetailView::TracesOf => ("Detail · traces-of", Some("Esc — back to detail")),
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -218,6 +268,27 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
         return;
     };
 
+    let lines = match app.memories.detail_view {
+        DetailView::Default => default_detail_lines(detail),
+        DetailView::Why => why_lines(detail, app.memories.provenance.events.as_deref()),
+        DetailView::Sources => sources_lines(detail, app.memories.provenance.sources.as_deref()),
+        DetailView::TracesOf => {
+            traces_of_lines(detail, app.memories.provenance.traces_of.as_deref())
+        }
+    };
+    let mut final_lines = lines;
+    if let Some(hint) = breadcrumb {
+        final_lines.push(Line::from(""));
+        final_lines.push(Line::from(Span::styled(
+            hint,
+            Style::default().fg(Color::Gray),
+        )));
+    }
+    let paragraph = Paragraph::new(final_lines).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
+}
+
+fn header_lines(detail: &MemoryDetail) -> Vec<Line<'static>> {
     let card = &detail.card;
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![
@@ -243,6 +314,12 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
         )));
     }
     lines.push(Line::from(""));
+    lines
+}
+
+fn default_detail_lines(detail: &MemoryDetail) -> Vec<Line<'static>> {
+    let mut lines = header_lines(detail);
+    let card = &detail.card;
     lines.push(Line::from(Span::styled(
         card.title.clone(),
         Style::default().add_modifier(Modifier::BOLD),
@@ -259,12 +336,173 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
     if !detail.sources.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            format!("sources: {}", detail.sources.len()),
+            format!(
+                "sources: {}  ·  w why  ·  s sources  ·  t traces-of",
+                detail.sources.len()
+            ),
+            Style::default().fg(Color::Gray),
+        )));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "w why  ·  s sources  ·  t traces-of",
             Style::default().fg(Color::Gray),
         )));
     }
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, inner);
+    lines
+}
+
+fn why_lines(
+    detail: &MemoryDetail,
+    events: Option<&[vestige_store::ProvenanceEvent]>,
+) -> Vec<Line<'static>> {
+    let mut lines = header_lines(detail);
+    let Some(events) = events else {
+        lines.push(Line::from(Span::styled(
+            "loading…",
+            Style::default().add_modifier(Modifier::DIM),
+        )));
+        return lines;
+    };
+    if events.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No journal events for this memory.",
+            Style::default().fg(Color::Yellow),
+        )));
+        return lines;
+    }
+    for evt in events {
+        lines.push(Line::from(vec![
+            Span::styled(evt.event_at.clone(), Style::default().fg(Color::Gray)),
+            Span::raw("  "),
+            Span::styled(
+                evt.event_type.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(evt.event_id.clone(), Style::default().fg(Color::Gray)),
+        ]));
+    }
+    lines
+}
+
+fn sources_lines(
+    detail: &MemoryDetail,
+    sources: Option<&[vestige_store::SourceReceiptRow]>,
+) -> Vec<Line<'static>> {
+    let mut lines = header_lines(detail);
+    let Some(sources) = sources else {
+        lines.push(Line::from(Span::styled(
+            "loading…",
+            Style::default().add_modifier(Modifier::DIM),
+        )));
+        return lines;
+    };
+    if sources.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No source receipts attached.",
+            Style::default().fg(Color::Yellow),
+        )));
+        return lines;
+    }
+    for src in sources {
+        lines.push(Line::from(vec![
+            Span::styled(
+                src.source_type.clone(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(src.source_id.clone(), Style::default().fg(Color::Gray)),
+        ]));
+        if let Some(reference) = &src.source_ref {
+            lines.push(Line::from(Span::raw(format!("  ref: {reference}"))));
+        }
+        if let Some(content) = &src.source_content {
+            let preview = preview_240(content);
+            lines.push(Line::from(Span::styled(
+                format!("  {preview}"),
+                Style::default().fg(Color::Gray),
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn traces_of_lines(
+    detail: &MemoryDetail,
+    traces: Option<&[vestige_store::QueryEventRow]>,
+) -> Vec<Line<'static>> {
+    let mut lines = header_lines(detail);
+    let Some(traces) = traces else {
+        lines.push(Line::from(Span::styled(
+            "loading…",
+            Style::default().add_modifier(Modifier::DIM),
+        )));
+        return lines;
+    };
+    if traces.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No traces returned this memory yet.",
+            Style::default().fg(Color::Yellow),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Run `vestige search` (CLI) or `vestige_search` (MCP) and the",
+            Style::default().fg(Color::Gray),
+        )));
+        lines.push(Line::from(Span::styled(
+            "trace will show up here on the next press of `t`.",
+            Style::default().fg(Color::Gray),
+        )));
+        return lines;
+    }
+    for trace in traces {
+        let mode = trace.mode_resolved.clone().unwrap_or_else(|| "-".into());
+        let query = trace
+            .query_text
+            .clone()
+            .unwrap_or_else(|| "(no query)".into());
+        lines.push(Line::from(vec![
+            Span::styled(trace.created_at.clone(), Style::default().fg(Color::Gray)),
+            Span::raw("  "),
+            Span::styled(
+                trace.kind.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("/"),
+            Span::raw(mode),
+            Span::raw("  "),
+            Span::styled(trace.caller.clone(), Style::default().fg(Color::Magenta)),
+            Span::raw("  "),
+            Span::raw(format!("{} results", trace.result_count)),
+        ]));
+        lines.push(Line::from(Span::styled(
+            format!("  {}", preview_240(&query)),
+            Style::default().fg(Color::Gray),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!("  {}", trace.id),
+            Style::default().fg(Color::Gray),
+        )));
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn preview_240(s: &str) -> String {
+    const MAX: usize = 240;
+    let mut out = String::new();
+    for (count, ch) in s.chars().enumerate() {
+        if count >= MAX {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out.replace('\n', " ")
 }
 
 fn pick_text(detail: &MemoryDetail, depth: RepresentationDepth) -> Option<&str> {
@@ -486,5 +724,210 @@ mod tests {
         let app = app_with(s);
         let (_t, out) = render(&app);
         assert!(out.contains("/abc"), "expected filter prompt; got {out}");
+    }
+
+    fn detail_for(card: MemoryCard) -> MemoryDetail {
+        MemoryDetail {
+            card,
+            representations: vec![],
+            sources: vec![],
+        }
+    }
+
+    fn populated_with_detail() -> MemoriesTabState {
+        let c = card("alpha", MemoryStatus::Active, MemoryType::Note);
+        let d = detail_for(c.clone());
+        MemoriesTabState {
+            items: vec![c],
+            detail: Some(d),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn default_detail_lists_provenance_keys_hint() {
+        let app = app_with(populated_with_detail());
+        let (_t, out) = render(&app);
+        assert!(out.contains("w why"), "got: {out}");
+        assert!(out.contains("s sources"));
+        assert!(out.contains("t traces-of"));
+    }
+
+    #[test]
+    fn why_subview_shows_loading_then_events() {
+        let mut s = populated_with_detail();
+        s.detail_view = DetailView::Why;
+        // No cache → loading
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        assert!(out.contains("Detail · why"), "title; got: {out}");
+        assert!(out.contains("loading"), "loading indicator; got: {out}");
+
+        // Cache populated with one event
+        let mut s2 = populated_with_detail();
+        s2.detail_view = DetailView::Why;
+        s2.provenance.events = Some(vec![vestige_store::ProvenanceEvent {
+            event_id: "evt_01HX0000000000000000000ABC".into(),
+            event_type: "memory.recorded".into(),
+            payload_json: None,
+            event_at: "2026-05-08T10:00:00Z".into(),
+        }]);
+        let app2 = app_with(s2);
+        let (_t, out2) = render(&app2);
+        assert!(out2.contains("memory.recorded"), "event type; got: {out2}");
+        assert!(out2.contains("2026-05-08T10:00:00Z"));
+        assert!(out2.contains("Esc — back to detail"));
+    }
+
+    #[test]
+    fn why_subview_empty_state_is_friendly() {
+        let mut s = populated_with_detail();
+        s.detail_view = DetailView::Why;
+        s.provenance.events = Some(Vec::new());
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        assert!(out.contains("No journal events"), "got: {out}");
+    }
+
+    #[test]
+    fn sources_subview_renders_typed_receipts() {
+        let mut s = populated_with_detail();
+        s.detail_view = DetailView::Sources;
+        s.provenance.sources = Some(vec![vestige_store::SourceReceiptRow {
+            source_id: "src_01HX0000000000000000000ABC".into(),
+            source_type: "file".into(),
+            source_ref: Some("docs/prd/vestige_v_0_4_browser_prd.md".into()),
+            source_content: Some("two-pane layout description".into()),
+        }]);
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        assert!(out.contains("Detail · sources"), "title; got: {out}");
+        assert!(out.contains("file"), "kind label");
+        assert!(out.contains("docs/prd/vestige_v_0_4_browser_prd.md"));
+        assert!(out.contains("two-pane layout"));
+    }
+
+    #[test]
+    fn sources_subview_empty_state_is_friendly() {
+        let mut s = populated_with_detail();
+        s.detail_view = DetailView::Sources;
+        s.provenance.sources = Some(Vec::new());
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        assert!(out.contains("No source receipts attached"), "got: {out}");
+    }
+
+    #[test]
+    fn traces_of_subview_renders_trace_rows() {
+        let mut s = populated_with_detail();
+        s.detail_view = DetailView::TracesOf;
+        s.provenance.traces_of = Some(vec![vestige_store::QueryEventRow {
+            id: "trace_01HX0000000000000000000ABC".into(),
+            kind: "search".into(),
+            mode_requested: Some("hybrid".into()),
+            mode_resolved: Some("hybrid".into()),
+            query_text: Some("ratatui browser".into()),
+            params_json: None,
+            caller: "cli".into(),
+            provider: None,
+            provider_model: None,
+            result_ids_json: None,
+            result_scores_json: None,
+            result_count: 7,
+            latency_ms: 12,
+            created_at: "2026-05-08T10:00:00Z".into(),
+        }]);
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        assert!(out.contains("Detail · traces-of"), "title; got: {out}");
+        assert!(out.contains("search/hybrid"));
+        assert!(out.contains("cli"));
+        assert!(out.contains("7 results"));
+        assert!(out.contains("ratatui browser"));
+        assert!(out.contains("trace_01HX"));
+    }
+
+    #[test]
+    fn ensure_provenance_against_real_store_round_trips() {
+        use tempfile::TempDir;
+        use vestige_core::{build_bundle, NewMemory};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let proj = ProjectId::from_slug("browse-prov-test");
+        store
+            .ensure_project(&proj, "Browse Prov Test", Some("/tmp/test"), None)
+            .unwrap();
+
+        // Record a memory with an explicit source so all three sub-views have data.
+        let bundle = build_bundle(
+            &proj,
+            NewMemory {
+                r#type: MemoryType::Decision,
+                body: "Use FTS5 + vec hybrid for recall.",
+                importance: 0.7,
+                source: Some(vestige_core::NewSource {
+                    source_type: "file",
+                    source_ref: Some("PRD.md"),
+                    source_content: Some("two-pane layout"),
+                }),
+            },
+        )
+        .unwrap();
+        let mem_id = bundle.memory.id.clone();
+        store.record_memory(&bundle).unwrap();
+
+        // Build app state with the memory loaded as the selected item.
+        let fetched = store.get_memory(&mem_id).unwrap().unwrap();
+        let mut app = app_with(MemoriesTabState {
+            items: vec![project_card(&fetched)],
+            detail: Some(project_detail(&fetched)),
+            ..Default::default()
+        });
+
+        // Why
+        ensure_provenance(&mut app, &store, &proj, DetailView::Why).unwrap();
+        assert_eq!(app.memories.detail_view, DetailView::Why);
+        let events = app.memories.provenance.events.as_ref().unwrap();
+        assert!(
+            events.iter().any(|e| e.event_type == "memory.recorded"),
+            "expected memory.recorded event; got {events:#?}"
+        );
+
+        // Sources
+        ensure_provenance(&mut app, &store, &proj, DetailView::Sources).unwrap();
+        assert_eq!(app.memories.detail_view, DetailView::Sources);
+        let sources = app.memories.provenance.sources.as_ref().unwrap();
+        assert!(
+            sources.iter().any(|s| s.source_type == "file"),
+            "expected file source; got {sources:#?}"
+        );
+
+        // Traces-of (no searches yet → empty)
+        ensure_provenance(&mut app, &store, &proj, DetailView::TracesOf).unwrap();
+        assert_eq!(app.memories.detail_view, DetailView::TracesOf);
+        assert_eq!(
+            app.memories.provenance.traces_of.as_ref().map(|v| v.len()),
+            Some(0)
+        );
+
+        // Second call should be cached — no extra read needed. We test this by
+        // confirming the Option is still Some after a second call.
+        ensure_provenance(&mut app, &store, &proj, DetailView::Why).unwrap();
+        assert!(app.memories.provenance.events.is_some());
+    }
+
+    #[test]
+    fn traces_of_empty_state_explains_population() {
+        let mut s = populated_with_detail();
+        s.detail_view = DetailView::TracesOf;
+        s.provenance.traces_of = Some(Vec::new());
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        assert!(
+            out.contains("No traces returned this memory yet"),
+            "got: {out}"
+        );
+        assert!(out.contains("vestige search") || out.contains("`vestige search`"));
     }
 }

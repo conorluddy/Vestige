@@ -57,6 +57,11 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::HalfPageDown,
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::HalfPageUp,
         KeyCode::Char('/') => Action::OpenFilter,
+        // Provenance sub-views — only meaningful on the Memories tab. The
+        // dispatcher in `mod.rs` no-ops these on other tabs.
+        KeyCode::Char('w') => Action::ShowWhy,
+        KeyCode::Char('s') => Action::ShowSources,
+        KeyCode::Char('t') => Action::ShowTracesOf,
         KeyCode::Esc => Action::CloseOverlay,
         _ => Action::None,
     }
@@ -234,6 +239,23 @@ mod tests {
         assert_eq!(
             map_event(&press(KeyCode::Char('/'), KeyModifiers::NONE), &a),
             Action::OpenFilter
+        );
+    }
+
+    #[test]
+    fn w_s_t_map_to_provenance_subviews() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('w'), KeyModifiers::NONE), &a),
+            Action::ShowWhy
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('s'), KeyModifiers::NONE), &a),
+            Action::ShowSources
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('t'), KeyModifiers::NONE), &a),
+            Action::ShowTracesOf
         );
     }
 

@@ -24,7 +24,7 @@ mod ui;
 
 pub use app::Tab;
 
-use app::{Action, App, Counts};
+use app::{Action, App, Counts, DetailView};
 
 // === PUBLIC API ===
 
@@ -132,35 +132,28 @@ fn apply_action(
         | Action::CloseOverlay => {
             app.handle(action);
         }
-        Action::MoveDown => {
-            if app.memories.move_cursor(1) {
-                tabs::memories::refresh_detail(app, store)?;
-            }
-        }
-        Action::MoveUp => {
-            if app.memories.move_cursor(-1) {
-                tabs::memories::refresh_detail(app, store)?;
-            }
-        }
-        Action::MoveTop => {
-            if app.memories.move_to(0) {
-                tabs::memories::refresh_detail(app, store)?;
-            }
-        }
+        Action::MoveDown => move_and_refresh(app, store, |s| s.move_cursor(1))?,
+        Action::MoveUp => move_and_refresh(app, store, |s| s.move_cursor(-1))?,
+        Action::MoveTop => move_and_refresh(app, store, |s| s.move_to(0))?,
         Action::MoveBottom => {
             let last = app.memories.items.len().saturating_sub(1);
-            if app.memories.move_to(last) {
-                tabs::memories::refresh_detail(app, store)?;
+            move_and_refresh(app, store, |s| s.move_to(last))?;
+        }
+        Action::HalfPageDown => move_and_refresh(app, store, |s| s.move_cursor(10))?,
+        Action::HalfPageUp => move_and_refresh(app, store, |s| s.move_cursor(-10))?,
+        Action::ShowWhy => {
+            if app.tab == Tab::Memories {
+                tabs::memories::ensure_provenance(app, store, project_id, DetailView::Why)?;
             }
         }
-        Action::HalfPageDown => {
-            if app.memories.move_cursor(10) {
-                tabs::memories::refresh_detail(app, store)?;
+        Action::ShowSources => {
+            if app.tab == Tab::Memories {
+                tabs::memories::ensure_provenance(app, store, project_id, DetailView::Sources)?;
             }
         }
-        Action::HalfPageUp => {
-            if app.memories.move_cursor(-10) {
-                tabs::memories::refresh_detail(app, store)?;
+        Action::ShowTracesOf => {
+            if app.tab == Tab::Memories {
+                tabs::memories::ensure_provenance(app, store, project_id, DetailView::TracesOf)?;
             }
         }
         Action::OpenFilter => {
@@ -177,6 +170,21 @@ fn apply_action(
                 app.memories.filter_focused = false;
             }
         }
+    }
+    Ok(())
+}
+
+/// Move the cursor via `mutate`, and if the selection actually changed,
+/// reset cached provenance + refresh the detail row.
+fn move_and_refresh(
+    app: &mut App,
+    store: &Store,
+    mutate: impl FnOnce(&mut app::MemoriesTabState) -> bool,
+) -> Result<()> {
+    if mutate(&mut app.memories) {
+        app.memories.detail_view = DetailView::Default;
+        app.memories.provenance.clear();
+        tabs::memories::refresh_detail(app, store)?;
     }
     Ok(())
 }

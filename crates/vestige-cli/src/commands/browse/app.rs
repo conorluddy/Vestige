@@ -73,7 +73,22 @@ pub enum Action {
     OpenFilter,
     FilterChar(char),
     FilterBackspace,
+    // Provenance sub-views for the selected memory. Each loads its data
+    // lazily on first request and stays cached until the cursor moves.
+    ShowWhy,
+    ShowSources,
+    ShowTracesOf,
     None,
+}
+
+/// Which content occupies the detail pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DetailView {
+    #[default]
+    Default,
+    Why,
+    Sources,
+    TracesOf,
 }
 
 /// Per-tab state for the Memories tab. Owned by [`App`].
@@ -91,6 +106,25 @@ pub struct MemoriesTabState {
     pub filter_focused: bool,
     pub detail: Option<vestige_core::MemoryDetail>,
     pub load_error: Option<String>,
+    pub detail_view: DetailView,
+    pub provenance: ProvenanceCache,
+}
+
+/// Lazily-populated provenance data for the currently selected memory.
+/// Cleared whenever the cursor moves so we never display stale data.
+#[derive(Default)]
+pub struct ProvenanceCache {
+    pub events: Option<Vec<vestige_store::ProvenanceEvent>>,
+    pub sources: Option<Vec<vestige_store::SourceReceiptRow>>,
+    pub traces_of: Option<Vec<vestige_store::QueryEventRow>>,
+}
+
+impl ProvenanceCache {
+    pub fn clear(&mut self) {
+        self.events = None;
+        self.sources = None;
+        self.traces_of = None;
+    }
 }
 
 impl MemoriesTabState {
@@ -168,6 +202,10 @@ impl App {
                     self.help_open = false;
                 } else if self.tab == Tab::Memories && self.memories.filter_focused {
                     self.memories.filter_focused = false;
+                } else if self.tab == Tab::Memories
+                    && self.memories.detail_view != DetailView::Default
+                {
+                    self.memories.detail_view = DetailView::Default;
                 }
             }
             Action::None => {}
@@ -181,7 +219,10 @@ impl App {
             | Action::HalfPageUp
             | Action::OpenFilter
             | Action::FilterChar(_)
-            | Action::FilterBackspace => {}
+            | Action::FilterBackspace
+            | Action::ShowWhy
+            | Action::ShowSources
+            | Action::ShowTracesOf => {}
         }
     }
 }
@@ -289,6 +330,44 @@ mod tests {
         a.memories.filter_focused = true;
         a.handle(Action::CloseOverlay);
         assert!(!a.memories.filter_focused);
+    }
+
+    #[test]
+    fn close_overlay_returns_subview_to_default() {
+        let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
+        a.memories.detail_view = DetailView::Why;
+        a.handle(Action::CloseOverlay);
+        assert_eq!(a.memories.detail_view, DetailView::Default);
+    }
+
+    #[test]
+    fn close_overlay_prefers_filter_focus_over_subview() {
+        let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
+        a.memories.filter_focused = true;
+        a.memories.detail_view = DetailView::Sources;
+        a.handle(Action::CloseOverlay);
+        assert!(
+            !a.memories.filter_focused,
+            "filter focus should close first"
+        );
+        assert_eq!(
+            a.memories.detail_view,
+            DetailView::Sources,
+            "subview is untouched until filter focus is closed"
+        );
+    }
+
+    #[test]
+    fn provenance_cache_clear_resets_all_three() {
+        let mut cache = ProvenanceCache {
+            events: Some(Vec::new()),
+            sources: Some(Vec::new()),
+            traces_of: Some(Vec::new()),
+        };
+        cache.clear();
+        assert!(cache.events.is_none());
+        assert!(cache.sources.is_none());
+        assert!(cache.traces_of.is_none());
     }
 
     #[test]

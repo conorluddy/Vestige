@@ -129,13 +129,17 @@ fn draw_help(frame: &mut Frame, area: Rect) {
     let lines = vec![
         Line::from("Vestige Browser — keymap"),
         Line::from(""),
-        Line::from("  Tab        next tab"),
-        Line::from("  Shift-Tab  previous tab"),
-        Line::from("  ?          toggle this help"),
-        Line::from("  Esc        close overlay"),
-        Line::from("  q / Ctrl-c quit"),
-        Line::from(""),
-        Line::from("M1 scaffolding — list views land in M2."),
+        Line::from("  Tab / Shift-Tab   cycle tabs"),
+        Line::from("  j / k or ↓ / ↑    move selection"),
+        Line::from("  g / G             first / last"),
+        Line::from("  Ctrl-d / Ctrl-u   half-page down / up"),
+        Line::from("  /                 focus filter"),
+        Line::from("  w                 why — provenance walk"),
+        Line::from("  s                 sources — typed receipts"),
+        Line::from("  t                 traces-of — which queries returned this"),
+        Line::from("  Esc               close overlay / clear filter / back"),
+        Line::from("  ?                 toggle this help"),
+        Line::from("  q / Ctrl-c        quit"),
     ];
     let block = Block::default().borders(Borders::ALL).title("Help");
     let paragraph = Paragraph::new(lines)
@@ -263,7 +267,11 @@ mod tests {
         app.help_open = true;
         let out = render(&app);
         assert!(out.contains("Help"), "no Help title: {out}");
-        assert!(out.contains("next tab"));
+        assert!(out.contains("cycle tabs"), "got: {out}");
+        assert!(out.contains("move selection"));
+        assert!(out.contains("why"));
+        assert!(out.contains("sources"));
+        assert!(out.contains("traces-of"));
         assert!(out.contains("quit"));
     }
 
