@@ -29,8 +29,19 @@ fn is_press(key: &KeyEvent) -> bool {
 }
 
 fn map_key(key: &KeyEvent, app: &App) -> Action {
-    // Confirm modal swallows input until resolved.
-    if app.pending_confirm.is_some() {
+    // Modal swallows input until resolved. Prompt modals accept text;
+    // confirm modals only accept y/n.
+    if let Some(modal) = &app.modal {
+        if modal.is_prompt() {
+            return match key.code {
+                KeyCode::Esc => Action::CloseOverlay,
+                KeyCode::Enter => Action::PromptSubmit,
+                KeyCode::Backspace => Action::PromptBackspace,
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+                KeyCode::Char(c) => Action::PromptChar(c),
+                _ => Action::None,
+            };
+        }
         return match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => Action::ConfirmYes,
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter => Action::ConfirmNo,
@@ -72,10 +83,20 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
         KeyCode::Char('w') => Action::ShowWhy,
         KeyCode::Char('s') => Action::ShowSources,
         KeyCode::Char('t') => Action::ShowTracesOf,
-        // Mutations — dispatcher checks the selected memory's status and
-        // routes to the right action (forget on active, restore on deleted).
+        // Mutations — dispatcher checks the active tab + selected status:
+        //   memories: f → forget (active), r → restore (deleted)
+        //   candidates: a → approve, R (shift+r) → reject prompt
         KeyCode::Char('f') => Action::RequestForget,
-        KeyCode::Char('r') => Action::RequestRestore,
+        KeyCode::Char('r') => {
+            if app.tab == super::app::Tab::Candidates && key.modifiers.contains(KeyModifiers::SHIFT)
+            {
+                Action::RequestReject
+            } else {
+                Action::RequestRestore
+            }
+        }
+        KeyCode::Char('R') => Action::RequestReject,
+        KeyCode::Char('a') => Action::RequestApprove,
         KeyCode::Esc => Action::CloseOverlay,
         _ => Action::None,
     }
@@ -257,6 +278,49 @@ mod tests {
     }
 
     #[test]
+    fn a_and_shift_r_request_candidate_mutations() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('a'), KeyModifiers::NONE), &a),
+            Action::RequestApprove
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('R'), KeyModifiers::SHIFT), &a),
+            Action::RequestReject
+        );
+    }
+
+    #[test]
+    fn prompt_modal_text_input_dispatch() {
+        let mut a = app(false);
+        a.modal = Some(super::super::app::Modal::PromptRejectReason {
+            id: vestige_core::CandidateId::generate(),
+            buffer: String::new(),
+        });
+        assert_eq!(
+            map_event(&press(KeyCode::Char('d'), KeyModifiers::NONE), &a),
+            Action::PromptChar('d')
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Backspace, KeyModifiers::NONE), &a),
+            Action::PromptBackspace
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Enter, KeyModifiers::NONE), &a),
+            Action::PromptSubmit
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Esc, KeyModifiers::NONE), &a),
+            Action::CloseOverlay
+        );
+        // y/n are NOT confirm keys in a prompt — they're characters.
+        assert_eq!(
+            map_event(&press(KeyCode::Char('y'), KeyModifiers::NONE), &a),
+            Action::PromptChar('y')
+        );
+    }
+
+    #[test]
     fn f_and_r_request_mutations() {
         let a = app(false);
         assert_eq!(
@@ -272,7 +336,7 @@ mod tests {
     #[test]
     fn modal_swallows_input_until_resolved() {
         let mut a = app(false);
-        a.pending_confirm = Some(super::super::app::PendingConfirm::Forget(
+        a.modal = Some(super::super::app::Modal::ConfirmForget(
             vestige_core::MemoryId::new(),
         ));
         assert_eq!(

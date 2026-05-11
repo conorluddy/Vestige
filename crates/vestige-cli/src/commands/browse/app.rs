@@ -82,8 +82,15 @@ pub enum Action {
     // `ConfirmYes` / `ConfirmNo` resolve it. The modal blocks everything else.
     RequestForget,
     RequestRestore,
+    // Candidate mutations.
+    RequestApprove,
+    RequestReject,
     ConfirmYes,
     ConfirmNo,
+    // Text-input modal editing (reject reason prompt).
+    PromptChar(char),
+    PromptBackspace,
+    PromptSubmit,
     None,
 }
 
@@ -97,25 +104,43 @@ pub enum DetailView {
     TracesOf,
 }
 
-/// A modal blocking input until the user confirms or cancels.
+/// A modal blocking input until the user confirms, submits, or cancels.
+///
+/// Two shapes:
+/// - **Confirm**: y / n with no extra input.
+/// - **Prompt**: free-form text input with a buffer; Enter submits, Esc cancels.
 #[derive(Debug, Clone)]
-pub enum PendingConfirm {
-    Forget(vestige_core::MemoryId),
-    Restore(vestige_core::MemoryId),
+pub enum Modal {
+    ConfirmForget(vestige_core::MemoryId),
+    ConfirmRestore(vestige_core::MemoryId),
+    ConfirmApprove(vestige_core::CandidateId),
+    PromptRejectReason {
+        id: vestige_core::CandidateId,
+        buffer: String,
+    },
 }
 
-impl PendingConfirm {
-    pub fn memory_id(&self) -> &vestige_core::MemoryId {
+impl Modal {
+    pub fn verb(&self) -> &'static str {
         match self {
-            PendingConfirm::Forget(id) | PendingConfirm::Restore(id) => id,
+            Modal::ConfirmForget(_) => "Forget",
+            Modal::ConfirmRestore(_) => "Restore",
+            Modal::ConfirmApprove(_) => "Approve",
+            Modal::PromptRejectReason { .. } => "Reject",
         }
     }
 
-    pub fn verb(&self) -> &'static str {
+    pub fn subject_id(&self) -> String {
         match self {
-            PendingConfirm::Forget(_) => "Forget",
-            PendingConfirm::Restore(_) => "Restore",
+            Modal::ConfirmForget(id) | Modal::ConfirmRestore(id) => id.as_str().to_string(),
+            Modal::ConfirmApprove(id) => id.as_str().to_string(),
+            Modal::PromptRejectReason { id, .. } => id.as_str().to_string(),
         }
+    }
+
+    /// Is this a text-input prompt rather than a y/n confirm?
+    pub fn is_prompt(&self) -> bool {
+        matches!(self, Modal::PromptRejectReason { .. })
     }
 }
 
@@ -198,6 +223,53 @@ impl MemoriesTabState {
     }
 }
 
+/// Per-tab state for the Candidates tab. Same shape as memories but the row
+/// type is `Candidate` and mutations are approve / reject.
+#[derive(Default)]
+pub struct CandidatesTabState {
+    pub items: Vec<vestige_core::Candidate>,
+    pub selected: usize,
+    pub filter_text: String,
+    pub filter_focused: bool,
+    pub detail: Option<vestige_core::Candidate>,
+    pub load_error: Option<String>,
+    pub detail_view: DetailView,
+    pub provenance: ProvenanceCache,
+}
+
+impl CandidatesTabState {
+    pub fn selected_id(&self) -> Option<&vestige_core::CandidateId> {
+        self.items.get(self.selected).map(|c| &c.id)
+    }
+
+    pub fn move_cursor(&mut self, delta: i64) -> bool {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return false;
+        }
+        let last = self.items.len().saturating_sub(1) as i64;
+        let new = (self.selected as i64 + delta).clamp(0, last) as usize;
+        if new == self.selected {
+            return false;
+        }
+        self.selected = new;
+        true
+    }
+
+    pub fn move_to(&mut self, target: usize) -> bool {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return false;
+        }
+        let new = target.min(self.items.len() - 1);
+        if new == self.selected {
+            return false;
+        }
+        self.selected = new;
+        true
+    }
+}
+
 /// The browser's full mutable state.
 pub struct App {
     pub project_name: String,
@@ -206,7 +278,8 @@ pub struct App {
     pub help_open: bool,
     pub should_quit: bool,
     pub memories: MemoriesTabState,
-    pub pending_confirm: Option<PendingConfirm>,
+    pub candidates: CandidatesTabState,
+    pub modal: Option<Modal>,
     pub status_flash: Option<StatusFlash>,
 }
 
@@ -221,7 +294,8 @@ impl App {
             help_open: false,
             should_quit: false,
             memories: MemoriesTabState::default(),
-            pending_confirm: None,
+            candidates: CandidatesTabState::default(),
+            modal: None,
             status_flash: None,
         }
     }
@@ -237,21 +311,37 @@ impl App {
             Action::PrevTab => self.tab = self.tab.prev(),
             Action::ToggleHelp => self.help_open = !self.help_open,
             Action::CloseOverlay => {
-                // Precedence: confirm modal > help > filter > sub-view.
-                if self.pending_confirm.is_some() {
-                    self.pending_confirm = None;
+                // Precedence: modal > help > filter > sub-view.
+                if self.modal.is_some() {
+                    self.modal = None;
                 } else if self.help_open {
                     self.help_open = false;
                 } else if self.tab == Tab::Memories && self.memories.filter_focused {
                     self.memories.filter_focused = false;
+                } else if self.tab == Tab::Candidates && self.candidates.filter_focused {
+                    self.candidates.filter_focused = false;
                 } else if self.tab == Tab::Memories
                     && self.memories.detail_view != DetailView::Default
                 {
                     self.memories.detail_view = DetailView::Default;
+                } else if self.tab == Tab::Candidates
+                    && self.candidates.detail_view != DetailView::Default
+                {
+                    self.candidates.detail_view = DetailView::Default;
                 }
             }
             Action::ConfirmNo => {
-                self.pending_confirm = None;
+                self.modal = None;
+            }
+            Action::PromptChar(c) => {
+                if let Some(Modal::PromptRejectReason { buffer, .. }) = &mut self.modal {
+                    buffer.push(c);
+                }
+            }
+            Action::PromptBackspace => {
+                if let Some(Modal::PromptRejectReason { buffer, .. }) = &mut self.modal {
+                    buffer.pop();
+                }
             }
             Action::None => {}
             // Handled inline in the dispatcher because they need a `&Store`.
@@ -269,7 +359,10 @@ impl App {
             | Action::ShowTracesOf
             | Action::RequestForget
             | Action::RequestRestore
-            | Action::ConfirmYes => {}
+            | Action::RequestApprove
+            | Action::RequestReject
+            | Action::ConfirmYes
+            | Action::PromptSubmit => {}
         }
     }
 }
@@ -409,9 +502,9 @@ mod tests {
         let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
         a.help_open = true;
         a.memories.detail_view = DetailView::Why;
-        a.pending_confirm = Some(PendingConfirm::Forget(vestige_core::MemoryId::new()));
+        a.modal = Some(Modal::ConfirmForget(vestige_core::MemoryId::new()));
         a.handle(Action::CloseOverlay);
-        assert!(a.pending_confirm.is_none(), "modal closes first");
+        assert!(a.modal.is_none(), "modal closes first");
         assert!(a.help_open, "help untouched until modal is closed");
         assert_eq!(a.memories.detail_view, DetailView::Why, "subview untouched");
     }
@@ -419,9 +512,9 @@ mod tests {
     #[test]
     fn confirm_no_clears_modal() {
         let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
-        a.pending_confirm = Some(PendingConfirm::Restore(vestige_core::MemoryId::new()));
+        a.modal = Some(Modal::ConfirmRestore(vestige_core::MemoryId::new()));
         a.handle(Action::ConfirmNo);
-        assert!(a.pending_confirm.is_none());
+        assert!(a.modal.is_none());
     }
 
     #[test]

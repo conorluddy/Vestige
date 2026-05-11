@@ -16,7 +16,7 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, PendingConfirm, Tab};
+use super::app::{App, Modal, Tab};
 
 // === PUBLIC API ===
 
@@ -38,8 +38,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if app.help_open {
         draw_help(frame, area);
     }
-    if let Some(pending) = &app.pending_confirm {
-        draw_confirm(frame, area, pending);
+    if let Some(modal) = &app.modal {
+        draw_modal(frame, area, modal);
     }
 }
 
@@ -75,7 +75,7 @@ fn draw_tab_bar(frame: &mut Frame, area: Rect, app: &App) {
 fn draw_body(frame: &mut Frame, area: Rect, app: &App) {
     match app.tab {
         Tab::Memories => super::tabs::memories::draw(frame, area, app),
-        Tab::Candidates => draw_placeholder(frame, area, "Candidates", "M5"),
+        Tab::Candidates => super::tabs::candidates::draw(frame, area, app),
         Tab::Traces => draw_placeholder(frame, area, "Traces", "M6"),
     }
 }
@@ -107,7 +107,6 @@ fn draw_placeholder(frame: &mut Frame, area: Rect, label: &str, when: &str) {
 
 fn placeholder_cli_hint(label: &str) -> &'static str {
     match label {
-        "Candidates" => "vestige inbox · vestige approve · vestige reject",
         "Traces" => "vestige trace · vestige trace <id> · vestige trace replay <id>",
         _ => "",
     }
@@ -156,6 +155,8 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("  t                 traces-of — which queries returned this"),
         Line::from("  f                 forget memory (soft-delete, with confirm)"),
         Line::from("  r                 restore soft-deleted memory (with confirm)"),
+        Line::from("  a                 approve candidate (with confirm)"),
+        Line::from("  R                 reject candidate (with reason prompt)"),
         Line::from("  Esc               close overlay / clear filter / back"),
         Line::from("  ?                 toggle this help"),
         Line::from("  q / Ctrl-c        quit"),
@@ -167,10 +168,14 @@ fn draw_help(frame: &mut Frame, area: Rect) {
     frame.render_widget(paragraph, popup);
 }
 
-fn draw_confirm(frame: &mut Frame, area: Rect, pending: &PendingConfirm) {
+fn draw_modal(frame: &mut Frame, area: Rect, modal: &Modal) {
     let popup = centred_rect(60, 50, area);
     frame.render_widget(Clear, popup);
-    let title = format!("Confirm {}", pending.verb().to_lowercase());
+    let title = if modal.is_prompt() {
+        format!("Prompt: {} reason", modal.verb().to_lowercase())
+    } else {
+        format!("Confirm {}", modal.verb().to_lowercase())
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
@@ -178,25 +183,65 @@ fn draw_confirm(frame: &mut Frame, area: Rect, pending: &PendingConfirm) {
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
-    let id_str = pending.memory_id().as_str();
-    let lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!("{} memory", pending.verb()),
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(id_str.to_string()),
-        Line::from(""),
-        Line::from(Span::styled(
-            "y - yes     n / Enter / Esc - no",
-            Style::default().fg(Color::Gray),
-        )),
-    ];
+    let lines = match modal {
+        Modal::PromptRejectReason { id, buffer } => vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Reject candidate",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(id.as_str().to_string()),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Reason (empty = unspecified):",
+                Style::default().fg(Color::Gray),
+            )),
+            Line::from(Span::styled(
+                format!("> {buffer}_"),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Enter - submit     Esc - cancel",
+                Style::default().fg(Color::Gray),
+            )),
+            Line::from(Span::styled(
+                "presets: duplicate | wrong | not_durable | too_noisy | stale",
+                Style::default().fg(Color::Gray),
+            )),
+        ],
+        _ => {
+            let subject = modal.subject_id();
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("{} {}", modal.verb(), subject_label(modal)),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(subject),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "y - yes     n / Enter / Esc - no",
+                    Style::default().fg(Color::Gray),
+                )),
+            ]
+        }
+    };
     let paragraph = Paragraph::new(lines)
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
+}
+
+fn subject_label(modal: &Modal) -> &'static str {
+    match modal {
+        Modal::ConfirmForget(_) | Modal::ConfirmRestore(_) => "memory",
+        Modal::ConfirmApprove(_) | Modal::PromptRejectReason { .. } => "candidate",
+    }
 }
 
 fn active_tab_style(no_color: bool) -> Style {
@@ -285,23 +330,21 @@ mod tests {
     }
 
     #[test]
-    fn candidates_and_traces_placeholders_point_at_cli() {
+    fn traces_placeholder_points_at_cli() {
         let counts = Counts {
             memories_active: 0,
             candidates_pending: 3,
             traces: 184,
         };
-        let mut app = App::new(Tab::Candidates, counts, "p".into());
-        let out = render(&app);
-        assert!(out.contains("Candidates tab"));
-        assert!(out.contains("Lands in M5"));
-        assert!(out.contains("vestige inbox"));
-
-        app.tab = Tab::Traces;
+        let mut app = App::new(Tab::Traces, counts, "p".into());
         let out = render(&app);
         assert!(out.contains("Traces tab"));
         assert!(out.contains("Lands in M6"));
         assert!(out.contains("vestige trace"));
+        app.tab = Tab::Candidates;
+        // Candidates is real now (M5); just confirm it renders an empty inbox.
+        let out = render(&app);
+        assert!(out.contains("Inbox empty"));
     }
 
     #[test]
@@ -356,7 +399,7 @@ mod tests {
         let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
         let mem = vestige_core::MemoryId::new();
         let mem_str = mem.as_str().to_string();
-        app.pending_confirm = Some(PendingConfirm::Forget(mem));
+        app.modal = Some(Modal::ConfirmForget(mem));
         let out = render(&app);
         assert!(out.contains("Confirm forget"), "title; got: {out}");
         assert!(out.contains("Forget memory"), "verb; got: {out}");
@@ -373,7 +416,7 @@ mod tests {
     #[test]
     fn restore_confirm_title_uses_correct_verb() {
         let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
-        app.pending_confirm = Some(PendingConfirm::Restore(vestige_core::MemoryId::new()));
+        app.modal = Some(Modal::ConfirmRestore(vestige_core::MemoryId::new()));
         let out = render(&app);
         assert!(out.contains("Confirm restore"), "got: {out}");
         assert!(out.contains("Restore memory"));

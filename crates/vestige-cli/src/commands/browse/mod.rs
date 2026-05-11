@@ -71,8 +71,9 @@ pub fn run(args: BrowseArgs) -> Result<()> {
     let mut app = App::new(args.tab.into(), counts, cfg.project_name.clone());
 
     let mut store = store;
-    // Load the Memories tab eagerly so the first frame has data.
+    // Load both data-bearing tabs eagerly so the first frame has data.
     tabs::memories::reload_list(&mut app, &store, &project_id)?;
+    tabs::candidates::reload_list(&mut app, &store, &project_id)?;
 
     terminal::install_panic_hook();
     let mut term = terminal::enter().context("entering raw mode")?;
@@ -140,59 +141,108 @@ fn apply_action(
         | Action::ConfirmNo => {
             app.handle(action);
         }
-        Action::MoveDown => move_and_refresh(app, store, |s| s.move_cursor(1))?,
-        Action::MoveUp => move_and_refresh(app, store, |s| s.move_cursor(-1))?,
-        Action::MoveTop => move_and_refresh(app, store, |s| s.move_to(0))?,
-        Action::MoveBottom => {
-            let last = app.memories.items.len().saturating_sub(1);
-            move_and_refresh(app, store, |s| s.move_to(last))?;
-        }
-        Action::HalfPageDown => move_and_refresh(app, store, |s| s.move_cursor(10))?,
-        Action::HalfPageUp => move_and_refresh(app, store, |s| s.move_cursor(-10))?,
-        Action::ShowWhy => {
-            if app.tab == Tab::Memories {
+        Action::MoveDown => move_active_tab(app, store, 1, false)?,
+        Action::MoveUp => move_active_tab(app, store, -1, false)?,
+        Action::MoveTop => move_active_tab(app, store, 0, true)?,
+        Action::MoveBottom => move_active_tab(app, store, i64::MAX, true)?,
+        Action::HalfPageDown => move_active_tab(app, store, 10, false)?,
+        Action::HalfPageUp => move_active_tab(app, store, -10, false)?,
+        Action::ShowWhy => match app.tab {
+            Tab::Memories => {
                 tabs::memories::ensure_provenance(app, store, project_id, DetailView::Why)?;
             }
-        }
-        Action::ShowSources => {
-            if app.tab == Tab::Memories {
+            Tab::Candidates => {
+                tabs::candidates::ensure_provenance(app, store, DetailView::Why)?;
+            }
+            Tab::Traces => {}
+        },
+        Action::ShowSources => match app.tab {
+            Tab::Memories => {
                 tabs::memories::ensure_provenance(app, store, project_id, DetailView::Sources)?;
             }
-        }
+            Tab::Candidates => {
+                tabs::candidates::ensure_provenance(app, store, DetailView::Sources)?;
+            }
+            Tab::Traces => {}
+        },
         Action::ShowTracesOf => {
             if app.tab == Tab::Memories {
                 tabs::memories::ensure_provenance(app, store, project_id, DetailView::TracesOf)?;
             }
         }
-        Action::OpenFilter => {
-            app.memories.filter_focused = true;
-        }
-        Action::FilterChar(c) => {
-            app.memories.filter_text.push(c);
-            tabs::memories::reload_list(app, store, project_id)?;
-        }
-        Action::FilterBackspace => {
-            if app.memories.filter_text.pop().is_some() {
+        Action::OpenFilter => match app.tab {
+            Tab::Memories => app.memories.filter_focused = true,
+            Tab::Candidates => app.candidates.filter_focused = true,
+            Tab::Traces => {}
+        },
+        Action::FilterChar(c) => match app.tab {
+            Tab::Memories => {
+                app.memories.filter_text.push(c);
                 tabs::memories::reload_list(app, store, project_id)?;
-            } else {
-                app.memories.filter_focused = false;
             }
-        }
+            Tab::Candidates => {
+                app.candidates.filter_text.push(c);
+                tabs::candidates::reload_list(app, store, project_id)?;
+            }
+            Tab::Traces => {}
+        },
+        Action::FilterBackspace => match app.tab {
+            Tab::Memories => {
+                if app.memories.filter_text.pop().is_some() {
+                    tabs::memories::reload_list(app, store, project_id)?;
+                } else {
+                    app.memories.filter_focused = false;
+                }
+            }
+            Tab::Candidates => {
+                if app.candidates.filter_text.pop().is_some() {
+                    tabs::candidates::reload_list(app, store, project_id)?;
+                } else {
+                    app.candidates.filter_focused = false;
+                }
+            }
+            Tab::Traces => {}
+        },
         Action::RequestForget => {
             if app.tab == Tab::Memories {
-                request_mutation(app, |status, id| {
-                    (status == vestige_core::MemoryStatus::Active)
-                        .then_some(app::PendingConfirm::Forget(id))
-                });
+                if let Some(card) = app.memories.items.get(app.memories.selected) {
+                    if card.status == vestige_core::MemoryStatus::Active {
+                        app.modal = Some(app::Modal::ConfirmForget(card.id.clone()));
+                    }
+                }
             }
         }
         Action::RequestRestore => {
             if app.tab == Tab::Memories {
-                request_mutation(app, |status, id| {
-                    (status == vestige_core::MemoryStatus::Deleted)
-                        .then_some(app::PendingConfirm::Restore(id))
-                });
+                if let Some(card) = app.memories.items.get(app.memories.selected) {
+                    if card.status == vestige_core::MemoryStatus::Deleted {
+                        app.modal = Some(app::Modal::ConfirmRestore(card.id.clone()));
+                    }
+                }
             }
+        }
+        Action::RequestApprove => {
+            if app.tab == Tab::Candidates {
+                if let Some(id) = app.candidates.selected_id().cloned() {
+                    app.modal = Some(app::Modal::ConfirmApprove(id));
+                }
+            }
+        }
+        Action::RequestReject => {
+            if app.tab == Tab::Candidates {
+                if let Some(id) = app.candidates.selected_id().cloned() {
+                    app.modal = Some(app::Modal::PromptRejectReason {
+                        id,
+                        buffer: String::new(),
+                    });
+                }
+            }
+        }
+        Action::PromptChar(_) | Action::PromptBackspace => {
+            app.handle(action);
+        }
+        Action::PromptSubmit => {
+            apply_prompt_submit(app, store, project_id)?;
         }
         Action::ConfirmYes => {
             apply_confirmed_mutation(app, store, project_id)?;
@@ -201,88 +251,204 @@ fn apply_action(
     Ok(())
 }
 
-/// Open the mutation confirm modal if the current selection's status allows it.
-fn request_mutation(
-    app: &mut App,
-    decide: impl FnOnce(
-        vestige_core::MemoryStatus,
-        vestige_core::MemoryId,
-    ) -> Option<app::PendingConfirm>,
-) {
-    let Some(card) = app.memories.items.get(app.memories.selected) else {
-        return;
-    };
-    let Some(pending) = decide(card.status, card.id.clone()) else {
-        return;
-    };
-    app.pending_confirm = Some(pending);
-}
-
-/// Resolve the pending confirm by actually mutating the store, then reload
-/// the list at the same cursor index. Stashes a [`StatusFlash`] message so
-/// the user sees what just happened.
+/// Resolve a binary confirm by mutating the store, reloading the affected
+/// list at the same cursor index, and flashing the outcome.
 fn apply_confirmed_mutation(
     app: &mut App,
     store: &mut Store,
     project_id: &ProjectId,
 ) -> Result<()> {
-    let Some(pending) = app.pending_confirm.take() else {
+    let Some(modal) = app.modal.take() else {
         return Ok(());
     };
-    let id = pending.memory_id().clone();
-    let outcome = match &pending {
-        app::PendingConfirm::Forget(_) => store.forget_memory(&id),
-        app::PendingConfirm::Restore(_) => store.restore_memory(&id),
+    let outcome: std::result::Result<bool, anyhow::Error> = match &modal {
+        app::Modal::ConfirmForget(id) => store.forget_memory(id).map_err(Into::into),
+        app::Modal::ConfirmRestore(id) => store.restore_memory(id).map_err(Into::into),
+        app::Modal::ConfirmApprove(id) => {
+            let result = vestige_engine::approve_candidate(
+                store,
+                project_id,
+                id,
+                vestige_engine::ApprovalOverrides::default(),
+            );
+            match result {
+                Ok(out) => {
+                    app.status_flash = Some(app::StatusFlash {
+                        text: format!("Approved {} → {}", out.candidate_id, out.memory_id),
+                        is_error: false,
+                    });
+                    let prev = app.candidates.selected;
+                    tabs::candidates::reload_list(app, store, project_id)?;
+                    if prev < app.candidates.items.len() {
+                        app.candidates.selected = prev;
+                        tabs::candidates::refresh_detail(app, store)?;
+                    }
+                    return Ok(());
+                }
+                Err(e) => Err(e.into()),
+            }
+        }
+        app::Modal::PromptRejectReason { .. } => {
+            // Unreachable — PromptSubmit handles this, not ConfirmYes.
+            return Ok(());
+        }
     };
+    let subject = modal.subject_id();
     match outcome {
         Ok(true) => {
             app.status_flash = Some(app::StatusFlash {
-                text: format!("{} {}", past_tense(&pending), id.as_str()),
+                text: format!("{} {}", past_tense(&modal), subject),
                 is_error: false,
             });
         }
         Ok(false) => {
             app.status_flash = Some(app::StatusFlash {
-                text: format!("{} skipped (no-op) for {}", pending.verb(), id.as_str()),
+                text: format!("{} skipped (no-op) for {}", modal.verb(), subject),
                 is_error: true,
             });
         }
         Err(e) => {
             app.status_flash = Some(app::StatusFlash {
-                text: format!("{} failed: {e}", pending.verb()),
+                text: format!("{} failed: {e}", modal.verb()),
                 is_error: true,
             });
         }
     }
-    let prev_index = app.memories.selected;
-    tabs::memories::reload_list(app, store, project_id)?;
-    // Keep cursor in roughly the same place. `reload_list` already clamps
-    // when the list shrinks; if the list grew, restore the prior index.
-    if prev_index < app.memories.items.len() {
-        app.memories.selected = prev_index;
-        tabs::memories::refresh_detail(app, store)?;
+    // Reload whichever tab was affected. Both reloads are cheap.
+    if matches!(
+        modal,
+        app::Modal::ConfirmForget(_) | app::Modal::ConfirmRestore(_)
+    ) {
+        let prev = app.memories.selected;
+        tabs::memories::reload_list(app, store, project_id)?;
+        if prev < app.memories.items.len() {
+            app.memories.selected = prev;
+            tabs::memories::refresh_detail(app, store)?;
+        }
     }
     Ok(())
 }
 
-fn past_tense(pending: &app::PendingConfirm) -> &'static str {
-    match pending {
-        app::PendingConfirm::Forget(_) => "Forgot",
-        app::PendingConfirm::Restore(_) => "Restored",
+/// Resolve a text-input prompt by submitting whatever's in the buffer.
+fn apply_prompt_submit(app: &mut App, store: &mut Store, project_id: &ProjectId) -> Result<()> {
+    let Some(modal) = app.modal.take() else {
+        return Ok(());
+    };
+    match modal {
+        app::Modal::PromptRejectReason { id, buffer } => {
+            let reason = parse_reject_reason(&buffer);
+            let result = vestige_engine::reject_candidate(
+                store,
+                project_id,
+                &id,
+                reason.clone(),
+                None,
+                None,
+            );
+            match result {
+                Ok(()) => {
+                    app.status_flash = Some(app::StatusFlash {
+                        text: format!("Rejected {} (reason: {reason})", id),
+                        is_error: false,
+                    });
+                    let prev = app.candidates.selected;
+                    tabs::candidates::reload_list(app, store, project_id)?;
+                    if prev < app.candidates.items.len() {
+                        app.candidates.selected = prev;
+                        tabs::candidates::refresh_detail(app, store)?;
+                    }
+                }
+                Err(e) => {
+                    app.status_flash = Some(app::StatusFlash {
+                        text: format!("Reject failed: {e}"),
+                        is_error: true,
+                    });
+                }
+            }
+        }
+        other => {
+            // Wrong action for this modal type — restore it.
+            app.modal = Some(other);
+        }
+    }
+    Ok(())
+}
+
+fn parse_reject_reason(input: &str) -> vestige_core::RejectionReason {
+    use std::str::FromStr;
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return vestige_core::RejectionReason::Other("unspecified".into());
+    }
+    vestige_core::RejectionReason::from_str(trimmed)
+        .unwrap_or_else(|_| vestige_core::RejectionReason::Other(trimmed.to_string()))
+}
+
+fn past_tense(modal: &app::Modal) -> &'static str {
+    match modal {
+        app::Modal::ConfirmForget(_) => "Forgot",
+        app::Modal::ConfirmRestore(_) => "Restored",
+        app::Modal::ConfirmApprove(_) => "Approved",
+        app::Modal::PromptRejectReason { .. } => "Rejected",
     }
 }
 
-/// Move the cursor via `mutate`, and if the selection actually changed,
-/// reset cached provenance + refresh the detail row.
-fn move_and_refresh(
-    app: &mut App,
-    store: &Store,
-    mutate: impl FnOnce(&mut app::MemoriesTabState) -> bool,
-) -> Result<()> {
-    if mutate(&mut app.memories) {
-        app.memories.detail_view = DetailView::Default;
-        app.memories.provenance.clear();
-        tabs::memories::refresh_detail(app, store)?;
-    }
+/// Move the cursor on the active tab. `delta` is a relative offset; when
+/// `absolute` is true, the value is interpreted as a target index (with
+/// `i64::MAX` meaning "last row"). Clears cached provenance + refreshes the
+/// detail row when the cursor moved.
+fn move_active_tab(app: &mut App, store: &Store, delta: i64, absolute: bool) -> Result<()> {
+    let moved = match app.tab {
+        Tab::Memories => {
+            if absolute {
+                let target = if delta == i64::MAX {
+                    app.memories.items.len().saturating_sub(1)
+                } else {
+                    delta.max(0) as usize
+                };
+                let m = app.memories.move_to(target);
+                if m {
+                    app.memories.detail_view = DetailView::Default;
+                    app.memories.provenance.clear();
+                    tabs::memories::refresh_detail(app, store)?;
+                }
+                m
+            } else {
+                let m = app.memories.move_cursor(delta);
+                if m {
+                    app.memories.detail_view = DetailView::Default;
+                    app.memories.provenance.clear();
+                    tabs::memories::refresh_detail(app, store)?;
+                }
+                m
+            }
+        }
+        Tab::Candidates => {
+            if absolute {
+                let target = if delta == i64::MAX {
+                    app.candidates.items.len().saturating_sub(1)
+                } else {
+                    delta.max(0) as usize
+                };
+                let m = app.candidates.move_to(target);
+                if m {
+                    app.candidates.detail_view = DetailView::Default;
+                    app.candidates.provenance.clear();
+                    tabs::candidates::refresh_detail(app, store)?;
+                }
+                m
+            } else {
+                let m = app.candidates.move_cursor(delta);
+                if m {
+                    app.candidates.detail_view = DetailView::Default;
+                    app.candidates.provenance.clear();
+                    tabs::candidates::refresh_detail(app, store)?;
+                }
+                m
+            }
+        }
+        Tab::Traces => false,
+    };
+    let _ = moved;
     Ok(())
 }
