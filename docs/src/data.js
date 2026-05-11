@@ -113,7 +113,7 @@ const VESTIGE = {
     { v: 'V0.1', title: 'Embeddings',          status: 'done',    items: 'provider interface · embeddings on summary/compressed · hybrid search · reindex · MCP mode flag · score diagnostics · forget × search invariants' },
     { v: 'V0.2', title: 'Assimilation inbox',  status: 'done',    items: 'candidate memories (cand_<ULID>) · vestige inbox / approve / reject · candidate FTS dedup · MCP propose/list/get · auto-memorise proposes candidates · reverse provenance on approval' },
     { v: 'V0.3', title: 'Provenance',           status: 'done',    items: 'vestige why · vestige sources · vestige trace list/show/replay · vestige_expand depth=provenance · vestige_trace MCP tool · [traces] config + FIFO eviction · per-surface toggles · query_events journal · SourceKind enum' },
-    { v: 'V0.4', title: 'Memory browser (TUI)', status: 'now',     items: 'interactive vestige browse · list / expand / forget / restore · binds Store directly, no daemon' },
+    { v: 'V0.4', title: 'Memory browser (TUI)', status: 'now',     items: 'interactive vestige browse · list / expand / forget / restore · binds Store directly, no daemon · memories/candidates/traces tabs · trace forward-link' },
     { v: 'V0.5', title: 'Daemon runtime',       status: 'planned', items: 'vestige serve · local API · concurrency · LaunchAgent' },
     { v: 'V0.6', title: 'Directives',           status: 'planned', items: 'pluggable prompt blocks (.vestige/directives.md) · project-scoped allow/deny rules · injected into auto-memorise + heartbeat ingestion' },
     { v: 'V0.7', title: 'Dream-lite',           status: 'planned', items: 'project summary refresh · clustering · review-first consolidation' },
