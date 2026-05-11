@@ -4,3 +4,4 @@
 
 pub mod candidates;
 pub mod memories;
+pub mod traces;

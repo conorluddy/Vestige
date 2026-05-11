@@ -76,39 +76,7 @@ fn draw_body(frame: &mut Frame, area: Rect, app: &App) {
     match app.tab {
         Tab::Memories => super::tabs::memories::draw(frame, area, app),
         Tab::Candidates => super::tabs::candidates::draw(frame, area, app),
-        Tab::Traces => draw_placeholder(frame, area, "Traces", "M6"),
-    }
-}
-
-fn draw_placeholder(frame: &mut Frame, area: Rect, label: &str, when: &str) {
-    let lines = vec![
-        Line::from(Span::styled(
-            format!("{label} tab"),
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(format!("Lands in {when}.")),
-        Line::from(""),
-        Line::from(Span::styled(
-            "CLI alternatives for now:",
-            Style::default().fg(Color::Gray),
-        )),
-        Line::from(Span::styled(
-            placeholder_cli_hint(label),
-            Style::default().fg(Color::Cyan),
-        )),
-    ];
-    let paragraph = Paragraph::new(lines)
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: false });
-    let centred = centre_vertically(area, 6);
-    frame.render_widget(paragraph, centred);
-}
-
-fn placeholder_cli_hint(label: &str) -> &'static str {
-    match label {
-        "Traces" => "vestige trace · vestige trace <id> · vestige trace replay <id>",
-        _ => "",
+        Tab::Traces => super::tabs::traces::draw(frame, area, app),
     }
 }
 
@@ -157,6 +125,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("  r                 restore soft-deleted memory (with confirm)"),
         Line::from("  a                 approve candidate (with confirm)"),
         Line::from("  R                 reject candidate (with reason prompt)"),
+        Line::from("  p                 replay trace — diff against current store"),
         Line::from("  Esc               close overlay / clear filter / back"),
         Line::from("  ?                 toggle this help"),
         Line::from("  q / Ctrl-c        quit"),
@@ -255,16 +224,6 @@ fn active_tab_style(no_color: bool) -> Style {
     }
 }
 
-fn centre_vertically(area: Rect, height: u16) -> Rect {
-    let top = area.height.saturating_sub(height) / 2;
-    Rect {
-        x: area.x,
-        y: area.y + top,
-        width: area.width,
-        height: height.min(area.height),
-    }
-}
-
 fn centred_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
     let popup_w = area.width * pct_x / 100;
     let popup_h = area.height * pct_y / 100;
@@ -330,21 +289,14 @@ mod tests {
     }
 
     #[test]
-    fn traces_placeholder_points_at_cli() {
-        let counts = Counts {
-            memories_active: 0,
-            candidates_pending: 3,
-            traces: 184,
-        };
-        let mut app = App::new(Tab::Traces, counts, "p".into());
-        let out = render(&app);
-        assert!(out.contains("Traces tab"));
-        assert!(out.contains("Lands in M6"));
-        assert!(out.contains("vestige trace"));
+    fn each_tab_renders_its_real_empty_state() {
+        let counts = Counts::default();
+        let mut app = App::new(Tab::Memories, counts, "p".into());
+        assert!(render(&app).contains("No memories yet"));
         app.tab = Tab::Candidates;
-        // Candidates is real now (M5); just confirm it renders an empty inbox.
-        let out = render(&app);
-        assert!(out.contains("Inbox empty"));
+        assert!(render(&app).contains("Inbox empty"));
+        app.tab = Tab::Traces;
+        assert!(render(&app).contains("No traces yet"));
     }
 
     #[test]

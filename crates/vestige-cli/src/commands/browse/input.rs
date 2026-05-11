@@ -97,6 +97,8 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
         }
         KeyCode::Char('R') => Action::RequestReject,
         KeyCode::Char('a') => Action::RequestApprove,
+        // Replay — only meaningful on Traces tab; dispatcher gates it.
+        KeyCode::Char('p') => Action::RequestReplay,
         KeyCode::Esc => Action::CloseOverlay,
         _ => Action::None,
     }
@@ -274,6 +276,15 @@ mod tests {
         assert_eq!(
             map_event(&press(KeyCode::Char('/'), KeyModifiers::NONE), &a),
             Action::OpenFilter
+        );
+    }
+
+    #[test]
+    fn p_requests_replay() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('p'), KeyModifiers::NONE), &a),
+            Action::RequestReplay
         );
     }
 

@@ -71,9 +71,10 @@ pub fn run(args: BrowseArgs) -> Result<()> {
     let mut app = App::new(args.tab.into(), counts, cfg.project_name.clone());
 
     let mut store = store;
-    // Load both data-bearing tabs eagerly so the first frame has data.
+    // Load all three tabs eagerly so the first frame has data on any tab.
     tabs::memories::reload_list(&mut app, &store, &project_id)?;
     tabs::candidates::reload_list(&mut app, &store, &project_id)?;
+    tabs::traces::reload_list(&mut app, &store, &project_id)?;
 
     terminal::install_panic_hook();
     let mut term = terminal::enter().context("entering raw mode")?;
@@ -141,12 +142,12 @@ fn apply_action(
         | Action::ConfirmNo => {
             app.handle(action);
         }
-        Action::MoveDown => move_active_tab(app, store, 1, false)?,
-        Action::MoveUp => move_active_tab(app, store, -1, false)?,
-        Action::MoveTop => move_active_tab(app, store, 0, true)?,
-        Action::MoveBottom => move_active_tab(app, store, i64::MAX, true)?,
-        Action::HalfPageDown => move_active_tab(app, store, 10, false)?,
-        Action::HalfPageUp => move_active_tab(app, store, -10, false)?,
+        Action::MoveDown => move_active_tab(app, store, project_id, 1, false)?,
+        Action::MoveUp => move_active_tab(app, store, project_id, -1, false)?,
+        Action::MoveTop => move_active_tab(app, store, project_id, 0, true)?,
+        Action::MoveBottom => move_active_tab(app, store, project_id, i64::MAX, true)?,
+        Action::HalfPageDown => move_active_tab(app, store, project_id, 10, false)?,
+        Action::HalfPageUp => move_active_tab(app, store, project_id, -10, false)?,
         Action::ShowWhy => match app.tab {
             Tab::Memories => {
                 tabs::memories::ensure_provenance(app, store, project_id, DetailView::Why)?;
@@ -246,6 +247,22 @@ fn apply_action(
         }
         Action::ConfirmYes => {
             apply_confirmed_mutation(app, store, project_id)?;
+        }
+        Action::RequestReplay => {
+            if app.tab == Tab::Traces {
+                tabs::traces::replay_selected(app, store, project_id)?;
+                if let Some(replay) = &app.traces.replay {
+                    let added = replay.diff.added.len();
+                    let removed = replay.diff.removed.len();
+                    app.status_flash = Some(app::StatusFlash {
+                        text: format!(
+                            "Replayed {} → +{added} −{removed} (new {})",
+                            replay.trace_id, replay.replay_trace_id
+                        ),
+                        is_error: !replay.provider_match || replay.mode_fallback,
+                    });
+                }
+            }
         }
     }
     Ok(())
@@ -397,7 +414,13 @@ fn past_tense(modal: &app::Modal) -> &'static str {
 /// `absolute` is true, the value is interpreted as a target index (with
 /// `i64::MAX` meaning "last row"). Clears cached provenance + refreshes the
 /// detail row when the cursor moved.
-fn move_active_tab(app: &mut App, store: &Store, delta: i64, absolute: bool) -> Result<()> {
+fn move_active_tab(
+    app: &mut App,
+    store: &Store,
+    project_id: &ProjectId,
+    delta: i64,
+    absolute: bool,
+) -> Result<()> {
     let moved = match app.tab {
         Tab::Memories => {
             if absolute {
@@ -447,7 +470,26 @@ fn move_active_tab(app: &mut App, store: &Store, delta: i64, absolute: bool) -> 
                 m
             }
         }
-        Tab::Traces => false,
+        Tab::Traces => {
+            if absolute {
+                let target = if delta == i64::MAX {
+                    app.traces.items.len().saturating_sub(1)
+                } else {
+                    delta.max(0) as usize
+                };
+                let m = app.traces.move_to(target);
+                if m {
+                    tabs::traces::refresh_detail(app, store, project_id)?;
+                }
+                m
+            } else {
+                let m = app.traces.move_cursor(delta);
+                if m {
+                    tabs::traces::refresh_detail(app, store, project_id)?;
+                }
+                m
+            }
+        }
     };
     let _ = moved;
     Ok(())

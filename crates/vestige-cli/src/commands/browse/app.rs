@@ -85,6 +85,8 @@ pub enum Action {
     // Candidate mutations.
     RequestApprove,
     RequestReject,
+    // Trace replay.
+    RequestReplay,
     ConfirmYes,
     ConfirmNo,
     // Text-input modal editing (reject reason prompt).
@@ -270,6 +272,52 @@ impl CandidatesTabState {
     }
 }
 
+/// Per-tab state for the Traces tab. Row type is `TraceCard`; detail loads
+/// the full `TraceDetail`. Mutations are not supported (traces are
+/// append-only audit) — only `p` replay, which surfaces a diff in a
+/// dedicated `ReplayResult` cache.
+#[derive(Default)]
+pub struct TracesTabState {
+    pub items: Vec<vestige_engine::TraceCard>,
+    pub selected: usize,
+    pub detail: Option<vestige_engine::TraceDetail>,
+    pub load_error: Option<String>,
+    pub replay: Option<vestige_engine::ReplayResult>,
+}
+
+impl TracesTabState {
+    pub fn selected_id(&self) -> Option<&str> {
+        self.items.get(self.selected).map(|c| c.trace_id.as_str())
+    }
+
+    pub fn move_cursor(&mut self, delta: i64) -> bool {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return false;
+        }
+        let last = self.items.len().saturating_sub(1) as i64;
+        let new = (self.selected as i64 + delta).clamp(0, last) as usize;
+        if new == self.selected {
+            return false;
+        }
+        self.selected = new;
+        true
+    }
+
+    pub fn move_to(&mut self, target: usize) -> bool {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return false;
+        }
+        let new = target.min(self.items.len() - 1);
+        if new == self.selected {
+            return false;
+        }
+        self.selected = new;
+        true
+    }
+}
+
 /// The browser's full mutable state.
 pub struct App {
     pub project_name: String,
@@ -279,6 +327,7 @@ pub struct App {
     pub should_quit: bool,
     pub memories: MemoriesTabState,
     pub candidates: CandidatesTabState,
+    pub traces: TracesTabState,
     pub modal: Option<Modal>,
     pub status_flash: Option<StatusFlash>,
 }
@@ -295,6 +344,7 @@ impl App {
             should_quit: false,
             memories: MemoriesTabState::default(),
             candidates: CandidatesTabState::default(),
+            traces: TracesTabState::default(),
             modal: None,
             status_flash: None,
         }
@@ -361,6 +411,7 @@ impl App {
             | Action::RequestRestore
             | Action::RequestApprove
             | Action::RequestReject
+            | Action::RequestReplay
             | Action::ConfirmYes
             | Action::PromptSubmit => {}
         }
