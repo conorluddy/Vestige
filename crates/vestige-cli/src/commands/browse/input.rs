@@ -20,7 +20,7 @@ pub fn map_event(event: &Event, app: &App) -> Action {
     if !is_press(key) {
         return Action::None;
     }
-    map_key(key, app.help_open)
+    map_key(key, app)
 }
 
 fn is_press(key: &KeyEvent) -> bool {
@@ -28,8 +28,8 @@ fn is_press(key: &KeyEvent) -> bool {
     matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
-fn map_key(key: &KeyEvent, help_open: bool) -> Action {
-    if help_open {
+fn map_key(key: &KeyEvent, app: &App) -> Action {
+    if app.help_open {
         return match key.code {
             KeyCode::Esc => Action::CloseOverlay,
             KeyCode::Char('?') => Action::ToggleHelp,
@@ -38,12 +38,36 @@ fn map_key(key: &KeyEvent, help_open: bool) -> Action {
             _ => Action::None,
         };
     }
+    if app.tab == super::app::Tab::Memories && app.memories.filter_focused {
+        return map_filter_key(key);
+    }
     match key.code {
         KeyCode::Char('q') => Action::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
         KeyCode::Char('?') => Action::ToggleHelp,
         KeyCode::Tab => Action::NextTab,
         KeyCode::BackTab => Action::PrevTab,
+        // Memories-tab navigation. Surfaced unconditionally for M2; the
+        // dispatcher in `mod.rs` only acts on these when the active tab is
+        // Memories. M5/M6 will route by `app.tab`.
+        KeyCode::Char('j') | KeyCode::Down => Action::MoveDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::MoveUp,
+        KeyCode::Char('g') => Action::MoveTop,
+        KeyCode::Char('G') => Action::MoveBottom,
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::HalfPageDown,
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::HalfPageUp,
+        KeyCode::Char('/') => Action::OpenFilter,
+        KeyCode::Esc => Action::CloseOverlay,
+        _ => Action::None,
+    }
+}
+
+fn map_filter_key(key: &KeyEvent) -> Action {
+    match key.code {
+        KeyCode::Esc | KeyCode::Enter => Action::CloseOverlay,
+        KeyCode::Backspace => Action::FilterBackspace,
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+        KeyCode::Char(c) => Action::FilterChar(c),
         _ => Action::None,
     }
 }
@@ -150,5 +174,89 @@ mod tests {
     fn resize_event_is_noop() {
         let a = app(false);
         assert_eq!(map_event(&Event::Resize(80, 24), &a), Action::None);
+    }
+
+    #[test]
+    fn j_and_down_move_down() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('j'), KeyModifiers::NONE), &a),
+            Action::MoveDown
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Down, KeyModifiers::NONE), &a),
+            Action::MoveDown
+        );
+    }
+
+    #[test]
+    fn k_and_up_move_up() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('k'), KeyModifiers::NONE), &a),
+            Action::MoveUp
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Up, KeyModifiers::NONE), &a),
+            Action::MoveUp
+        );
+    }
+
+    #[test]
+    fn g_and_shift_g_jump_top_and_bottom() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('g'), KeyModifiers::NONE), &a),
+            Action::MoveTop
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('G'), KeyModifiers::SHIFT), &a),
+            Action::MoveBottom
+        );
+    }
+
+    #[test]
+    fn ctrl_d_and_ctrl_u_half_page() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('d'), KeyModifiers::CONTROL), &a),
+            Action::HalfPageDown
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('u'), KeyModifiers::CONTROL), &a),
+            Action::HalfPageUp
+        );
+    }
+
+    #[test]
+    fn slash_opens_filter() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('/'), KeyModifiers::NONE), &a),
+            Action::OpenFilter
+        );
+    }
+
+    #[test]
+    fn filter_focused_chars_become_filter_input() {
+        let mut a = app(false);
+        a.memories.filter_focused = true;
+        assert_eq!(
+            map_event(&press(KeyCode::Char('a'), KeyModifiers::NONE), &a),
+            Action::FilterChar('a')
+        );
+        // j/k must be treated as text when filtering, not as navigation
+        assert_eq!(
+            map_event(&press(KeyCode::Char('j'), KeyModifiers::NONE), &a),
+            Action::FilterChar('j')
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Backspace, KeyModifiers::NONE), &a),
+            Action::FilterBackspace
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Esc, KeyModifiers::NONE), &a),
+            Action::CloseOverlay
+        );
     }
 }

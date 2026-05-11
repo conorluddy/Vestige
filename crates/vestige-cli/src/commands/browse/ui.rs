@@ -70,16 +70,44 @@ fn draw_tab_bar(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_body(frame: &mut Frame, area: Rect, app: &App) {
-    let text = format!(
-        "{} ({}) — list lands in M2",
-        app.tab.label(),
-        app.active_tab_count()
-    );
-    let paragraph = Paragraph::new(text)
+    match app.tab {
+        Tab::Memories => super::tabs::memories::draw(frame, area, app),
+        Tab::Candidates => draw_placeholder(frame, area, "Candidates", "M5"),
+        Tab::Traces => draw_placeholder(frame, area, "Traces", "M6"),
+    }
+}
+
+fn draw_placeholder(frame: &mut Frame, area: Rect, label: &str, when: &str) {
+    let lines = vec![
+        Line::from(Span::styled(
+            format!("{label} tab"),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(format!("Lands in {when}.")),
+        Line::from(""),
+        Line::from(Span::styled(
+            "CLI alternatives for now:",
+            Style::default().fg(Color::Gray),
+        )),
+        Line::from(Span::styled(
+            placeholder_cli_hint(label),
+            Style::default().fg(Color::Cyan),
+        )),
+    ];
+    let paragraph = Paragraph::new(lines)
         .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true });
-    let centred = centre_vertically(area, 1);
+        .wrap(Wrap { trim: false });
+    let centred = centre_vertically(area, 6);
     frame.render_widget(paragraph, centred);
+}
+
+fn placeholder_cli_hint(label: &str) -> &'static str {
+    match label {
+        "Candidates" => "vestige inbox · vestige approve · vestige reject",
+        "Traces" => "vestige trace · vestige trace <id> · vestige trace replay <id>",
+        _ => "",
+    }
 }
 
 fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
@@ -187,18 +215,38 @@ mod tests {
     }
 
     #[test]
-    fn body_placeholder_uses_active_tab_count() {
+    fn memories_tab_renders_empty_state_when_no_items() {
+        // The Memories tab now owns its body. Without items it draws the
+        // rich empty-state copy from `tabs::memories`. Tab bar still shows
+        // the startup count from `Counts`.
         let counts = Counts {
-            memories_active: 47,
+            memories_active: 0,
             candidates_pending: 3,
             traces: 184,
         };
-        let mut app = App::new(Tab::Memories, counts, "p".into());
-        assert!(render(&app).contains("Memories (47) — list lands in M2"));
-        app.tab = Tab::Candidates;
-        assert!(render(&app).contains("Candidates (3) — list lands in M2"));
+        let app = App::new(Tab::Memories, counts, "p".into());
+        let out = render(&app);
+        assert!(out.contains("No memories yet"), "got: {out}");
+    }
+
+    #[test]
+    fn candidates_and_traces_placeholders_point_at_cli() {
+        let counts = Counts {
+            memories_active: 0,
+            candidates_pending: 3,
+            traces: 184,
+        };
+        let mut app = App::new(Tab::Candidates, counts, "p".into());
+        let out = render(&app);
+        assert!(out.contains("Candidates tab"));
+        assert!(out.contains("Lands in M5"));
+        assert!(out.contains("vestige inbox"));
+
         app.tab = Tab::Traces;
-        assert!(render(&app).contains("Traces (184) — list lands in M2"));
+        let out = render(&app);
+        assert!(out.contains("Traces tab"));
+        assert!(out.contains("Lands in M6"));
+        assert!(out.contains("vestige trace"));
     }
 
     #[test]
