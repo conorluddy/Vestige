@@ -436,19 +436,17 @@ mod tests {
         let mut app = App::new(Tab::Memories, counts, "proj_demo".into());
         // Populate item lengths to drive the live count
         for _ in 0..5 {
-            app.memories
-                .items
-                .push(vestige_core::MemoryCard {
-                    id: vestige_core::MemoryId::new(),
-                    r#type: vestige_core::MemoryType::Note,
-                    status: vestige_core::MemoryStatus::Active,
-                    title: "x".into(),
-                    one_liner: "y".into(),
-                    importance: 0.5,
-                    created_at: time::OffsetDateTime::now_utc(),
-                    updated_at: time::OffsetDateTime::now_utc(),
-                    available_depths: vec![],
-                });
+            app.memories.items.push(vestige_core::MemoryCard {
+                id: vestige_core::MemoryId::new(),
+                r#type: vestige_core::MemoryType::Note,
+                status: vestige_core::MemoryStatus::Active,
+                title: "x".into(),
+                one_liner: "y".into(),
+                importance: 0.5,
+                created_at: time::OffsetDateTime::now_utc(),
+                updated_at: time::OffsetDateTime::now_utc(),
+                available_depths: vec![],
+            });
         }
         let out = render(&app);
         assert!(out.contains("Mem 5"), "live mem count; got: {out}");
