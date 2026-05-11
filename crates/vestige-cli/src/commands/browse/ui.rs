@@ -16,7 +16,7 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Tab};
+use super::app::{App, PendingConfirm, Tab};
 
 // === PUBLIC API ===
 
@@ -37,6 +37,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     if app.help_open {
         draw_help(frame, area);
+    }
+    if let Some(pending) = &app.pending_confirm {
+        draw_confirm(frame, area, pending);
     }
 }
 
@@ -116,7 +119,21 @@ fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Min(1), Constraint::Length(40)])
         .split(area);
 
-    let left = Paragraph::new(format!("Vestige · {}", app.project_name)).alignment(Alignment::Left);
+    // A flash overrides the project label until the user issues another input
+    // (the dispatcher clears it on the next non-trivial action).
+    let left_text = if let Some(flash) = &app.status_flash {
+        flash.text.clone()
+    } else {
+        format!("Vestige · {}", app.project_name)
+    };
+    let left_style = match &app.status_flash {
+        Some(f) if f.is_error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        Some(_) => Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+        None => Style::default(),
+    };
+    let left = Paragraph::new(Span::styled(left_text, left_style)).alignment(Alignment::Left);
     let right = Paragraph::new("Tab switch · ? help · q quit").alignment(Alignment::Right);
     frame.render_widget(left, chunks[0]);
     frame.render_widget(right, chunks[1]);
@@ -137,6 +154,8 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("  w                 why — provenance walk"),
         Line::from("  s                 sources — typed receipts"),
         Line::from("  t                 traces-of — which queries returned this"),
+        Line::from("  f                 forget memory (soft-delete, with confirm)"),
+        Line::from("  r                 restore soft-deleted memory (with confirm)"),
         Line::from("  Esc               close overlay / clear filter / back"),
         Line::from("  ?                 toggle this help"),
         Line::from("  q / Ctrl-c        quit"),
@@ -146,6 +165,38 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         .block(block)
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, popup);
+}
+
+fn draw_confirm(frame: &mut Frame, area: Rect, pending: &PendingConfirm) {
+    let popup = centred_rect(60, 50, area);
+    frame.render_widget(Clear, popup);
+    let title = format!("Confirm {}", pending.verb().to_lowercase());
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let id_str = pending.memory_id().as_str();
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("{} memory", pending.verb()),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(id_str.to_string()),
+        Line::from(""),
+        Line::from(Span::styled(
+            "y - yes     n / Enter / Esc - no",
+            Style::default().fg(Color::Gray),
+        )),
+    ];
+    let paragraph = Paragraph::new(lines)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
 }
 
 fn active_tab_style(no_color: bool) -> Style {
@@ -297,6 +348,49 @@ mod tests {
             mem_cell.style(),
             cand_cell.style(),
             "active tab should differ in style from inactive"
+        );
+    }
+
+    #[test]
+    fn confirm_modal_renders_with_id_and_keys() {
+        let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
+        let mem = vestige_core::MemoryId::new();
+        let mem_str = mem.as_str().to_string();
+        app.pending_confirm = Some(PendingConfirm::Forget(mem));
+        let out = render(&app);
+        assert!(out.contains("Confirm forget"), "title; got: {out}");
+        assert!(out.contains("Forget memory"), "verb; got: {out}");
+        assert!(
+            out.contains(&mem_str[..16]),
+            "id prefix should appear; got: {out}"
+        );
+        assert!(out.contains("y"), "y key prompt; got: {out}");
+        assert!(out.contains("yes"));
+        assert!(out.contains("Enter"));
+        assert!(out.contains("Esc"));
+    }
+
+    #[test]
+    fn restore_confirm_title_uses_correct_verb() {
+        let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
+        app.pending_confirm = Some(PendingConfirm::Restore(vestige_core::MemoryId::new()));
+        let out = render(&app);
+        assert!(out.contains("Confirm restore"), "got: {out}");
+        assert!(out.contains("Restore memory"));
+    }
+
+    #[test]
+    fn status_flash_overrides_project_label() {
+        let mut app = App::new(Tab::Memories, Counts::default(), "proj_demo".into());
+        app.status_flash = Some(super::super::app::StatusFlash {
+            text: "Forgot mem_01HX0000000000000000000ABC".into(),
+            is_error: false,
+        });
+        let out = render(&app);
+        assert!(out.contains("Forgot mem_01HX"), "got: {out}");
+        assert!(
+            !out.contains("Vestige · proj_demo"),
+            "flash hides project label"
         );
     }
 

@@ -78,6 +78,12 @@ pub enum Action {
     ShowWhy,
     ShowSources,
     ShowTracesOf,
+    // Mutations. `RequestForget` / `RequestRestore` open a confirmation modal.
+    // `ConfirmYes` / `ConfirmNo` resolve it. The modal blocks everything else.
+    RequestForget,
+    RequestRestore,
+    ConfirmYes,
+    ConfirmNo,
     None,
 }
 
@@ -89,6 +95,35 @@ pub enum DetailView {
     Why,
     Sources,
     TracesOf,
+}
+
+/// A modal blocking input until the user confirms or cancels.
+#[derive(Debug, Clone)]
+pub enum PendingConfirm {
+    Forget(vestige_core::MemoryId),
+    Restore(vestige_core::MemoryId),
+}
+
+impl PendingConfirm {
+    pub fn memory_id(&self) -> &vestige_core::MemoryId {
+        match self {
+            PendingConfirm::Forget(id) | PendingConfirm::Restore(id) => id,
+        }
+    }
+
+    pub fn verb(&self) -> &'static str {
+        match self {
+            PendingConfirm::Forget(_) => "Forget",
+            PendingConfirm::Restore(_) => "Restore",
+        }
+    }
+}
+
+/// Short-lived flash message shown in the status line after a mutation.
+#[derive(Debug, Clone)]
+pub struct StatusFlash {
+    pub text: String,
+    pub is_error: bool,
 }
 
 /// Per-tab state for the Memories tab. Owned by [`App`].
@@ -171,6 +206,8 @@ pub struct App {
     pub help_open: bool,
     pub should_quit: bool,
     pub memories: MemoriesTabState,
+    pub pending_confirm: Option<PendingConfirm>,
+    pub status_flash: Option<StatusFlash>,
 }
 
 // === PUBLIC API ===
@@ -184,6 +221,8 @@ impl App {
             help_open: false,
             should_quit: false,
             memories: MemoriesTabState::default(),
+            pending_confirm: None,
+            status_flash: None,
         }
     }
 
@@ -198,7 +237,10 @@ impl App {
             Action::PrevTab => self.tab = self.tab.prev(),
             Action::ToggleHelp => self.help_open = !self.help_open,
             Action::CloseOverlay => {
-                if self.help_open {
+                // Precedence: confirm modal > help > filter > sub-view.
+                if self.pending_confirm.is_some() {
+                    self.pending_confirm = None;
+                } else if self.help_open {
                     self.help_open = false;
                 } else if self.tab == Tab::Memories && self.memories.filter_focused {
                     self.memories.filter_focused = false;
@@ -208,9 +250,11 @@ impl App {
                     self.memories.detail_view = DetailView::Default;
                 }
             }
+            Action::ConfirmNo => {
+                self.pending_confirm = None;
+            }
             Action::None => {}
-            // Memories-tab navigation handled inline; the caller is responsible
-            // for noticing the selection changed and re-fetching detail.
+            // Handled inline in the dispatcher because they need a `&Store`.
             Action::MoveDown
             | Action::MoveUp
             | Action::MoveTop
@@ -222,7 +266,10 @@ impl App {
             | Action::FilterBackspace
             | Action::ShowWhy
             | Action::ShowSources
-            | Action::ShowTracesOf => {}
+            | Action::ShowTracesOf
+            | Action::RequestForget
+            | Action::RequestRestore
+            | Action::ConfirmYes => {}
         }
     }
 }
@@ -355,6 +402,26 @@ mod tests {
             DetailView::Sources,
             "subview is untouched until filter focus is closed"
         );
+    }
+
+    #[test]
+    fn close_overlay_dismisses_modal_first() {
+        let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
+        a.help_open = true;
+        a.memories.detail_view = DetailView::Why;
+        a.pending_confirm = Some(PendingConfirm::Forget(vestige_core::MemoryId::new()));
+        a.handle(Action::CloseOverlay);
+        assert!(a.pending_confirm.is_none(), "modal closes first");
+        assert!(a.help_open, "help untouched until modal is closed");
+        assert_eq!(a.memories.detail_view, DetailView::Why, "subview untouched");
+    }
+
+    #[test]
+    fn confirm_no_clears_modal() {
+        let mut a = App::new(Tab::Memories, Counts::default(), "p".into());
+        a.pending_confirm = Some(PendingConfirm::Restore(vestige_core::MemoryId::new()));
+        a.handle(Action::ConfirmNo);
+        assert!(a.pending_confirm.is_none());
     }
 
     #[test]

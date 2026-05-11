@@ -70,12 +70,13 @@ pub fn run(args: BrowseArgs) -> Result<()> {
     let counts = read_counts(&store, &project_id)?;
     let mut app = App::new(args.tab.into(), counts, cfg.project_name.clone());
 
+    let mut store = store;
     // Load the Memories tab eagerly so the first frame has data.
     tabs::memories::reload_list(&mut app, &store, &project_id)?;
 
     terminal::install_panic_hook();
     let mut term = terminal::enter().context("entering raw mode")?;
-    let loop_result = run_loop(&mut term, &mut app, &store, &project_id);
+    let loop_result = run_loop(&mut term, &mut app, &mut store, &project_id);
     let restore_result = terminal::leave(term);
     loop_result.and(restore_result)
 }
@@ -96,7 +97,7 @@ fn read_counts(store: &Store, project_id: &ProjectId) -> Result<Counts> {
 fn run_loop(
     terminal: &mut terminal::Tui,
     app: &mut App,
-    store: &Store,
+    store: &mut Store,
     project_id: &ProjectId,
 ) -> Result<()> {
     // Poll cadence: 250ms keeps Ctrl-c responsive while staying idle most of
@@ -119,17 +120,24 @@ fn run_loop(
 /// so the pure-state module stays I/O-free.
 fn apply_action(
     app: &mut App,
-    store: &Store,
+    store: &mut Store,
     project_id: &ProjectId,
     action: Action,
 ) -> Result<()> {
+    // A status flash sticks until the next non-trivial action arrives.
+    // Polling timeouts (Action::None) don't count — they fire on the 250ms
+    // poll cadence and would clear the flash before the user reads it.
+    if !matches!(action, Action::None) {
+        app.status_flash = None;
+    }
     match action {
         Action::None => {}
         Action::Quit
         | Action::NextTab
         | Action::PrevTab
         | Action::ToggleHelp
-        | Action::CloseOverlay => {
+        | Action::CloseOverlay
+        | Action::ConfirmNo => {
             app.handle(action);
         }
         Action::MoveDown => move_and_refresh(app, store, |s| s.move_cursor(1))?,
@@ -170,8 +178,98 @@ fn apply_action(
                 app.memories.filter_focused = false;
             }
         }
+        Action::RequestForget => {
+            if app.tab == Tab::Memories {
+                request_mutation(app, |status, id| {
+                    (status == vestige_core::MemoryStatus::Active)
+                        .then_some(app::PendingConfirm::Forget(id))
+                });
+            }
+        }
+        Action::RequestRestore => {
+            if app.tab == Tab::Memories {
+                request_mutation(app, |status, id| {
+                    (status == vestige_core::MemoryStatus::Deleted)
+                        .then_some(app::PendingConfirm::Restore(id))
+                });
+            }
+        }
+        Action::ConfirmYes => {
+            apply_confirmed_mutation(app, store, project_id)?;
+        }
     }
     Ok(())
+}
+
+/// Open the mutation confirm modal if the current selection's status allows it.
+fn request_mutation(
+    app: &mut App,
+    decide: impl FnOnce(
+        vestige_core::MemoryStatus,
+        vestige_core::MemoryId,
+    ) -> Option<app::PendingConfirm>,
+) {
+    let Some(card) = app.memories.items.get(app.memories.selected) else {
+        return;
+    };
+    let Some(pending) = decide(card.status, card.id.clone()) else {
+        return;
+    };
+    app.pending_confirm = Some(pending);
+}
+
+/// Resolve the pending confirm by actually mutating the store, then reload
+/// the list at the same cursor index. Stashes a [`StatusFlash`] message so
+/// the user sees what just happened.
+fn apply_confirmed_mutation(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+) -> Result<()> {
+    let Some(pending) = app.pending_confirm.take() else {
+        return Ok(());
+    };
+    let id = pending.memory_id().clone();
+    let outcome = match &pending {
+        app::PendingConfirm::Forget(_) => store.forget_memory(&id),
+        app::PendingConfirm::Restore(_) => store.restore_memory(&id),
+    };
+    match outcome {
+        Ok(true) => {
+            app.status_flash = Some(app::StatusFlash {
+                text: format!("{} {}", past_tense(&pending), id.as_str()),
+                is_error: false,
+            });
+        }
+        Ok(false) => {
+            app.status_flash = Some(app::StatusFlash {
+                text: format!("{} skipped (no-op) for {}", pending.verb(), id.as_str()),
+                is_error: true,
+            });
+        }
+        Err(e) => {
+            app.status_flash = Some(app::StatusFlash {
+                text: format!("{} failed: {e}", pending.verb()),
+                is_error: true,
+            });
+        }
+    }
+    let prev_index = app.memories.selected;
+    tabs::memories::reload_list(app, store, project_id)?;
+    // Keep cursor in roughly the same place. `reload_list` already clamps
+    // when the list shrinks; if the list grew, restore the prior index.
+    if prev_index < app.memories.items.len() {
+        app.memories.selected = prev_index;
+        tabs::memories::refresh_detail(app, store)?;
+    }
+    Ok(())
+}
+
+fn past_tense(pending: &app::PendingConfirm) -> &'static str {
+    match pending {
+        app::PendingConfirm::Forget(_) => "Forgot",
+        app::PendingConfirm::Restore(_) => "Restored",
+    }
 }
 
 /// Move the cursor via `mutate`, and if the selection actually changed,

@@ -29,6 +29,16 @@ fn is_press(key: &KeyEvent) -> bool {
 }
 
 fn map_key(key: &KeyEvent, app: &App) -> Action {
+    // Confirm modal swallows input until resolved.
+    if app.pending_confirm.is_some() {
+        return match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => Action::ConfirmYes,
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter => Action::ConfirmNo,
+            KeyCode::Esc => Action::CloseOverlay,
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+            _ => Action::None,
+        };
+    }
     if app.help_open {
         return match key.code {
             KeyCode::Esc => Action::CloseOverlay,
@@ -62,6 +72,10 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
         KeyCode::Char('w') => Action::ShowWhy,
         KeyCode::Char('s') => Action::ShowSources,
         KeyCode::Char('t') => Action::ShowTracesOf,
+        // Mutations — dispatcher checks the selected memory's status and
+        // routes to the right action (forget on active, restore on deleted).
+        KeyCode::Char('f') => Action::RequestForget,
+        KeyCode::Char('r') => Action::RequestRestore,
         KeyCode::Esc => Action::CloseOverlay,
         _ => Action::None,
     }
@@ -239,6 +253,49 @@ mod tests {
         assert_eq!(
             map_event(&press(KeyCode::Char('/'), KeyModifiers::NONE), &a),
             Action::OpenFilter
+        );
+    }
+
+    #[test]
+    fn f_and_r_request_mutations() {
+        let a = app(false);
+        assert_eq!(
+            map_event(&press(KeyCode::Char('f'), KeyModifiers::NONE), &a),
+            Action::RequestForget
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('r'), KeyModifiers::NONE), &a),
+            Action::RequestRestore
+        );
+    }
+
+    #[test]
+    fn modal_swallows_input_until_resolved() {
+        let mut a = app(false);
+        a.pending_confirm = Some(super::super::app::PendingConfirm::Forget(
+            vestige_core::MemoryId::new(),
+        ));
+        assert_eq!(
+            map_event(&press(KeyCode::Char('y'), KeyModifiers::NONE), &a),
+            Action::ConfirmYes
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('n'), KeyModifiers::NONE), &a),
+            Action::ConfirmNo
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Enter, KeyModifiers::NONE), &a),
+            Action::ConfirmNo,
+            "Enter should be safe — defaults to No"
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Esc, KeyModifiers::NONE), &a),
+            Action::CloseOverlay
+        );
+        // Tab is otherwise NextTab; the modal must swallow it.
+        assert_eq!(
+            map_event(&press(KeyCode::Tab, KeyModifiers::NONE), &a),
+            Action::None
         );
     }
 

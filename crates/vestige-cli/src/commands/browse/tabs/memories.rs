@@ -848,6 +848,50 @@ mod tests {
     }
 
     #[test]
+    fn reload_after_forget_marks_row_deleted() {
+        use tempfile::TempDir;
+        use vestige_core::{build_bundle, NewMemory};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let proj = ProjectId::from_slug("browse-forget-restore");
+        store
+            .ensure_project(&proj, "Mut Test", Some("/tmp/test"), None)
+            .unwrap();
+
+        let bundle = build_bundle(
+            &proj,
+            NewMemory {
+                r#type: MemoryType::Note,
+                body: "Note about M4.",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+        let mem_id = bundle.memory.id.clone();
+        store.record_memory(&bundle).unwrap();
+
+        let mut app = app_with(MemoriesTabState::default());
+        reload_list(&mut app, &store, &proj).unwrap();
+        assert_eq!(app.memories.items.len(), 1);
+        assert_eq!(app.memories.items[0].status, MemoryStatus::Active);
+
+        store.forget_memory(&mem_id).unwrap();
+        reload_list(&mut app, &store, &proj).unwrap();
+        assert_eq!(
+            app.memories.items.len(),
+            1,
+            "soft-deleted row is still listed by default"
+        );
+        assert_eq!(app.memories.items[0].status, MemoryStatus::Deleted);
+
+        store.restore_memory(&mem_id).unwrap();
+        reload_list(&mut app, &store, &proj).unwrap();
+        assert_eq!(app.memories.items[0].status, MemoryStatus::Active);
+    }
+
+    #[test]
     fn ensure_provenance_against_real_store_round_trips() {
         use tempfile::TempDir;
         use vestige_core::{build_bundle, NewMemory};
