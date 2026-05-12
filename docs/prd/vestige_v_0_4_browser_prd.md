@@ -449,3 +449,17 @@ Once that proves the ratatui plumbing end-to-end, layer on:
 - Docs + demo
 
 That keeps the first PR small, exercises the framework against real V0.3 data, and lets us catch terminal-handling edge cases before we widen the feature surface.
+
+## 18. Implementation Drift (post-merge)
+
+The implementation in PR #77 diverged from this PRD in four places. Recorded here so the PRD stays honest about what shipped vs. what was scoped.
+
+- **§13 M1 — `ratatui` version**: PRD said `0.28`; shipped on `0.30` (the current release line at build time). `crossterm` shipped via ratatui's re-export rather than a separate dep.
+- **§11.1 — `/` filter debounce**: PRD specified an 80 ms debounce. Implementation runs the FTS5 query synchronously on every keystroke instead — local SQLite returns in sub-millisecond time so the debounce added latency without solving a real problem. Revisit if a project gets large enough that single-keystroke search becomes perceptible.
+- **§12 — `[browser]` config block**: not shipped. The defaults in V0.4 (40/60 split, no page-size limit beyond an internal 500-row cap, no debounce, confirm-on-destructive) are hardcoded. Add the block when the first user asks to tune one of them.
+- **§7.8 — narrow-terminal single-pane collapse**: not shipped. Current 40/60 layout works down to ~80 cols; narrower terminals are out of scope until someone reports the pain.
+
+Two PRD items that **did** ship but warrant a note on shape:
+
+- **§6.4 — `:` palette command set**: ships `:quit`, `:help`, `:goto`, `:kind`, `:status`, `:caller`, `:search`. `:mode lexical|semantic|hybrid` is deferred — it needs the `[embeddings]` provider plumbed through the browser, which depends on infrastructure landing in V0.5+. Tab autocomplete is also deferred to V0.4.x polish.
+- **§7.4 — reject prompt**: an empty buffer no longer submits `RejectionReason::Other("unspecified")`. The prompt re-opens with a status flash listing the typed presets (`duplicate / wrong / not_durable / too_noisy / stale`); `Esc` cancels. This is stricter than the PRD's "reason can be empty" wording and aligns with §16's "rejects are reasoned and final."
