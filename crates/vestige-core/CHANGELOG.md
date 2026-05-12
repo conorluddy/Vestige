@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/conorluddy/Vestige/compare/v0.4.0...v0.4.1) - 2026-05-12
+
+### Release
+
+- V0.4 Memory Browser (TUI) (develop → main) ([#78](https://github.com/conorluddy/Vestige/pull/78))
+
 ## [0.4.0](https://github.com/conorluddy/Vestige/compare/v0.3.0...v0.4.0) - 2026-05-08
 
 ### Release
