@@ -604,3 +604,122 @@ fn trace_id_new_has_trace_prefix() {
 fn trace_id_rejects_mem_prefix() {
     assert!(TraceId::from_str("mem_01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err());
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fetch_traces_for_memory — V0.4 trace forward-link
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn fetch_traces_for_memory_returns_only_matching_rows() {
+    let tmp = TempDir::new().unwrap();
+    let mut store = open_store(&tmp);
+    let proj = ProjectId::from_slug("test-traces-of");
+    ensure_project(&mut store, &proj);
+
+    let target = MemoryId::new();
+    let other = MemoryId::new();
+
+    let make_trace = |store: &Store, ids: &[&MemoryId], created_at: &str| -> TraceId {
+        let trace_id = TraceId::new();
+        let json =
+            serde_json::to_string(&ids.iter().map(|id| id.as_str()).collect::<Vec<_>>()).unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO query_events
+                     (id, project_id, kind, caller, result_count, latency_ms, created_at,
+                      result_ids_json)
+                 VALUES (?1, ?2, 'search', 'cli', ?3, 5, ?4, ?5)",
+                rusqlite::params![
+                    trace_id.as_str(),
+                    proj.as_str(),
+                    ids.len() as i64,
+                    created_at,
+                    json,
+                ],
+            )
+            .unwrap();
+        trace_id
+    };
+
+    let t_hit_1 = make_trace(&store, &[&target, &other], "2026-05-08T10:00:00Z");
+    let _t_miss = make_trace(&store, &[&other], "2026-05-08T11:00:00Z");
+    let t_hit_2 = make_trace(&store, &[&target], "2026-05-08T12:00:00Z");
+
+    let hits = store.fetch_traces_for_memory(&proj, &target, 50).unwrap();
+    let hit_ids: Vec<&str> = hits.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(
+        hit_ids,
+        vec![t_hit_2.as_str(), t_hit_1.as_str()],
+        "expected most-recent first; got {hit_ids:?}"
+    );
+}
+
+#[test]
+fn fetch_traces_for_memory_is_project_scoped() {
+    let tmp = TempDir::new().unwrap();
+    let mut store = open_store(&tmp);
+    let proj_a = ProjectId::from_slug("test-scope-traces-a");
+    let proj_b = ProjectId::from_slug("test-scope-traces-b");
+    ensure_project(&mut store, &proj_a);
+    ensure_project(&mut store, &proj_b);
+
+    let mem = MemoryId::new();
+    let trace_in_b = TraceId::new();
+    let json = serde_json::to_string(&[mem.as_str()]).unwrap();
+    store
+        .connection()
+        .execute(
+            "INSERT INTO query_events
+                 (id, project_id, kind, caller, result_count, latency_ms, created_at,
+                  result_ids_json)
+             VALUES (?1, ?2, 'search', 'mcp', 1, 4, '2026-05-08T10:00:00Z', ?3)",
+            rusqlite::params![trace_in_b.as_str(), proj_b.as_str(), json],
+        )
+        .unwrap();
+
+    assert!(store
+        .fetch_traces_for_memory(&proj_a, &mem, 50)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store
+            .fetch_traces_for_memory(&proj_b, &mem, 50)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn fetch_traces_for_memory_ignores_substring_collisions() {
+    // A LIKE scan on bare ULIDs could collide because ULIDs share a Crockford
+    // alphabet — `mem_01HX…` could substring-match `mem_01HY…`. We wrap each
+    // ID in double quotes in the JSON before matching, so the LIKE pattern
+    // anchors on `"<full id>"` and cannot accidentally match a longer ID.
+    let tmp = TempDir::new().unwrap();
+    let mut store = open_store(&tmp);
+    let proj = ProjectId::from_slug("test-substring");
+    ensure_project(&mut store, &proj);
+
+    let target = MemoryId::new();
+
+    // Craft a JSON payload that contains the target ID as a bare substring
+    // (not wrapped in quotes) — should NOT match.
+    let bare = format!("[\"{}_suffix\"]", target.as_str());
+    store
+        .connection()
+        .execute(
+            "INSERT INTO query_events
+                 (id, project_id, kind, caller, result_count, latency_ms, created_at,
+                  result_ids_json)
+             VALUES (?1, ?2, 'search', 'cli', 1, 5, '2026-05-08T10:00:00Z', ?3)",
+            rusqlite::params![TraceId::new().as_str(), proj.as_str(), bare],
+        )
+        .unwrap();
+
+    assert!(store
+        .fetch_traces_for_memory(&proj, &target, 50)
+        .unwrap()
+        .is_empty());
+}

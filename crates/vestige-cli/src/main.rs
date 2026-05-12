@@ -81,6 +81,8 @@ enum Command {
     Sources(commands::sources::SourcesArgs),
     /// List recent query traces or inspect one in detail.
     Trace(commands::trace::TraceArgs),
+    /// Open the interactive memory browser (TUI).
+    Browse(commands::browse::BrowseArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
@@ -119,5 +121,6 @@ fn main() -> Result<()> {
         Command::Why(args) => commands::why::run(args),
         Command::Sources(args) => commands::sources::run(args),
         Command::Trace(args) => commands::trace::run(args),
+        Command::Browse(args) => commands::browse::run(args),
     }
 }

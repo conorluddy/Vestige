@@ -246,7 +246,7 @@ function Embeddings() {
 function Features() {
   const { features } = window.VESTIGE;
   return (
-    <Section id="features" n="10" title="Defaults.">
+    <Section id="features" n="11" title="Defaults.">
       <div className="vt-frame hard" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         {features.map((f, i) => (
           <div key={i} style={{
@@ -321,6 +321,67 @@ trace_caller_mcp          = true`}</pre>
   );
 }
 
+// ── Memory browser (TUI) ─────────────────────────────────
+function Browser() {
+  return (
+    <Section id="browser" n="10" title="Memory browser." lede="V0.4 wraps every V0–V0.3 surface in an interactive terminal browser. Three tabs, two-pane layout, keyboard-driven.">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Browse</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            Three tabs (Memories · Candidates · Traces), two-pane list+detail, vim navigation. Strikethrough on soft-deleted memories. Live counts in the status row.
+          </p>
+          <pre className="vt-pre">{`vestige browse
+
+[Memories(47)] [Candidates(3)] [Traces(184)]
+┌─ list ────────────┬─ mem_01HX7 ─────────────────┐
+│> dec   FTS5+vec hybrid  │ decision  imp 0.82      │
+│  note  Trace replay…    │ created  2026-05-08 …  │
+│  q     Directives or…   │ summary                │
+│  pref  Markdown PRDs    │ Hybrid recall blends … │
+│  ̶d̶e̶c̶ ̶ ̶U̶L̶I̶D̶ ̶m̶i̶g̶r̶a̶t̶i̶o̶n̶ ̶  │ sources (1)            │
+└───────────────────┴────────────────────────────┘
+Vestige · proj_my-project · [Mem 47 · Cand 3 · Trc 184]`}</pre>
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Curate</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            <code>w</code> / <code>s</code> / <code>t</code> swap the detail pane for the V0.3 provenance walks. <code>f</code> / <code>r</code> forget / restore memories with a confirm modal. <code>a</code> / <code>R</code> approve / reject candidates. <code>p</code> replays the selected trace and renders the diff inline.
+          </p>
+          <pre className="vt-pre">{`Detail · replay diff
+replay of trace_01HX…
+new trace: trace_01HY…
+
+⚠  provider mismatch
+
+added (1)
+  + mem_01KA…  (new)
+
+removed (1)
+  - mem_01HV…  (forgotten)
+
+score changes (1)
+  Δ +0.234  mem_01HX…
+
+corpus size: 47`}</pre>
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Navigate</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            The <code>:</code> command palette jumps across tabs by ID, filters by kind / status / caller, mirrors <code>/</code> search, and aliases <code>?</code> / <code>q</code>. No daemon, no schema change, no new MCP tool.
+          </p>
+          <pre className="vt-pre">{`:goto trace_01HX0000000000…
+:kind decision
+:status deleted
+:caller mcp
+:search hybrid
+:help        ·   :quit`}</pre>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 // ── CLI reference (tabbed) ───────────────────────────────
 function CLI() {
   const { commands } = window.VESTIGE;
@@ -336,7 +397,7 @@ function CLI() {
     { name: 'provenance', cmds: byGroup('provenance') },
   ];
   return (
-    <Section id="cli" n="11" title="CLI reference." lede="Twenty-two commands. Pipe-friendly. Deterministic.">
+    <Section id="cli" n="12" title="CLI reference." lede="Twenty-three commands. Pipe-friendly. Deterministic. (Plus `vestige browse` — interactive, not in the tabs.)">
       <div className="vt-frame hard">
         <div style={{ display: 'flex', borderBottom: '1px solid var(--vt-ink)' }}>
           {groups.map((g, i) => (
@@ -370,7 +431,7 @@ function CLI() {
 function Roadmap() {
   const { roadmap } = window.VESTIGE;
   return (
-    <Section id="roadmap" n="12" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
+    <Section id="roadmap" n="13" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
       <div className="vt-frame hard">
         <div style={{ display: 'grid', gridTemplateColumns: '60px 180px 1fr 80px', padding: '10px 14px', background: 'var(--vt-ink)', color: 'var(--vt-bg)', fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
           <span>ver</span><span>title</span><span>scope</span><span style={{ textAlign: 'right' }}>state</span>
@@ -413,4 +474,4 @@ function Footer() {
   );
 }
 
-Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Provenance, Features, CLI, Roadmap, Footer });
+Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Provenance, Browser, Features, CLI, Roadmap, Footer });

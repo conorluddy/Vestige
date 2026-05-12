@@ -14,6 +14,7 @@ function VestigePage() {
       <SchemaSection />
       <Embeddings />
       <Provenance />
+      <Browser />
       <Features />
       <CLI />
       <Roadmap />

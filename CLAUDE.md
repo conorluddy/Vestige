@@ -56,6 +56,9 @@ cargo run -p vestige -- trace                             # list recent query tr
 cargo run -p vestige -- trace <trace_id>                  # full detail for one trace
 cargo run -p vestige -- trace replay <trace_id>           # re-run trace; diff against original
 
+# V0.4 — interactive memory browser (TUI)
+cargo run -p vestige -- browse                            # full-screen browser; --tab memories|candidates|traces
+
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige -- status
 ```
@@ -101,7 +104,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, and V0.3 are shipped** as of v0.3.0. V0.2 added the assimilation inbox (candidate review layer). V0.3 adds the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. See `docs/v0.2.md` and `docs/v0.3.md` for full walkthroughs. V0.4 is the **Memory Browser (TUI)** milestone — interactive `vestige browse` over the existing store; spec: `docs/prd/vestige_v_0_4_browser_prd.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5.
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, V0.3, and V0.4 are shipped.** V0.2 added the assimilation inbox (candidate review layer). V0.3 added the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. V0.4 adds the **Memory Browser (TUI)** — `vestige browse` opens a full-screen three-tab browser (Memories · Candidates · Traces) with vim navigation, provenance sub-views (`w`/`s`/`t`), mutations (`f`/`r`/`a`/`R`), trace replay (`p`), and a `:` command palette. Spec: `docs/prd/vestige_v_0_4_browser_prd.md`; walkthrough: `docs/v0.4.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5. **V0.5 (Daemon runtime) is the active next milestone.**
 
 ## Hard rules (will reject in review)
 
