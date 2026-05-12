@@ -1,9 +1,10 @@
 //! `vestige browse` — interactive TUI over project memory.
 //!
-//! M2 ships the Memories tab read-only: a two-pane list+detail view with vim
-//! navigation, per-keystroke `/` filter, soft-deleted entries shown with
-//! strike-through, and rich empty-state copy. Candidates and Traces tabs are
-//! still placeholders — they land in M5 and M6.
+//! Three tabs (Memories · Candidates · Traces) over a single Store handle held
+//! for the session lifetime. Vim navigation, `/` lexical filter, `:` command
+//! palette, provenance sub-views (`w` why · `s` sources · `t` traces-of),
+//! mutations (`f` forget · `r` restore · `a` approve · `R` reject), and `p`
+//! trace replay with inline diff. No daemon, no schema changes, no MCP changes.
 
 use std::io::IsTerminal;
 use std::time::Duration;
@@ -324,7 +325,12 @@ fn apply_confirmed_mutation(
             }
         }
         app::Modal::PromptRejectReason { .. } => {
-            // Unreachable — PromptSubmit handles this, not ConfirmYes.
+            // Prompt modals resolve through PromptSubmit, not ConfirmYes. If we
+            // get here the input mapper has drifted — surface in debug builds,
+            // restore the modal in release so a user never loses their typed
+            // buffer to a swallow.
+            debug_assert!(false, "ConfirmYes on prompt modal");
+            app.modal = Some(modal);
             return Ok(());
         }
     };
@@ -365,12 +371,24 @@ fn apply_confirmed_mutation(
 }
 
 /// Resolve a text-input prompt by submitting whatever's in the buffer.
+///
+/// Rejections must carry a reason (PRD §16 — rejects are reasoned and final).
+/// An empty buffer re-opens the prompt with a status-flash hint rather than
+/// silently rejecting with `Other("unspecified")`.
 fn apply_prompt_submit(app: &mut App, store: &mut Store, project_id: &ProjectId) -> Result<()> {
     let Some(modal) = app.modal.take() else {
         return Ok(());
     };
     match modal {
         app::Modal::PromptRejectReason { id, buffer } => {
+            if buffer.trim().is_empty() {
+                app.modal = Some(app::Modal::PromptRejectReason { id, buffer });
+                app.status_flash = Some(app::StatusFlash {
+                    text: "Reject needs a reason — type one of: duplicate / wrong / not_durable / too_noisy / stale, or free text. Esc cancels.".into(),
+                    is_error: true,
+                });
+                return Ok(());
+            }
             let reason = parse_reject_reason(&buffer);
             let result = vestige_engine::reject_candidate(
                 store,
@@ -409,12 +427,13 @@ fn apply_prompt_submit(app: &mut App, store: &mut Store, project_id: &ProjectId)
     Ok(())
 }
 
+/// Parse the reject prompt buffer into a typed `RejectionReason`. The caller
+/// guarantees the input is non-empty (empty buffers are gated in
+/// `apply_prompt_submit`); recognised tokens parse into typed variants, anything
+/// else passes through as `Other`.
 fn parse_reject_reason(input: &str) -> vestige_core::RejectionReason {
     use std::str::FromStr;
     let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return vestige_core::RejectionReason::Other("unspecified".into());
-    }
     vestige_core::RejectionReason::from_str(trimmed)
         .unwrap_or_else(|_| vestige_core::RejectionReason::Other(trimmed.to_string()))
 }
@@ -477,8 +496,7 @@ fn execute_goto(
     if id.is_empty() {
         return Err("usage: goto <mem_…|cand_…|trace_…>".into());
     }
-    if let Some(stripped) = id.strip_prefix("mem_") {
-        let _ = stripped;
+    if id.starts_with("mem_") {
         if let Some(pos) = app.memories.items.iter().position(|c| c.id.as_str() == id) {
             app.tab = Tab::Memories;
             app.memories.selected = pos;

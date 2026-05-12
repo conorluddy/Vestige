@@ -324,7 +324,7 @@ impl Store {
     /// that, V0.5+ can add a dedicated `query_event_results` join table.
     pub fn fetch_traces_for_memory(
         &self,
-        project_id: &str,
+        project_id: &vestige_core::ProjectId,
         memory_id: &vestige_core::MemoryId,
         limit: u32,
     ) -> Result<Vec<QueryEventRow>> {
@@ -342,7 +342,7 @@ impl Store {
         )?;
         let rows = stmt
             .query_map(
-                rusqlite::params![project_id, needle, limit as i64],
+                rusqlite::params![project_id.as_str(), needle, limit as i64],
                 row_to_query_event,
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;

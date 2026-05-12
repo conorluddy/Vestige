@@ -100,7 +100,7 @@ pub fn ensure_provenance(
         DetailView::TracesOf => {
             if state.provenance.traces_of.is_none() {
                 let traces = store
-                    .fetch_traces_for_memory(project_id.as_str(), &id, TRACES_OF_LIMIT)
+                    .fetch_traces_for_memory(project_id, &id, TRACES_OF_LIMIT)
                     .unwrap_or_default();
                 state.provenance.traces_of = Some(traces);
             }

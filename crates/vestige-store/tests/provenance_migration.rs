@@ -646,9 +646,7 @@ fn fetch_traces_for_memory_returns_only_matching_rows() {
     let _t_miss = make_trace(&store, &[&other], "2026-05-08T11:00:00Z");
     let t_hit_2 = make_trace(&store, &[&target], "2026-05-08T12:00:00Z");
 
-    let hits = store
-        .fetch_traces_for_memory(proj.as_str(), &target, 50)
-        .unwrap();
+    let hits = store.fetch_traces_for_memory(&proj, &target, 50).unwrap();
     let hit_ids: Vec<&str> = hits.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(
         hit_ids,
@@ -681,12 +679,12 @@ fn fetch_traces_for_memory_is_project_scoped() {
         .unwrap();
 
     assert!(store
-        .fetch_traces_for_memory(proj_a.as_str(), &mem, 50)
+        .fetch_traces_for_memory(&proj_a, &mem, 50)
         .unwrap()
         .is_empty());
     assert_eq!(
         store
-            .fetch_traces_for_memory(proj_b.as_str(), &mem, 50)
+            .fetch_traces_for_memory(&proj_b, &mem, 50)
             .unwrap()
             .len(),
         1
@@ -721,7 +719,7 @@ fn fetch_traces_for_memory_ignores_substring_collisions() {
         .unwrap();
 
     assert!(store
-        .fetch_traces_for_memory(proj.as_str(), &target, 50)
+        .fetch_traces_for_memory(&proj, &target, 50)
         .unwrap()
         .is_empty());
 }
