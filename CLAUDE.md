@@ -101,7 +101,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, and V0.3 are shipped** as of v0.3.0. V0.2 added the assimilation inbox (candidate review layer). V0.3 adds the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. See `docs/v0.2.md` and `docs/v0.3.md` for full walkthroughs. **V0.4 is the active next milestone.**
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, and V0.3 are shipped** as of v0.3.0. V0.2 added the assimilation inbox (candidate review layer). V0.3 adds the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. See `docs/v0.2.md` and `docs/v0.3.md` for full walkthroughs. V0.4 is the **Memory Browser (TUI)** milestone — interactive `vestige browse` over the existing store; spec: `docs/prd/vestige_v_0_4_browser_prd.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5.
 
 ## Hard rules (will reject in review)
 
