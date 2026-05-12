@@ -1143,6 +1143,8 @@ Acceptance criteria:
 
 ## 20. Roadmap Stub
 
+> **Note on ordering** — V0.4 was reordered during V0.3 from "Daemon Runtime" to "Memory Browser (TUI)." The browser shipped first because it provides immediate human leverage over the V0.3 provenance data without infrastructure risk. The daemon moves to V0.5, Dream-Lite to V0.7, and everything below shifts by one. The landing-page roadmap (`docs/src/data.js`) is the canonical current ordering; the per-version sections below are preserved verbatim as historical record. V0.4-as-shipped is specified in `docs/prd/vestige_v_0_4_browser_prd.md`.
+
 ### V0: Skeleton Project Memory
 
 Focus:

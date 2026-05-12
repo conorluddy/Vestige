@@ -6,7 +6,7 @@ const VESTIGE = {
     name:   'Vestige',
     tag:    'memory infrastructure for coding agents',
     repo:   'https://github.com/conorluddy/Vestige',
-    version:'v0.3.0',
+    version:'v0.4.0',
     license:'MIT',
   },
 
