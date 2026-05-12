@@ -315,6 +315,40 @@ impl Store {
         }
     }
 
+    /// Fetch the traces (most-recent first) whose result set contains the
+    /// given memory ID. Used by the V0.4 browser to answer "which queries
+    /// returned this memory?" — the forward-link reserved in V0.3.
+    ///
+    /// Implementation is a `LIKE` scan over `result_ids_json`. Acceptable at
+    /// the V0.3 default cap of 10 000 traces per project; if a project crosses
+    /// that, V0.5+ can add a dedicated `query_event_results` join table.
+    pub fn fetch_traces_for_memory(
+        &self,
+        project_id: &vestige_core::ProjectId,
+        memory_id: &vestige_core::MemoryId,
+        limit: u32,
+    ) -> Result<Vec<QueryEventRow>> {
+        let needle = format!("%\"{}\"%", memory_id.as_str());
+        let mut stmt = self.connection().prepare(
+            "SELECT id, kind, mode_requested, mode_resolved, query_text, params_json,
+                    caller, provider, provider_model,
+                    result_ids_json, result_scores_json, result_count, latency_ms, created_at
+             FROM query_events
+             WHERE project_id = ?1
+               AND result_ids_json IS NOT NULL
+               AND result_ids_json LIKE ?2
+             ORDER BY created_at DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params![project_id.as_str(), needle, limit as i64],
+                row_to_query_event,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Fetch the `id` of the most recently written `query_events` row for
     /// `project_id`, in insertion (ULID) order.
     ///

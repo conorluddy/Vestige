@@ -177,7 +177,7 @@ model = "nomic-embed-text"
 ### Known limitations
 
 - **Embeddings are an index, not state.** Memories are canonical in SQLite. `vestige reindex --embeddings` rebuilds the vector layer at any time; deleting it never loses memory. Hybrid mode falls back to lexical (with a warning) when embeddings are missing or were produced under a different provider/model/dimensions.
-- **Switching provider/model/dimensions is detected, not auto-cleaned.** When the configured provider drifts away from what the embeddings were generated under, `vestige search` prints a warning at query time and falls back. The stored rows stay until you run `vestige reindex --embeddings` (or `vestige embed --all` after a clean re-index) — automatic stale-sweep is deferred to V0.4.
+- **Switching provider/model/dimensions is detected, not auto-cleaned.** When the configured provider drifts away from what the embeddings were generated under, `vestige search` prints a warning at query time and falls back. The stored rows stay until you run `vestige reindex --embeddings` (or `vestige embed --all` after a clean re-index) — automatic stale-sweep is deferred to V0.5+.
 - **Brute-force cosine scan, no `vec0` yet.** V0.1 reads all in-project, matching-provider vectors and ranks them in Rust. Comfortable to roughly 10k vectors per project; past that, semantic-mode latency starts to show. A future release will swap in a `vec0` virtual table behind the same `Store` API — the canonical store schema and the engine surface stay unchanged.
 
 ## Plug it into Claude Code (MCP)
@@ -285,6 +285,23 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 
 ## What's shipped
 
+### V0.4 — Memory browser (TUI)
+
+V0.4 adds an interactive terminal browser over the project's memory store. Three tabs, two-pane layout, full keyboard-driven navigation, and every V0–V0.3 read+mutate surface reachable from a single binary.
+
+- `vestige browse` — launches a full-screen browser. Bound to the project resolved from `.vestige/config.toml`. Single Store handle for the session; no daemon.
+- **Memories tab** — list/detail over `list_memories`; `/` opens a per-keystroke FTS5 filter; soft-deleted entries strike-through inline; `w` / `s` / `t` reveal provenance walk, typed source receipts, and the new trace forward-link.
+- **Candidates tab** — list/detail over `list_candidates`; `a` approves (with confirm); `R` (Shift+r) rejects with a reason prompt that parses `duplicate / wrong / not_durable / too_noisy / stale / <freeform>`.
+- **Traces tab** — list/detail over `query_events`; `p` replays the selected trace via `vestige_engine::replay_trace` and renders the added / removed / score-change diff inline. Provider-mismatch and mode-fallback surface as inline banners.
+- `f` / `r` — forget / restore memories with a y/N confirm modal. Status flash announces the outcome in the status row.
+- `:` command palette — `:goto <id>` jumps across tabs by ID prefix (`mem_` / `cand_` / `trace_`); `:kind <type>` and `:status active|deleted|all` filter Memories; `:caller cli|mcp` filters Traces; `:search <text>` mirrors `/`; `:help` and `:quit` are aliases for `?` and `q`.
+- `NO_COLOR` env var honoured. `?` opens the full keymap overlay. `Esc` precedence: modal > palette > help > filter focus > sub-view.
+- New store helpers: `Store::pending_candidate_count` and `Store::fetch_traces_for_memory` (the V0.3-reserved trace forward-link, anchored on `"<full id>"` in the JSON to avoid ULID substring collisions).
+
+The browser is interactive-only — pipe-friendly inspection still lives in `list`, `show`, `search`, `why`, `sources`, `trace`. Running `vestige browse` without a TTY fails fast with a friendly message.
+
+See [`docs/v0.4.md`](docs/v0.4.md) for the full walkthrough. Full spec: [`docs/prd/vestige_v_0_4_browser_prd.md`](docs/prd/vestige_v_0_4_browser_prd.md).
+
 ### V0.3 — Provenance and Receipts
 
 V0.3 makes the memory store **inspectable end-to-end**. Every memory is now answerable to "where did this come from?" and every recall is answerable to "what did the agent ask, and what did it get?".
@@ -331,7 +348,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.4 is the active next milestone. Full roadmap in `vestige_prd.md` §20.
+V0.5 (Daemon runtime) is the active next milestone. Full roadmap in `vestige_prd.md` §20 — note the landing-page order: V0.4 = browser (shipped), V0.5 = daemon, V0.6 = directives.
 
 ## Contributing
 
