@@ -21,8 +21,8 @@ use ratatui::{
 
 use anyhow::Result;
 use vestige_core::{
-    project_card, project_detail, ListFilter, MemoryCard, MemoryDetail, MemoryStatus, MemoryType,
-    ProjectId, RepresentationDepth, SearchFilter,
+    project_card, FetchedMemory, ListFilter, MemoryCard, MemoryStatus, MemoryType, ProjectId,
+    RepresentationDepth, SearchFilter,
 };
 use vestige_store::Store;
 
@@ -131,7 +131,7 @@ pub fn refresh_detail(app: &mut App, store: &Store) -> Result<()> {
             return Ok(());
         }
     };
-    state.detail = Some(project_detail(&fetched));
+    state.detail = Some(fetched);
     Ok(())
 }
 
@@ -314,26 +314,28 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, inner);
 }
 
-fn header_lines(detail: &MemoryDetail) -> Vec<Line<'static>> {
-    let card = &detail.card;
+fn header_lines(fetched: &FetchedMemory) -> Vec<Line<'static>> {
+    let m = &fetched.memory;
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![
         Span::styled(
-            card.id.as_str().to_string(),
+            m.id.as_str().to_string(),
             Style::default().add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
+        Span::styled(format!("{:?}", m.r#type), Style::default().fg(Color::Gray)),
+        Span::raw("  "),
         Span::styled(
-            format!("{:?}", card.r#type),
+            format!("imp {:.2}", m.importance),
             Style::default().fg(Color::Gray),
         ),
         Span::raw("  "),
         Span::styled(
-            format!("imp {:.2}", card.importance),
+            format!("conf {:.2}", m.confidence),
             Style::default().fg(Color::Gray),
         ),
     ]));
-    if card.status == MemoryStatus::Deleted {
+    if m.status == MemoryStatus::Deleted {
         lines.push(Line::from(Span::styled(
             "DELETED",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -343,46 +345,163 @@ fn header_lines(detail: &MemoryDetail) -> Vec<Line<'static>> {
     lines
 }
 
-fn default_detail_lines(detail: &MemoryDetail) -> Vec<Line<'static>> {
-    let mut lines = header_lines(detail);
-    let card = &detail.card;
+fn default_detail_lines(fetched: &FetchedMemory) -> Vec<Line<'static>> {
+    let mut lines = header_lines(fetched);
+    let m = &fetched.memory;
+    let card = project_card(fetched);
+
+    // Title (derived from one_liner).
     lines.push(Line::from(Span::styled(
         card.title.clone(),
-        Style::default().add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     )));
-    if let Some(summary) = pick_text(detail, RepresentationDepth::Summary) {
+    lines.push(Line::from(""));
+
+    // Timestamps — absolute UTC + relative.
+    lines.push(timestamp_line("created", m.created_at));
+    lines.push(timestamp_line("updated", m.updated_at));
+    if let Some(deleted_at) = m.deleted_at {
+        lines.push(timestamp_line("deleted", deleted_at));
+    }
+
+    // Every available representation, in depth order. The OneLiner shows
+    // first because it's the canonical title source; Summary/Compressed/Full
+    // follow only when they exist and differ.
+    let mut last: Option<&str> = None;
+    for depth in [
+        RepresentationDepth::OneLiner,
+        RepresentationDepth::Summary,
+        RepresentationDepth::Compressed,
+        RepresentationDepth::Full,
+    ] {
+        let Some(text) = pick_text(fetched, depth) else {
+            continue;
+        };
+        if Some(text) == last {
+            // Skip identical reps (V0: Compressed is often identical to
+            // Summary before the LLM-compression pass lands).
+            continue;
+        }
+        last = Some(text);
         lines.push(Line::from(""));
-        for chunk in summary.split('\n') {
+        lines.push(Line::from(Span::styled(
+            depth_label(depth),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for chunk in text.split('\n') {
             lines.push(Line::from(chunk.to_string()));
         }
-    } else if !card.one_liner.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(card.one_liner.clone()));
     }
-    if !detail.sources.is_empty() {
+
+    // Sources — inline full list rather than a count. Matches PRD §5.2
+    // progressive disclosure: the detail pane is the expanded view.
+    if !fetched.sources.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            format!(
-                "sources: {}  ·  w why  ·  s sources  ·  t traces-of",
-                detail.sources.len()
-            ),
-            Style::default().fg(Color::Gray),
+            format!("sources ({})", fetched.sources.len()),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )));
-    } else {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "w why  ·  s sources  ·  t traces-of",
-            Style::default().fg(Color::Gray),
-        )));
+        for src in &fetched.sources {
+            let mut spans = vec![Span::styled(
+                src.source_type.clone(),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            )];
+            if let Some(reference) = &src.source_ref {
+                spans.push(Span::raw("  "));
+                spans.push(Span::raw(reference.clone()));
+            }
+            if src.truncated {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(
+                    "(truncated)",
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+            lines.push(Line::from(spans));
+            if let Some(content) = &src.source_content {
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", preview_240(content)),
+                    Style::default().fg(Color::Gray),
+                )));
+            }
+        }
     }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "w why  ·  s sources  ·  t traces-of  ·  f forget  ·  r restore",
+        Style::default().fg(Color::Gray),
+    )));
     lines
 }
 
+fn depth_label(depth: RepresentationDepth) -> &'static str {
+    match depth {
+        RepresentationDepth::OneLiner => "one-liner",
+        RepresentationDepth::Summary => "summary",
+        RepresentationDepth::Compressed => "compressed",
+        RepresentationDepth::Full => "full",
+    }
+}
+
+/// Format a timestamp row: `created   2026-05-12 14:32:11 UTC   (2 days ago)`.
+/// Relative span is approximate — we floor to the largest unit that fits.
+fn timestamp_line(label: &str, ts: time::OffsetDateTime) -> Line<'static> {
+    let abs = format_ts(ts);
+    let rel = relative_span(ts);
+    Line::from(vec![
+        Span::styled(format!("{label:<9}"), Style::default().fg(Color::Gray)),
+        Span::raw(abs),
+        Span::raw("  "),
+        Span::styled(format!("({rel})"), Style::default().fg(Color::Gray)),
+    ])
+}
+
+fn format_ts(ts: time::OffsetDateTime) -> String {
+    // Compact UTC. Avoids pulling in a heavy format builder.
+    let utc = ts.to_offset(time::UtcOffset::UTC);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        utc.year(),
+        u8::from(utc.month()),
+        utc.day(),
+        utc.hour(),
+        utc.minute(),
+        utc.second(),
+    )
+}
+
+fn relative_span(ts: time::OffsetDateTime) -> String {
+    let now = time::OffsetDateTime::now_utc();
+    let delta = now - ts;
+    let secs = delta.whole_seconds();
+    let abs = secs.unsigned_abs();
+    let suffix = if secs >= 0 { "ago" } else { "from now" };
+    let (value, unit) = match abs {
+        0..=59 => (abs, "s"),
+        60..=3_599 => (abs / 60, "m"),
+        3_600..=86_399 => (abs / 3_600, "h"),
+        86_400..=604_799 => (abs / 86_400, "d"),
+        604_800..=2_591_999 => (abs / 604_800, "w"),
+        2_592_000..=31_535_999 => (abs / 2_592_000, "mo"),
+        _ => (abs / 31_536_000, "y"),
+    };
+    format!("{value}{unit} {suffix}")
+}
+
 fn why_lines(
-    detail: &MemoryDetail,
+    fetched: &FetchedMemory,
     events: Option<&[vestige_store::ProvenanceEvent]>,
 ) -> Vec<Line<'static>> {
-    let mut lines = header_lines(detail);
+    let mut lines = header_lines(fetched);
     let Some(events) = events else {
         lines.push(Line::from(Span::styled(
             "loading…",
@@ -413,10 +532,10 @@ fn why_lines(
 }
 
 fn sources_lines(
-    detail: &MemoryDetail,
+    fetched: &FetchedMemory,
     sources: Option<&[vestige_store::SourceReceiptRow]>,
 ) -> Vec<Line<'static>> {
-    let mut lines = header_lines(detail);
+    let mut lines = header_lines(fetched);
     let Some(sources) = sources else {
         lines.push(Line::from(Span::styled(
             "loading…",
@@ -458,10 +577,10 @@ fn sources_lines(
 }
 
 fn traces_of_lines(
-    detail: &MemoryDetail,
+    fetched: &FetchedMemory,
     traces: Option<&[vestige_store::QueryEventRow]>,
 ) -> Vec<Line<'static>> {
-    let mut lines = header_lines(detail);
+    let mut lines = header_lines(fetched);
     let Some(traces) = traces else {
         lines.push(Line::from(Span::styled(
             "loading…",
@@ -531,14 +650,11 @@ fn preview_240(s: &str) -> String {
     out.replace('\n', " ")
 }
 
-fn pick_text(detail: &MemoryDetail, depth: RepresentationDepth) -> Option<&str> {
-    detail.representations.iter().find_map(|(d, text)| {
-        if *d == depth {
-            Some(text.as_str())
-        } else {
-            None
-        }
-    })
+fn pick_text(fetched: &FetchedMemory, depth: RepresentationDepth) -> Option<&str> {
+    fetched
+        .representations
+        .iter()
+        .find_map(|r| (r.depth == depth).then_some(r.content.as_str()))
 }
 
 fn draw_empty(frame: &mut Frame, area: Rect, filter_text: &str) {
@@ -752,9 +868,23 @@ mod tests {
         assert!(out.contains("/abc"), "expected filter prompt; got {out}");
     }
 
-    fn detail_for(card: MemoryCard) -> MemoryDetail {
-        MemoryDetail {
-            card,
+    fn fetched_from_card(card: &MemoryCard) -> FetchedMemory {
+        FetchedMemory {
+            memory: vestige_core::Memory {
+                id: card.id.clone(),
+                project_id: vestige_core::ProjectId::from_slug("test"),
+                r#type: card.r#type,
+                status: card.status,
+                confidence: 1.0,
+                importance: card.importance,
+                created_at: card.created_at,
+                updated_at: card.updated_at,
+                deleted_at: if card.status == MemoryStatus::Deleted {
+                    Some(card.updated_at)
+                } else {
+                    None
+                },
+            },
             representations: vec![],
             sources: vec![],
         }
@@ -762,12 +892,92 @@ mod tests {
 
     fn populated_with_detail() -> MemoriesTabState {
         let c = card("alpha", MemoryStatus::Active, MemoryType::Note);
-        let d = detail_for(c.clone());
+        let d = fetched_from_card(&c);
         MemoriesTabState {
             items: vec![c],
             detail: Some(d),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn default_detail_shows_every_property() {
+        use vestige_core::{Memory, ProjectId, SourceRow};
+        let id = vestige_core::MemoryId::new();
+        let created = time::OffsetDateTime::now_utc() - time::Duration::days(3);
+        let updated = time::OffsetDateTime::now_utc() - time::Duration::hours(2);
+        let fetched = FetchedMemory {
+            memory: Memory {
+                id: id.clone(),
+                project_id: ProjectId::from_slug("test"),
+                r#type: MemoryType::Decision,
+                status: MemoryStatus::Active,
+                confidence: 0.87,
+                importance: 0.64,
+                created_at: created,
+                updated_at: updated,
+                deleted_at: None,
+            },
+            representations: vec![
+                vestige_core::RepresentationRow {
+                    memory_id: id.clone(),
+                    depth: RepresentationDepth::OneLiner,
+                    content: "Use FTS5 + vec for hybrid recall.".into(),
+                    content_hash: "abc".into(),
+                },
+                vestige_core::RepresentationRow {
+                    memory_id: id.clone(),
+                    depth: RepresentationDepth::Summary,
+                    content: "Hybrid recall blends lexical FTS5 with semantic vectors.".into(),
+                    content_hash: "def".into(),
+                },
+                vestige_core::RepresentationRow {
+                    memory_id: id.clone(),
+                    depth: RepresentationDepth::Full,
+                    content: "Full body explaining the choice in detail.".into(),
+                    content_hash: "ghi".into(),
+                },
+            ],
+            sources: vec![SourceRow {
+                memory_id: id.clone(),
+                source_type: "file".into(),
+                source_ref: Some("docs/prd/vestige_v_0_4_browser_prd.md".into()),
+                source_content: Some("two-pane layout discussion".into()),
+                truncated: false,
+            }],
+        };
+        let card = vestige_core::project_card(&fetched);
+        let s = MemoriesTabState {
+            items: vec![card],
+            detail: Some(fetched),
+            ..Default::default()
+        };
+        let app = app_with(s);
+        let (_t, out) = render(&app);
+        // Header
+        assert!(out.contains(id.as_str()), "id; got: {out}");
+        assert!(out.contains("Decision"));
+        assert!(out.contains("imp 0.64"));
+        assert!(out.contains("conf 0.87"));
+        // Timestamps — absolute + relative
+        assert!(out.contains("UTC"), "absolute ts; got: {out}");
+        assert!(
+            out.contains("ago") || out.contains("from now"),
+            "relative ts; got: {out}"
+        );
+        // All three representation headers
+        assert!(out.contains("one-liner"), "got: {out}");
+        assert!(out.contains("summary"));
+        assert!(out.contains("full"));
+        // Representation bodies
+        assert!(out.contains("Use FTS5 + vec for hybrid recall"));
+        assert!(out.contains("Hybrid recall blends"));
+        assert!(out.contains("Full body explaining"));
+        // Full source content shown inline, not just count
+        assert!(out.contains("sources (1)"));
+        assert!(out.contains("file"));
+        assert!(out.contains("docs/prd/vestige_v_0_4_browser_prd.md"));
+        assert!(out.contains("two-pane layout discussion"));
     }
 
     #[test]
@@ -951,7 +1161,7 @@ mod tests {
         let fetched = store.get_memory(&mem_id).unwrap().unwrap();
         let mut app = app_with(MemoriesTabState {
             items: vec![project_card(&fetched)],
-            detail: Some(project_detail(&fetched)),
+            detail: Some(fetched),
             ..Default::default()
         });
 

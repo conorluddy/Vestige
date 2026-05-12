@@ -180,7 +180,7 @@ pub struct MemoriesTabState {
     pub scroll_offset: usize,
     pub filter_text: String,
     pub filter_focused: bool,
-    pub detail: Option<vestige_core::MemoryDetail>,
+    pub detail: Option<vestige_core::FetchedMemory>,
     pub load_error: Option<String>,
     pub detail_view: DetailView,
     pub provenance: ProvenanceCache,
