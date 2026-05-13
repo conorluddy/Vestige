@@ -20,6 +20,7 @@ use ratatui::{
     Frame,
 };
 use vestige_core::{ProjectId, TraceId};
+use vestige_embed::EmbeddingProvider;
 use vestige_engine::{list_traces, replay_trace, Caller, ListFilters, TraceCard, TraceDetail};
 use vestige_store::Store;
 
@@ -75,17 +76,22 @@ pub fn refresh_detail(app: &mut App, store: &Store, project_id: &ProjectId) -> R
     Ok(())
 }
 
-/// Re-run the selected trace and stash the diff. M6 passes `provider=None`
-/// — semantic/hybrid traces will surface `provider_match=false` and the
-/// banner; lexical traces replay fine.
-pub fn replay_selected(app: &mut App, store: &Store, project_id: &ProjectId) -> Result<()> {
+/// Re-run the selected trace and stash the diff. Passes the session provider
+/// so semantic/hybrid origins can produce `provider_match=true` when the
+/// configured provider matches the recorded trace's provider.
+pub fn replay_selected(
+    app: &mut App,
+    store: &Store,
+    project_id: &ProjectId,
+    provider: Option<&dyn EmbeddingProvider>,
+) -> Result<()> {
     let Some(id_str) = app.traces.selected_id().map(|s| s.to_string()) else {
         return Ok(());
     };
     let Ok(trace_id) = TraceId::from_str(&id_str) else {
         return Ok(());
     };
-    match replay_trace(store, None, project_id, &trace_id, Caller::Cli) {
+    match replay_trace(store, provider, project_id, &trace_id, Caller::Cli) {
         Ok(result) => {
             app.traces.replay = Some(result);
         }
@@ -545,7 +551,7 @@ mod tests {
         reload_list(&mut app, &store, &proj).unwrap();
         assert!(!app.traces.items.is_empty(), "expected one trace");
 
-        replay_selected(&mut app, &store, &proj).unwrap();
+        replay_selected(&mut app, &store, &proj, None).unwrap();
         let replay = app.traces.replay.as_ref().expect("replay populated");
         assert_eq!(
             replay.original.result_ids.len(),
@@ -553,6 +559,86 @@ mod tests {
         );
         // Lexical replay → provider_match should be true (no provider needed).
         assert!(replay.provider_match);
+    }
+
+    #[test]
+    fn replay_provider_match_true_shows_no_mismatch_banner() {
+        // When provider_match = true the mismatch banner must not appear.
+        let s = TracesTabState {
+            items: vec![card("search", "cli", "test", 1)],
+            detail: None,
+            replay: Some(vestige_engine::ReplayResult {
+                trace_id: "trace_01HX0000000000000000000ABC".into(),
+                original: vestige_engine::ReplayResultSet {
+                    result_ids: vec!["mem_a".into()],
+                    scores: vec![0.5],
+                },
+                current: vestige_engine::ReplayResultSet {
+                    result_ids: vec!["mem_a".into()],
+                    scores: vec![0.5],
+                },
+                diff: vestige_engine::ReplayDiff {
+                    added: vec![],
+                    removed: vec![],
+                    score_changes: vec![],
+                },
+                provider_match: true,
+                mode_fallback: false,
+                replay_trace_id: "trace_01HX0000000000000000000NEW".into(),
+                corpus_size: 1,
+            }),
+            ..Default::default()
+        };
+        let app = app_with(s);
+        let out = render(&app);
+        assert!(out.contains("replay diff"), "title; got: {out}");
+        assert!(
+            !out.contains("provider mismatch"),
+            "no banner when match; got: {out}"
+        );
+        assert!(
+            !out.contains("mode fallback"),
+            "no fallback banner; got: {out}"
+        );
+    }
+
+    #[test]
+    fn replay_mode_fallback_banner_appears_when_set() {
+        let s = TracesTabState {
+            items: vec![card("search", "cli", "test", 1)],
+            detail: None,
+            replay: Some(vestige_engine::ReplayResult {
+                trace_id: "trace_01HX0000000000000000000ABC".into(),
+                original: vestige_engine::ReplayResultSet {
+                    result_ids: vec!["mem_a".into()],
+                    scores: vec![0.5],
+                },
+                current: vestige_engine::ReplayResultSet {
+                    result_ids: vec!["mem_a".into()],
+                    scores: vec![0.5],
+                },
+                diff: vestige_engine::ReplayDiff {
+                    added: vec![],
+                    removed: vec![],
+                    score_changes: vec![],
+                },
+                provider_match: true,
+                mode_fallback: true, // original was semantic, fell back to lexical
+                replay_trace_id: "trace_01HX0000000000000000000NEW".into(),
+                corpus_size: 1,
+            }),
+            ..Default::default()
+        };
+        let app = app_with(s);
+        let out = render(&app);
+        assert!(
+            out.contains("mode fallback"),
+            "mode fallback banner present; got: {out}"
+        );
+        assert!(
+            !out.contains("provider mismatch"),
+            "no mismatch banner when provider matched; got: {out}"
+        );
     }
 
     #[test]

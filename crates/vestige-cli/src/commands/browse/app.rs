@@ -4,6 +4,8 @@
 //! drive it. The event loop calls `App::handle(action)` after `event` maps a
 //! `crossterm::event::Event` to an [`Action`].
 
+use vestige_core::SearchMode;
+
 // === TYPES ===
 
 /// Top-level tabs in the browser. Order is the cycling order for `Tab` /
@@ -351,12 +353,25 @@ pub struct App {
     pub memories_status_filter: Option<vestige_core::MemoryStatus>,
     /// Optional caller filter for the Traces tab.
     pub traces_caller_filter: Option<String>,
+    /// Active search mode for the Memories-tab `/` filter. Defaults to
+    /// `Lexical` (or the config `[search] default_mode` when constructed from
+    /// a live project context). Persists for the browser session only.
+    pub search_mode: SearchMode,
+    /// When `Some`, the configured provider was unavailable for the requested
+    /// mode and the browser fell back to lexical. The value is the originally
+    /// requested mode — used to render `mode:hybrid→lexical` in the status line.
+    pub mode_fallback_from: Option<SearchMode>,
 }
 
 // === PUBLIC API ===
 
 impl App {
-    pub fn new(initial_tab: Tab, counts: Counts, project_name: String) -> Self {
+    pub fn with_mode(
+        initial_tab: Tab,
+        counts: Counts,
+        project_name: String,
+        initial_mode: SearchMode,
+    ) -> Self {
         Self {
             project_name,
             tab: initial_tab,
@@ -372,6 +387,8 @@ impl App {
             memories_kind_filter: None,
             memories_status_filter: None,
             traces_caller_filter: None,
+            search_mode: initial_mode,
+            mode_fallback_from: None,
         }
     }
 
@@ -454,6 +471,13 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl App {
+        /// Test convenience: construct with the default lexical mode.
+        pub fn new(initial_tab: Tab, counts: Counts, project_name: String) -> Self {
+            Self::with_mode(initial_tab, counts, project_name, SearchMode::Lexical)
+        }
+    }
 
     fn app() -> App {
         App::new(Tab::Memories, Counts::default(), "test".into())

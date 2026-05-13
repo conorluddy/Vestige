@@ -14,7 +14,8 @@ use clap::{Args, ValueEnum};
 use ratatui::crossterm::event::{self};
 
 use vestige_config::discover_config;
-use vestige_core::ProjectId;
+use vestige_core::{resolve_default_mode, ProjectId, SearchMode};
+use vestige_embed::EmbeddingProvider;
 use vestige_store::Store;
 
 mod app;
@@ -68,18 +69,41 @@ pub fn run(args: BrowseArgs) -> Result<()> {
     let storage_path = cfg.resolved_storage_path()?;
     let store = Store::open(&storage_path).context("opening project store")?;
 
+    // Resolve the initial search mode from config. If the configured default
+    // requires a provider that is unavailable, fall back silently to Lexical —
+    // the status line will show `mode:hybrid→lexical` to explain the fallback.
+    let config_default = cfg.search.as_ref().and_then(|s| s.default_mode.as_deref());
+    let requested_mode = resolve_default_mode(None, config_default).unwrap_or(SearchMode::Lexical);
+
     let counts = read_counts(&store, &project_id)?;
-    let mut app = App::new(args.tab.into(), counts, cfg.project_name.clone());
+    let mut app = App::with_mode(
+        args.tab.into(),
+        counts,
+        cfg.project_name.clone(),
+        requested_mode,
+    );
+
+    // Lazy embedding provider — constructed on first semantic/hybrid use.
+    // We build the context temporarily just for provider config resolution.
+    let mut session_provider: Option<Box<dyn EmbeddingProvider>> = None;
+    let embed_cfg = vestige_config::embeddings_config_for(cfg.embeddings.as_ref());
 
     let mut store = store;
     // Load all three tabs eagerly so the first frame has data on any tab.
-    tabs::memories::reload_list(&mut app, &store, &project_id)?;
+    tabs::memories::reload_list(&mut app, &store, &project_id, session_provider.as_deref())?;
     tabs::candidates::reload_list(&mut app, &store, &project_id)?;
     tabs::traces::reload_list(&mut app, &store, &project_id)?;
 
     terminal::install_panic_hook();
     let mut term = terminal::enter().context("entering raw mode")?;
-    let loop_result = run_loop(&mut term, &mut app, &mut store, &project_id);
+    let loop_result = run_loop(
+        &mut term,
+        &mut app,
+        &mut store,
+        &project_id,
+        &mut session_provider,
+        &embed_cfg,
+    );
     let restore_result = terminal::leave(term);
     loop_result.and(restore_result)
 }
@@ -102,6 +126,8 @@ fn run_loop(
     app: &mut App,
     store: &mut Store,
     project_id: &ProjectId,
+    session_provider: &mut Option<Box<dyn EmbeddingProvider>>,
+    embed_cfg: &vestige_embed::EmbeddingsConfig,
 ) -> Result<()> {
     // Poll cadence: 250ms keeps Ctrl-c responsive while staying idle most of
     // the time. Frames only change on input.
@@ -111,7 +137,7 @@ fn run_loop(
         if event::poll(poll)? {
             let evt = event::read()?;
             let action = input::map_event(&evt, app);
-            apply_action(app, store, project_id, action)?;
+            apply_action(app, store, project_id, session_provider, embed_cfg, action)?;
         }
     }
     Ok(())
@@ -125,6 +151,8 @@ fn apply_action(
     app: &mut App,
     store: &mut Store,
     project_id: &ProjectId,
+    session_provider: &mut Option<Box<dyn EmbeddingProvider>>,
+    embed_cfg: &vestige_embed::EmbeddingsConfig,
     action: Action,
 ) -> Result<()> {
     // A status flash sticks until the next non-trivial action arrives.
@@ -180,7 +208,8 @@ fn apply_action(
         Action::FilterChar(c) => match app.tab {
             Tab::Memories => {
                 app.memories.filter_text.push(c);
-                tabs::memories::reload_list(app, store, project_id)?;
+                ensure_provider_for_mode(app, session_provider, embed_cfg);
+                tabs::memories::reload_list(app, store, project_id, session_provider.as_deref())?;
             }
             Tab::Candidates => {
                 app.candidates.filter_text.push(c);
@@ -191,7 +220,13 @@ fn apply_action(
         Action::FilterBackspace => match app.tab {
             Tab::Memories => {
                 if app.memories.filter_text.pop().is_some() {
-                    tabs::memories::reload_list(app, store, project_id)?;
+                    ensure_provider_for_mode(app, session_provider, embed_cfg);
+                    tabs::memories::reload_list(
+                        app,
+                        store,
+                        project_id,
+                        session_provider.as_deref(),
+                    )?;
                 } else {
                     app.memories.filter_focused = false;
                 }
@@ -265,11 +300,12 @@ fn apply_action(
             }
         }
         Action::PaletteSubmit => {
-            execute_palette(app, store, project_id)?;
+            execute_palette(app, store, project_id, session_provider, embed_cfg)?;
         }
         Action::RequestReplay => {
             if app.tab == Tab::Traces {
-                tabs::traces::replay_selected(app, store, project_id)?;
+                ensure_provider_for_mode(app, session_provider, embed_cfg);
+                tabs::traces::replay_selected(app, store, project_id, session_provider.as_deref())?;
                 if let Some(replay) = &app.traces.replay {
                     let added = replay.diff.added.len();
                     let removed = replay.diff.removed.len();
@@ -356,12 +392,14 @@ fn apply_confirmed_mutation(
         }
     }
     // Reload whichever tab was affected. Both reloads are cheap.
+    // Forget/restore change the active list so we need to reload. Use lexical
+    // only here (mutations don't carry a search context).
     if matches!(
         modal,
         app::Modal::ConfirmForget(_) | app::Modal::ConfirmRestore(_)
     ) {
         let prev = app.memories.selected;
-        tabs::memories::reload_list(app, store, project_id)?;
+        tabs::memories::reload_list(app, store, project_id, None)?;
         if prev < app.memories.items.len() {
             app.memories.selected = prev;
             tabs::memories::refresh_detail(app, store)?;
@@ -438,7 +476,58 @@ fn parse_reject_reason(input: &str) -> vestige_core::RejectionReason {
         .unwrap_or_else(|_| vestige_core::RejectionReason::Other(trimmed.to_string()))
 }
 
-fn execute_palette(app: &mut App, store: &mut Store, project_id: &ProjectId) -> Result<()> {
+/// Lazily initialise the embedding provider when the current session mode
+/// requires one. On failure, silently falls back to `Lexical` and records
+/// `mode_fallback_from` so the status line can show `mode:hybrid→lexical`.
+fn ensure_provider_for_mode(
+    app: &mut App,
+    session_provider: &mut Option<Box<dyn EmbeddingProvider>>,
+    embed_cfg: &vestige_embed::EmbeddingsConfig,
+) {
+    if !matches!(app.search_mode, SearchMode::Semantic | SearchMode::Hybrid) {
+        return;
+    }
+    if session_provider.is_some() {
+        return;
+    }
+    match vestige_embed::build_provider(embed_cfg) {
+        Ok(p) => {
+            *session_provider = Some(p);
+            app.mode_fallback_from = None;
+        }
+        Err(_) => {
+            // Provider unavailable — fall back to lexical for this operation.
+            let requested = app.search_mode;
+            app.search_mode = SearchMode::Lexical;
+            app.mode_fallback_from = Some(requested);
+        }
+    }
+}
+
+/// Produce the status-line mode suffix. Returns `None` when the mode is lexical
+/// and no fallback is recorded (the common case — keeps the line clean).
+pub(crate) fn mode_display_label(mode: SearchMode, fallback_from: Option<SearchMode>) -> String {
+    if let Some(requested) = fallback_from {
+        return format!("{}→lexical", mode_name(requested));
+    }
+    mode_name(mode).to_string()
+}
+
+fn mode_name(mode: SearchMode) -> &'static str {
+    match mode {
+        SearchMode::Lexical => "lexical",
+        SearchMode::Semantic => "semantic",
+        SearchMode::Hybrid => "hybrid",
+    }
+}
+
+fn execute_palette(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+    session_provider: &mut Option<Box<dyn EmbeddingProvider>>,
+    embed_cfg: &vestige_embed::EmbeddingsConfig,
+) -> Result<()> {
     let raw = match app.palette.as_ref() {
         Some(p) => p.buffer.trim().to_string(),
         None => return Ok(()),
@@ -461,10 +550,11 @@ fn execute_palette(app: &mut App, store: &mut Store, project_id: &ProjectId) -> 
             Ok(None)
         }
         "goto" => execute_goto(app, store, project_id, &rest),
-        "kind" => execute_kind(app, store, project_id, &rest),
-        "status" => execute_status(app, store, project_id, &rest),
+        "kind" => execute_kind(app, store, project_id, session_provider.as_deref(), &rest),
+        "status" => execute_status(app, store, project_id, session_provider.as_deref(), &rest),
         "caller" => execute_caller(app, store, project_id, &rest),
-        "search" => execute_search_cmd(app, store, project_id, &rest),
+        "search" => execute_search_cmd(app, store, project_id, session_provider.as_deref(), &rest),
+        "mode" => execute_mode(app, store, project_id, session_provider, embed_cfg, &rest),
         other => Err(format!("unknown command: {other}")),
     };
     match result {
@@ -484,6 +574,67 @@ fn execute_palette(app: &mut App, store: &mut Store, project_id: &ProjectId) -> 
         }
     }
     Ok(())
+}
+
+/// Handle `:mode lexical|semantic|hybrid`. Validates the value, initialises the
+/// provider lazily if needed, updates `app.search_mode`, and reloads the
+/// Memories list so the new mode takes effect immediately.
+fn execute_mode(
+    app: &mut App,
+    store: &mut Store,
+    project_id: &ProjectId,
+    session_provider: &mut Option<Box<dyn EmbeddingProvider>>,
+    embed_cfg: &vestige_embed::EmbeddingsConfig,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    let mode = match arg {
+        "lexical" => SearchMode::Lexical,
+        "semantic" => SearchMode::Semantic,
+        "hybrid" => SearchMode::Hybrid,
+        "" => {
+            let current = mode_display_label(app.search_mode, app.mode_fallback_from);
+            return Ok(Some(format!("current mode: {current}")));
+        }
+        other => {
+            return Err(format!(
+                "mode must be lexical | semantic | hybrid; got {other}"
+            ))
+        }
+    };
+    // Try to build a provider if the mode needs one.
+    if matches!(mode, SearchMode::Semantic | SearchMode::Hybrid) {
+        if session_provider.is_none() {
+            match vestige_embed::build_provider(embed_cfg) {
+                Ok(p) => {
+                    *session_provider = Some(p);
+                    app.mode_fallback_from = None;
+                }
+                Err(e) => {
+                    let hint = match &e {
+                        vestige_embed::EmbedError::ProviderDisabled(name) => {
+                            format!(
+                                "provider `{name}` not compiled — rebuild with `--features {name}`"
+                            )
+                        }
+                        _ => e.to_string(),
+                    };
+                    // Fall back to lexical and surface in status line.
+                    app.search_mode = SearchMode::Lexical;
+                    app.mode_fallback_from = Some(mode);
+                    tabs::memories::reload_list(app, store, project_id, None)
+                        .map_err(|e| e.to_string())?;
+                    return Ok(Some(format!("mode fallback → lexical ({hint})")));
+                }
+            }
+        }
+    } else {
+        // Switching to lexical — clear any fallback state.
+        app.mode_fallback_from = None;
+    }
+    app.search_mode = mode;
+    tabs::memories::reload_list(app, store, project_id, session_provider.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok(Some(format!("mode set to {arg}")))
 }
 
 fn execute_goto(
@@ -537,6 +688,7 @@ fn execute_kind(
     app: &mut App,
     store: &mut Store,
     project_id: &ProjectId,
+    provider: Option<&dyn EmbeddingProvider>,
     arg: &str,
 ) -> std::result::Result<Option<String>, String> {
     use std::str::FromStr;
@@ -545,13 +697,13 @@ fn execute_kind(
     }
     if arg.is_empty() || arg == "all" {
         app.memories_kind_filter = None;
-        tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+        tabs::memories::reload_list(app, store, project_id, provider).map_err(|e| e.to_string())?;
         return Ok(Some("kind: all".into()));
     }
     let kind = vestige_core::MemoryType::from_str(arg)
         .map_err(|_| format!("unknown memory type: {arg}"))?;
     app.memories_kind_filter = Some(kind);
-    tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+    tabs::memories::reload_list(app, store, project_id, provider).map_err(|e| e.to_string())?;
     Ok(Some(format!("kind: {arg}")))
 }
 
@@ -559,6 +711,7 @@ fn execute_status(
     app: &mut App,
     store: &mut Store,
     project_id: &ProjectId,
+    provider: Option<&dyn EmbeddingProvider>,
     arg: &str,
 ) -> std::result::Result<Option<String>, String> {
     if app.tab != Tab::Memories {
@@ -574,7 +727,7 @@ fn execute_status(
             ))
         }
     };
-    tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+    tabs::memories::reload_list(app, store, project_id, provider).map_err(|e| e.to_string())?;
     Ok(Some(format!(
         "status: {}",
         if arg.is_empty() { "all" } else { arg }
@@ -606,13 +759,15 @@ fn execute_search_cmd(
     app: &mut App,
     store: &mut Store,
     project_id: &ProjectId,
+    provider: Option<&dyn EmbeddingProvider>,
     arg: &str,
 ) -> std::result::Result<Option<String>, String> {
     let text = arg.trim().to_string();
     match app.tab {
         Tab::Memories => {
             app.memories.filter_text = text.clone();
-            tabs::memories::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
+            tabs::memories::reload_list(app, store, project_id, provider)
+                .map_err(|e| e.to_string())?;
         }
         Tab::Candidates => {
             app.candidates.filter_text = text.clone();
