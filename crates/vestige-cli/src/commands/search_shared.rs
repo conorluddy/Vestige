@@ -146,7 +146,7 @@ fn resolve_mode(flags: &SearchModeFlags<'_>, ctx: &ProjectContext) -> Result<Sea
     resolve_default_mode(flags.mode, config_default).map_err(anyhow::Error::from)
 }
 
-fn build_embed_provider(ctx: &ProjectContext) -> Result<Box<dyn EmbeddingProvider>> {
+pub fn build_embed_provider(ctx: &ProjectContext) -> Result<Box<dyn EmbeddingProvider>> {
     build_provider(&ctx.resolve_embeddings_config()).map_err(|e| {
         let hint = match &e {
             EmbedError::ProviderDisabled(name) => {
