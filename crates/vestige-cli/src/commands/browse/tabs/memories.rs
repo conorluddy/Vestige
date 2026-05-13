@@ -20,10 +20,14 @@ use ratatui::{
 };
 
 use anyhow::Result;
+use vestige_config::traces_config_for;
 use vestige_core::{
     project_card, FetchedMemory, ListFilter, MemoryCard, MemoryStatus, MemoryType, ProjectId,
-    RepresentationDepth, SearchFilter,
+    RepresentationDepth, SearchFilter, SearchMode,
 };
+use vestige_embed::EmbeddingProvider;
+use vestige_engine::search::{search_hybrid, search_semantic};
+use vestige_engine::Caller;
 use vestige_store::Store;
 
 use crate::commands::browse::app::{App, DetailView};
@@ -37,18 +41,35 @@ const LIST_CAP: u32 = 500;
 /// Reload the list pane for the Memories tab using the current filter.
 ///
 /// Empty filter → `list_memories` (active + deleted, newest first).
-/// Non-empty filter → `search_memories` (FTS5), then expand hits to cards by
-/// fetching each row. The hit→card conversion is N additional `get_memory`
-/// reads but N is bounded by the search limit (default 50) and SQLite is
-/// local — measured below 5ms for typical projects.
-pub fn reload_list(app: &mut App, store: &Store, project_id: &ProjectId) -> Result<()> {
+/// Non-empty filter → dispatches to `search_lexical / search_semantic /
+/// search_hybrid` based on `app.search_mode`. `provider` must be `Some` when
+/// mode is Semantic or Hybrid; when `None`, the mode falls back to Lexical.
+pub fn reload_list(
+    app: &mut App,
+    store: &Store,
+    project_id: &ProjectId,
+    provider: Option<&dyn EmbeddingProvider>,
+) -> Result<()> {
     let filter_text = app.memories.filter_text.trim().to_string();
     let kind = app.memories_kind_filter;
     let status = app.memories_status_filter;
+    let mode = if provider.is_none() {
+        SearchMode::Lexical
+    } else {
+        app.search_mode
+    };
     let result = if filter_text.is_empty() {
         load_unfiltered(store, project_id, kind, status)
     } else {
-        load_filtered(store, project_id, &filter_text, kind, status)
+        load_filtered(
+            store,
+            project_id,
+            &filter_text,
+            kind,
+            status,
+            mode,
+            provider,
+        )
     };
     let state = &mut app.memories;
     state.load_error = None;
@@ -196,21 +217,83 @@ fn load_filtered(
     query: &str,
     kind: Option<MemoryType>,
     status: Option<MemoryStatus>,
+    mode: SearchMode,
+    provider: Option<&dyn EmbeddingProvider>,
 ) -> Result<Vec<MemoryCard>> {
-    // `search_memories` is FTS5-only — soft-deleted rows are excluded by the
-    // FTS sync triggers (V0 invariant). So a non-empty filter scopes to active
-    // memories regardless of the M2 "show deleted by default" rule.
-    let filter = SearchFilter {
-        r#type: kind,
-        limit: Some(LIST_CAP),
-        mode: vestige_core::SearchMode::Lexical,
-        include_score_parts: false,
+    // Search excludes soft-deleted rows (FTS sync trigger invariant). So a
+    // non-empty filter always scopes to active memories.
+    let mut cards = match mode {
+        SearchMode::Lexical => {
+            let filter = SearchFilter {
+                r#type: kind,
+                limit: Some(LIST_CAP),
+                mode: SearchMode::Lexical,
+                include_score_parts: false,
+            };
+            let hits = store.search_memories(project_id, query, &filter)?;
+            hits.iter()
+                .map(|h| project_card(&h.fetched))
+                .collect::<Vec<_>>()
+        }
+        SearchMode::Semantic => {
+            if let Some(p) = provider {
+                let traces_cfg = traces_config_for(None);
+                let outcome = search_semantic(
+                    store,
+                    project_id,
+                    query,
+                    kind,
+                    LIST_CAP,
+                    p,
+                    Caller::Cli,
+                    &traces_cfg,
+                )?;
+                outcome.scored.iter().map(|s| s.card.clone()).collect()
+            } else {
+                // Provider unavailable: fall through to lexical silently.
+                let filter = SearchFilter {
+                    r#type: kind,
+                    limit: Some(LIST_CAP),
+                    mode: SearchMode::Lexical,
+                    include_score_parts: false,
+                };
+                let hits = store.search_memories(project_id, query, &filter)?;
+                hits.iter()
+                    .map(|h| project_card(&h.fetched))
+                    .collect::<Vec<_>>()
+            }
+        }
+        SearchMode::Hybrid => {
+            if let Some(p) = provider {
+                let traces_cfg = traces_config_for(None);
+                let outcome = search_hybrid(
+                    store,
+                    project_id,
+                    query,
+                    kind,
+                    LIST_CAP,
+                    p,
+                    Caller::Cli,
+                    &traces_cfg,
+                )?;
+                outcome.scored.iter().map(|s| s.card.clone()).collect()
+            } else {
+                let filter = SearchFilter {
+                    r#type: kind,
+                    limit: Some(LIST_CAP),
+                    mode: SearchMode::Lexical,
+                    include_score_parts: false,
+                };
+                let hits = store.search_memories(project_id, query, &filter)?;
+                hits.iter()
+                    .map(|h| project_card(&h.fetched))
+                    .collect::<Vec<_>>()
+            }
+        }
     };
-    let hits = store.search_memories(project_id, query, &filter)?;
-    let mut cards: Vec<MemoryCard> = hits.iter().map(|h| project_card(&h.fetched)).collect();
     if matches!(status, Some(MemoryStatus::Deleted)) {
-        // FTS excludes deleted, so this will always be empty — leave a friendly
-        // hint by letting the empty-state render naturally.
+        // FTS/vector search excludes deleted, so this will always be empty —
+        // let the empty-state render naturally.
         cards.clear();
     }
     Ok(cards)
@@ -1109,12 +1192,12 @@ mod tests {
         store.record_memory(&bundle).unwrap();
 
         let mut app = app_with(MemoriesTabState::default());
-        reload_list(&mut app, &store, &proj).unwrap();
+        reload_list(&mut app, &store, &proj, None).unwrap();
         assert_eq!(app.memories.items.len(), 1);
         assert_eq!(app.memories.items[0].status, MemoryStatus::Active);
 
         store.forget_memory(&mem_id).unwrap();
-        reload_list(&mut app, &store, &proj).unwrap();
+        reload_list(&mut app, &store, &proj, None).unwrap();
         assert_eq!(
             app.memories.items.len(),
             1,
@@ -1123,7 +1206,7 @@ mod tests {
         assert_eq!(app.memories.items[0].status, MemoryStatus::Deleted);
 
         store.restore_memory(&mem_id).unwrap();
-        reload_list(&mut app, &store, &proj).unwrap();
+        reload_list(&mut app, &store, &proj, None).unwrap();
         assert_eq!(app.memories.items[0].status, MemoryStatus::Active);
     }
 
@@ -1209,5 +1292,96 @@ mod tests {
             "got: {out}"
         );
         assert!(out.contains("vestige search") || out.contains("`vestige search`"));
+    }
+
+    /// `reload_list` with `SearchMode::Lexical` and no provider works identically
+    /// to the hardcoded path that was removed. Regression guard.
+    #[test]
+    fn reload_list_lexical_with_no_provider_returns_results() {
+        use tempfile::TempDir;
+        use vestige_core::{build_bundle, NewMemory};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let proj = ProjectId::from_slug("browse-lexical-no-prov");
+        store
+            .ensure_project(&proj, "Lex Test", Some("/tmp/test"), None)
+            .unwrap();
+
+        let bundle = build_bundle(
+            &proj,
+            NewMemory {
+                r#type: MemoryType::Note,
+                body: "FTS5 filter test note for lexical search.",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+        store.record_memory(&bundle).unwrap();
+
+        let mut app = app_with(MemoriesTabState::default());
+        // Non-empty filter with no provider: must fall back to lexical.
+        app.memories.filter_text = "FTS5".into();
+        reload_list(&mut app, &store, &proj, None).unwrap();
+        assert!(
+            !app.memories.items.is_empty(),
+            "lexical search should return results"
+        );
+    }
+
+    /// `reload_list` with `SearchMode::Semantic` and the fake provider finds
+    /// memories (fake vectors are deterministic and all cosine-similar).
+    #[test]
+    fn reload_list_semantic_with_fake_provider_returns_results() {
+        use tempfile::TempDir;
+        use vestige_core::{build_bundle, NewMemory};
+        use vestige_embed::{build_provider, EmbeddingsConfig};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let proj = ProjectId::from_slug("browse-semantic-fake");
+        store
+            .ensure_project(&proj, "Sem Test", Some("/tmp/test"), None)
+            .unwrap();
+
+        let bundle = build_bundle(
+            &proj,
+            NewMemory {
+                r#type: MemoryType::Note,
+                body: "Semantic memory for fake provider test.",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+        store.record_memory(&bundle).unwrap();
+
+        // Embed with the fake provider so the vector index is populated.
+        let cfg = EmbeddingsConfig {
+            provider: "fake".into(),
+            model: None,
+            dimensions: Some(64),
+        };
+        let provider = build_provider(&cfg).unwrap();
+        vestige_engine::embed::embed_all(
+            &mut store,
+            &proj,
+            &*provider,
+            &[vestige_core::RepresentationDepth::OneLiner],
+            false,
+        )
+        .unwrap();
+
+        let mut app = app_with(MemoriesTabState::default());
+        app.memories.filter_text = "semantic".into();
+        app.search_mode = SearchMode::Semantic;
+        reload_list(&mut app, &store, &proj, Some(&*provider)).unwrap();
+        // Fake provider always returns a cosine-similar result, so the list
+        // must be non-empty.
+        assert!(
+            !app.memories.items.is_empty(),
+            "semantic search with fake provider should find results"
+        );
     }
 }

@@ -461,5 +461,5 @@ The implementation in PR #77 diverged from this PRD in four places. Recorded her
 
 Two PRD items that **did** ship but warrant a note on shape:
 
-- **§6.4 — `:` palette command set**: ships `:quit`, `:help`, `:goto`, `:kind`, `:status`, `:caller`, `:search`. `:mode lexical|semantic|hybrid` is deferred — it needs the `[embeddings]` provider plumbed through the browser, which depends on infrastructure landing in V0.5+. Tab autocomplete is also deferred to V0.4.x polish.
+- **§6.4 — `:` palette command set**: ships `:quit`, `:help`, `:goto`, `:kind`, `:status`, `:caller`, `:search`. `:mode lexical|semantic|hybrid` landed in v0.4.x once the `[embeddings]` provider was plumbed through the browser; mode is session-scoped, falls back to lexical with a `mode:X→lexical` arrow on the status line when a provider isn't available, and unknown values raise an inline-red palette error. Tab autocomplete remains deferred.
 - **§7.4 — reject prompt**: an empty buffer no longer submits `RejectionReason::Other("unspecified")`. The prompt re-opens with a status flash listing the typed presets (`duplicate / wrong / not_durable / too_noisy / stale`); `Esc` cancels. This is stricter than the PRD's "reason can be empty" wording and aligns with §16's "rejects are reasoned and final."

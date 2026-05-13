@@ -16,7 +16,10 @@ use ratatui::{
     Frame,
 };
 
+use vestige_core::SearchMode;
+
 use super::app::{App, CommandPalette, Modal, Tab};
+use super::mode_display_label;
 
 // === PUBLIC API ===
 
@@ -97,14 +100,24 @@ fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
         flash.text.clone()
     } else {
         // Always show live counts so the user knows the size of each tab
-        // without flipping through them.
-        format!(
+        // without flipping through them. Append mode suffix when non-lexical
+        // or when a fallback was recorded.
+        let base = format!(
             "Vestige · {} · [Mem {} · Cand {} · Trc {}]",
             app.project_name,
             app.memories.items.len(),
             app.candidates.items.len(),
             app.traces.items.len(),
-        )
+        );
+        let show_mode = app.search_mode != SearchMode::Lexical || app.mode_fallback_from.is_some();
+        if show_mode {
+            format!(
+                "{base} · mode:{}",
+                mode_display_label(app.search_mode, app.mode_fallback_from)
+            )
+        } else {
+            base
+        }
     };
     let left_style = match &app.status_flash {
         Some(f) if f.is_error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -517,5 +530,69 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn status_line_default_mode_shows_no_suffix() {
+        // Lexical is the default — status line stays clean with no mode annotation.
+        let app = App::new(Tab::Memories, Counts::default(), "proj_demo".into());
+        let out = render(&app);
+        assert!(out.contains("Vestige · proj_demo"), "got: {out}");
+        assert!(
+            !out.contains("mode:"),
+            "lexical default must not show mode suffix; got: {out}"
+        );
+    }
+
+    #[test]
+    fn status_line_semantic_mode_shows_suffix() {
+        let mut app = App::with_mode(
+            Tab::Memories,
+            Counts::default(),
+            "proj_demo".into(),
+            SearchMode::Semantic,
+        );
+        app.mode_fallback_from = None;
+        let out = render(&app);
+        assert!(out.contains("mode:semantic"), "got: {out}");
+    }
+
+    #[test]
+    fn status_line_hybrid_mode_shows_suffix() {
+        let app = App::with_mode(
+            Tab::Memories,
+            Counts::default(),
+            "proj_demo".into(),
+            SearchMode::Hybrid,
+        );
+        let out = render(&app);
+        assert!(out.contains("mode:hybrid"), "got: {out}");
+        assert!(!out.contains("→"), "no arrow when no fallback; got: {out}");
+    }
+
+    #[test]
+    fn status_line_fallback_shows_arrow_form() {
+        // Simulates the case where hybrid was requested but provider was unavailable.
+        // The app fell back to lexical and recorded mode_fallback_from = Some(Hybrid).
+        let mut app = App::with_mode(
+            Tab::Memories,
+            Counts::default(),
+            "proj_demo".into(),
+            SearchMode::Lexical,
+        );
+        app.mode_fallback_from = Some(SearchMode::Hybrid);
+        let out = render(&app);
+        assert!(out.contains("mode:hybrid→lexical"), "got: {out}");
+    }
+
+    #[test]
+    fn palette_error_mode_unknown_renders_in_red() {
+        let mut app = App::new(Tab::Memories, Counts::default(), "p".into());
+        app.palette = Some(super::super::app::CommandPalette {
+            buffer: "mode garbage".into(),
+            error: Some("mode must be lexical | semantic | hybrid; got garbage".into()),
+        });
+        let out = render(&app);
+        assert!(out.contains("mode must be lexical"), "got: {out}");
     }
 }
