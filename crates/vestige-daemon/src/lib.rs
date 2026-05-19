@@ -222,9 +222,12 @@ pub async fn run_with_cancel(
     opts: DaemonOpts,
     cancel_rx: watch::Receiver<bool>,
 ) -> Result<(), DaemonError> {
-    // Resolve daemon config — no host-level config file yet so we use the
-    // documented defaults (embed_sweep_interval_secs = 600).
-    let config = vestige_config::daemon_config_for(None);
+    // Resolve daemon config — prefer an explicit override (test escape hatch)
+    // over reading from disk. Production callers always pass `config_override: None`.
+    let config = match opts.config_override.clone() {
+        Some(cfg) => cfg,
+        None => vestige_config::daemon_config_for(None),
+    };
 
     // Embedding provider — V0.5 defaults to `fake` (deterministic, no model
     // download). Real provider selection (fastembed/ollama) is wired in V0.6

@@ -187,6 +187,8 @@ pub fn run(args: InitArgs) -> Result<()> {
         Some(results)
     };
 
+    register_with_daemon_best_effort(project_id.as_str(), &project_name, &repo_root);
+
     match OutputFormat::pick(args.json) {
         OutputFormat::Json => {
             let skills_installed = skills_results.as_ref().map(|results| {
@@ -300,6 +302,76 @@ fn summary_already_recorded(
     Ok(!existing.is_empty())
 }
 
+/// Best-effort: tell the running daemon about this new project so it gets
+/// supervised immediately. If no daemon is running, return silently — this
+/// MUST NEVER fail `vestige init`.
+fn register_with_daemon_best_effort(
+    project_id: &str,
+    project_name: &str,
+    repo_root: &std::path::Path,
+) {
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::UnixStream;
+
+    let socket = vestige_daemon::ipc::server::resolve_socket_path(None);
+    if !socket.exists() {
+        tracing::debug!(socket = %socket.display(), "daemon socket not present; skipping registration");
+        return;
+    }
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "daemon.register_project",
+        "params": {
+            "project_id": project_id,
+            "project_name": project_name,
+            "repo_root": repo_root.display().to_string(),
+        }
+    });
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            tracing::debug!(error = %e, "could not build tokio runtime for daemon ping");
+            return;
+        }
+    };
+
+    let outcome = runtime.block_on(async {
+        let connect =
+            tokio::time::timeout(Duration::from_millis(500), UnixStream::connect(&socket)).await;
+        let stream = match connect {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return Err(format!("connect: {e}")),
+            Err(_) => return Err("connect timeout".to_string()),
+        };
+        let (_read, mut write) = tokio::io::split(stream);
+        let payload = format!("{}\n", req);
+        match tokio::time::timeout(
+            Duration::from_millis(500),
+            write.write_all(payload.as_bytes()),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(format!("write: {e}")),
+            Err(_) => return Err("write timeout".to_string()),
+        }
+        // Fire-and-forget: don't bother reading the response.
+        Ok(())
+    });
+
+    match outcome {
+        Ok(()) => tracing::debug!(project_id, "registered with running daemon"),
+        Err(e) => tracing::debug!(error = %e, "daemon registration skipped"),
+    }
+}
+
 /// Print the dry-run plan without writing any files.
 fn print_plan(
     repo_root: &Path,
@@ -328,4 +400,28 @@ fn print_plan(
         println!("  summary:       {s}");
     }
     println!("[dry-run] no files written.");
+}
+
+// === TESTS ===
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `register_with_daemon_best_effort` must never panic or error when no
+    /// daemon socket is present. Uses a TempDir as HOME so the default socket
+    /// path resolves to an empty directory where no socket file can exist.
+    #[test]
+    fn register_with_daemon_silently_succeeds_when_no_socket() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let original_home = std::env::var_os("HOME");
+        // Point HOME at the TempDir so resolve_socket_path returns a path
+        // inside it — no socket file will exist there.
+        std::env::set_var("HOME", tmp.path());
+        register_with_daemon_best_effort("proj_test", "test", tmp.path());
+        if let Some(h) = original_home {
+            std::env::set_var("HOME", h);
+        }
+        // No assertion needed beyond "didn't panic".
+    }
 }

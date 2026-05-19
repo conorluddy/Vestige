@@ -33,6 +33,7 @@ pub fn run(args: StartArgs) -> anyhow::Result<()> {
         status_file: None,
         log_file: None,
         projects_root: None,
+        config_override: None,
     };
 
     // Build a tokio runtime — same pattern as commands/mcp.rs.

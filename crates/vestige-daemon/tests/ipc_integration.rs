@@ -30,6 +30,7 @@ fn opts_in(dir: &std::path::Path) -> (DaemonOpts, std::path::PathBuf) {
         status_file: Some(dir.join("daemon.status.json")),
         log_file: None,
         projects_root: Some(projects_root),
+        config_override: None,
     };
     (opts, socket)
 }

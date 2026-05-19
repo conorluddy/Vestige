@@ -31,6 +31,14 @@ pub struct DaemonOpts {
     /// Tests should supply a `TempDir`-backed path so they don't inherit the
     /// caller's real project workers, which could have locks or WAL contention.
     pub projects_root: Option<PathBuf>,
+
+    /// Override the resolved daemon config (cadences etc.) instead of reading from disk.
+    ///
+    /// Test-only escape hatch — production paths always pass `None`. When `Some`,
+    /// `run_with_cancel` skips the `daemon_config_for` call and uses this config
+    /// directly, allowing tests to set very short cadences (e.g. 2 s embed sweep)
+    /// to prove the scheduler's tokio interval timers actually fire.
+    pub config_override: Option<vestige_config::ResolvedDaemonConfig>,
 }
 
 impl Default for DaemonOpts {
@@ -42,6 +50,7 @@ impl Default for DaemonOpts {
             status_file: None,
             log_file: None,
             projects_root: None,
+            config_override: None,
         }
     }
 }

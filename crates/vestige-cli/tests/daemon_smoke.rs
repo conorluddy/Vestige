@@ -209,6 +209,38 @@ fn verify_stop_artefacts(env: &Env) -> Result<(), String> {
     Ok(())
 }
 
+// === SHARED HELPERS ===
+
+/// Seed a minimal project (init + one memory) and spawn the daemon in the
+/// foreground. Waits for the socket and status file to appear before returning.
+///
+/// Returns the `Child` handle so the caller can reap it after the test.
+/// The caller is responsible for calling `sigterm_and_reap` and
+/// `verify_stop_artefacts` when done.
+///
+/// If the socket or status file does not appear in time, the daemon child is
+/// killed and reaped before returning the error — no zombie left behind.
+fn seed_and_spawn(env: &Env) -> Result<Child, String> {
+    run_cli(env, &["init", "--name", "DaemonSmokeProject"])
+        .map_err(|e| format!("vestige init failed: {e}"))?;
+    run_cli(env, &["remember", "daemon smoke test memory"])
+        .map_err(|e| format!("vestige remember failed: {e}"))?;
+
+    let mut child = spawn_daemon(env);
+
+    let wait_result = wait_for_path(&env.socket_path(), Duration::from_secs(8))
+        .and_then(|()| wait_for_path(&env.status_path(), Duration::from_secs(8)));
+
+    if let Err(e) = wait_result {
+        // Kill and reap the child so we don't leave a zombie behind.
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("daemon not ready: {e}"));
+    }
+
+    Ok(child)
+}
+
 // === TESTS ===
 
 /// Full daemon lifecycle: init → seed memory → start → status → kick → stop.
@@ -437,4 +469,133 @@ fn daemon_status_when_not_running() {
         Value::Bool(false),
         "running must be false when no daemon: {json}"
     );
+}
+
+/// Prove that `vestige daemon kick prune --json` reaches the worker and
+/// receives a valid response with `queued: true` and at least one project queued.
+///
+/// The prune worker runs `VACUUM` on the project's SQLite database. We don't
+/// assert on the vacuum outcome here — that is covered by the in-process worker
+/// tests (`prune_round_trip` in `vestige-daemon`). This test verifies only the
+/// CLI → IPC → daemon round-trip shape at the subprocess level.
+#[test]
+fn daemon_kick_prune_lifecycle() {
+    let env = Env::new();
+
+    let mut daemon_child = match seed_and_spawn(&env) {
+        Ok(child) => child,
+        Err(e) => panic!("failed to seed and start daemon: {e}"),
+    };
+
+    let kick_outcome = (|| -> Result<(), String> {
+        let out = run_cli(&env, &["daemon", "kick", "prune", "--json"])
+            .map_err(|e| format!("daemon kick prune failed: {e}"))?;
+
+        let resp: Value = serde_json::from_str(out.trim())
+            .map_err(|e| format!("kick prune JSON parse error: {e}: raw={out}"))?;
+
+        let result = resp
+            .get("result")
+            .ok_or_else(|| format!("kick prune response has no 'result' field: {resp}"))?;
+
+        let queued = result["queued"]
+            .as_bool()
+            .ok_or_else(|| format!("kick prune result.queued missing or non-bool: {resp}"))?;
+        if !queued {
+            return Err(format!("kick prune result.queued is false: {resp}"));
+        }
+
+        let projects_queued = result["projects_queued"]
+            .as_u64()
+            .ok_or_else(|| format!("kick prune result.projects_queued missing: {resp}"))?;
+        if projects_queued == 0 {
+            return Err(format!(
+                "kick prune queued 0 projects — daemon did not register seeded project: {resp}"
+            ));
+        }
+
+        Ok(())
+    })();
+
+    let stop_outcome = sigterm_and_reap(&env, &mut daemon_child);
+
+    if kick_outcome.is_err() || stop_outcome.is_err() {
+        dump_child_stderr(&mut daemon_child);
+    }
+
+    kick_outcome.expect("daemon kick prune lifecycle failed");
+    stop_outcome.expect("daemon stop/reap failed");
+    verify_stop_artefacts(&env).expect("post-stop artefact assertions failed");
+}
+
+/// Prove that `vestige daemon kick ttl --json` completes the IPC round-trip
+/// and returns a valid response with `queued: true` and at least one project queued.
+///
+/// # V0.5 limitation
+///
+/// The TTL worker only expires candidates when `candidate_ttl_days > 0` in the
+/// daemon's runtime config. In V0.5, the daemon always uses the default config
+/// (`candidate_ttl_days = 0`), so the TTL job is a no-op: it returns a zero
+/// `candidates_expired` count rather than touching the store.
+///
+/// This test therefore verifies only the round-trip path. When `candidate_ttl_days`
+/// is wired into per-project or runtime config in a future milestone, this test
+/// should be extended to seed an old candidate and assert it is actually expired.
+#[test]
+fn daemon_kick_ttl_lifecycle() {
+    let env = Env::new();
+
+    let mut daemon_child = match seed_and_spawn(&env) {
+        Ok(child) => child,
+        Err(e) => panic!("failed to seed and start daemon: {e}"),
+    };
+
+    let kick_outcome = (|| -> Result<(), String> {
+        let out = run_cli(&env, &["daemon", "kick", "ttl", "--json"])
+            .map_err(|e| format!("daemon kick ttl failed: {e}"))?;
+
+        let resp: Value = serde_json::from_str(out.trim())
+            .map_err(|e| format!("kick ttl JSON parse error: {e}: raw={out}"))?;
+
+        let result = resp
+            .get("result")
+            .ok_or_else(|| format!("kick ttl response has no 'result' field: {resp}"))?;
+
+        let queued = result["queued"]
+            .as_bool()
+            .ok_or_else(|| format!("kick ttl result.queued missing or non-bool: {resp}"))?;
+        if !queued {
+            return Err(format!("kick ttl result.queued is false: {resp}"));
+        }
+
+        let projects_queued = result["projects_queued"]
+            .as_u64()
+            .ok_or_else(|| format!("kick ttl result.projects_queued missing: {resp}"))?;
+        if projects_queued == 0 {
+            return Err(format!(
+                "kick ttl queued 0 projects — daemon did not register seeded project: {resp}"
+            ));
+        }
+
+        // The IPC KickResult shape is { queued, queued_at, projects_queued }.
+        // Per-project TTL outcome detail (candidates_expired) is not surfaced in
+        // the kick response; it lives in the worker's TtlSummary which is only
+        // visible in daemon logs. Asserting on the kick envelope fields is
+        // sufficient for the smoke-test contract.
+        let _ = result["queued_at"]
+            .as_str()
+            .ok_or_else(|| format!("kick ttl result.queued_at missing or non-string: {resp}"))?;
+
+        Ok(())
+    })();
+
+    let stop_outcome = sigterm_and_reap(&env, &mut daemon_child);
+
+    if kick_outcome.is_err() || stop_outcome.is_err() {
+        dump_child_stderr(&mut daemon_child);
+    }
+
+    kick_outcome.expect("daemon kick ttl lifecycle failed");
+    stop_outcome.expect("daemon stop/reap failed");
+    verify_stop_artefacts(&env).expect("post-stop artefact assertions failed");
 }
