@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 
 use crate::errors::DaemonError;
 use crate::ipc::methods;
@@ -49,10 +49,15 @@ pub fn resolve_socket_path(override_path: Option<&Path>) -> PathBuf {
 ///
 /// Each accepted connection is handled in its own spawned task so slow clients
 /// do not block the accept loop.
+///
+/// `ttl_days_default` is the configured candidate TTL from `[daemon].candidate_ttl_days`.
+/// It is forwarded to `daemon.kick { job: "ttl" }` requests so the dispatcher can
+/// use the correct value without owning the full config struct.
 pub async fn run(
     socket_path: PathBuf,
     registry: Arc<Mutex<ProjectRegistry>>,
     status_provider: Arc<dyn methods::StatusProvider>,
+    ttl_days_default: u32,
     mut cancel: watch::Receiver<bool>,
 ) -> Result<(), DaemonError> {
     // Remove any stale socket from a previously crashed daemon.
@@ -94,6 +99,7 @@ pub async fn run(
                             stream,
                             Arc::clone(&registry),
                             Arc::clone(&status_provider),
+                            ttl_days_default,
                         ));
                     }
                     Err(e) => {
@@ -123,6 +129,7 @@ async fn handle_connection(
     stream: UnixStream,
     registry: Arc<Mutex<ProjectRegistry>>,
     status_provider: Arc<dyn methods::StatusProvider>,
+    ttl_days_default: u32,
 ) {
     let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);
@@ -142,7 +149,7 @@ async fn handle_connection(
     }
 
     let response = match serde_json::from_str::<methods::JsonRpcRequest>(line.trim_end()) {
-        Ok(req) => methods::dispatch(registry, &*status_provider, req).await,
+        Ok(req) => methods::dispatch(registry, &*status_provider, req, ttl_days_default).await,
         Err(e) => methods::parse_error_response(e.to_string()),
     };
 

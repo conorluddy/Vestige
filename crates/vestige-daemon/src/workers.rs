@@ -32,7 +32,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 
-use vestige_core::{ProjectId, RepresentationDepth};
+use vestige_core::{ProjectId, RejectionReason, RepresentationDepth};
 use vestige_embed::EmbeddingProvider;
 use vestige_store::Store;
 
@@ -60,6 +60,16 @@ pub enum WorkerCommand {
     /// **Wave 3 (T10) stub**: returns `Err(JobFailed)` with reason `"not impl"`
     /// until the real implementation lands.
     Embed(oneshot::Sender<Result<EmbedOutcomeSummary, DaemonError>>),
+    /// Run `VACUUM` on this project's store to reclaim free pages.
+    Prune(oneshot::Sender<Result<PruneSummary, DaemonError>>),
+    /// Mark pending candidates older than `ttl_days` as rejected with reason `"expired"`.
+    ///
+    /// `ttl_days == 0` is an explicit no-op: returns a summary with
+    /// `candidates_expired = 0` and `ttl_days = 0` rather than an error.
+    Ttl {
+        ttl_days: u32,
+        reply: oneshot::Sender<Result<TtlSummary, DaemonError>>,
+    },
     /// Graceful drain — worker loops until this is received, then exits.
     Shutdown(oneshot::Sender<()>),
 }
@@ -73,6 +83,28 @@ pub struct EmbedOutcomeSummary {
     pub embeddings_added: u64,
     /// RFC-3339 timestamp when the sweep finished.
     pub finished_at: String,
+}
+
+/// Summary returned after a trace-prune (VACUUM) run completes.
+#[derive(Debug, Clone)]
+pub struct PruneSummary {
+    /// Always `0` in V0.5 — VACUUM does not surface an eviction count.
+    pub queries_evicted: u64,
+    /// `true` when VACUUM completed without error.
+    pub vacuumed: bool,
+    /// RFC-3339 timestamp when the prune finished.
+    pub finished_at: String,
+}
+
+/// Summary returned after a candidate-TTL sweep completes.
+#[derive(Debug, Clone)]
+pub struct TtlSummary {
+    /// Number of candidates soft-deleted (set to `rejected` with reason `expired`).
+    pub candidates_expired: u64,
+    /// RFC-3339 timestamp when the TTL sweep finished.
+    pub finished_at: String,
+    /// The TTL setting used for this run. `0` means the job was a no-op.
+    pub ttl_days: u32,
 }
 
 /// Point-in-time snapshot of a project's worker state.
@@ -201,6 +233,48 @@ impl ProjectWorker {
             })?
     }
 
+    /// Send a [`WorkerCommand::Prune`] and await the reply.
+    ///
+    /// Runs `VACUUM` on the project's SQLite file to reclaim free pages.
+    ///
+    /// # Errors
+    ///
+    /// - [`DaemonError::ProjectNotRegistered`] — channel closed.
+    /// - [`DaemonError::JobFailed`] — VACUUM failed (e.g. busy timeout exceeded).
+    pub async fn prune(&self) -> Result<PruneSummary, DaemonError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send_command(WorkerCommand::Prune(reply_tx)).await?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::ProjectNotRegistered {
+                project_id: self.project_id.as_str().to_string(),
+            })?
+    }
+
+    /// Send a [`WorkerCommand::Ttl`] and await the reply.
+    ///
+    /// Marks pending candidates older than `ttl_days` as rejected with reason
+    /// `"expired"`. When `ttl_days == 0`, returns a no-op summary immediately
+    /// without touching the store.
+    ///
+    /// # Errors
+    ///
+    /// - [`DaemonError::ProjectNotRegistered`] — channel closed.
+    /// - [`DaemonError::JobFailed`] — store query or update failed.
+    pub async fn ttl(&self, ttl_days: u32) -> Result<TtlSummary, DaemonError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send_command(WorkerCommand::Ttl {
+            ttl_days,
+            reply: reply_tx,
+        })
+        .await?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::ProjectNotRegistered {
+                project_id: self.project_id.as_str().to_string(),
+            })?
+    }
+
     /// Send [`WorkerCommand::Shutdown`], await acknowledgement, then join the
     /// OS thread.
     ///
@@ -298,9 +372,8 @@ fn run_worker(
 
     // Per-job last-run timestamps — updated in the handler when a job completes.
     let mut last_embed_run: Option<String> = None;
-    // Wave 5 will update these when prune/TTL jobs land.
-    let last_prune_run: Option<String> = None;
-    let last_ttl_run: Option<String> = None;
+    let mut last_prune_run: Option<String> = None;
+    let mut last_ttl_run: Option<String> = None;
 
     info!(project_id = project_id.as_str(), "worker thread ready");
 
@@ -355,6 +428,73 @@ fn run_worker(
                             job: "embed".into(),
                             reason: e.to_string(),
                         }));
+                    }
+                }
+            }
+            WorkerCommand::Prune(reply) => {
+                let now = now_rfc3339();
+                match store.vacuum() {
+                    Ok(()) => {
+                        last_prune_run = Some(now.clone());
+                        let _ = reply.send(Ok(PruneSummary {
+                            queries_evicted: 0,
+                            vacuumed: true,
+                            finished_at: now,
+                        }));
+                    }
+                    Err(e) => {
+                        let _ = reply.send(Err(DaemonError::JobFailed {
+                            job: "prune".into(),
+                            reason: e.to_string(),
+                        }));
+                    }
+                }
+            }
+            WorkerCommand::Ttl { ttl_days, reply } => {
+                let now = now_rfc3339();
+                if ttl_days == 0 {
+                    // TTL disabled — return a zero-count summary immediately.
+                    let _ = reply.send(Ok(TtlSummary {
+                        candidates_expired: 0,
+                        finished_at: now,
+                        ttl_days: 0,
+                    }));
+                } else {
+                    // Compute a cutoff timestamp: now minus `ttl_days` days.
+                    let cutoff = compute_ttl_cutoff(ttl_days);
+                    match store.list_pending_candidates_older_than(&project_id, &cutoff) {
+                        Ok(ids) => {
+                            let mut count = 0u64;
+                            for id in ids {
+                                match store.mark_candidate_rejected(
+                                    &id,
+                                    &RejectionReason::Other("expired".to_string()),
+                                    None,
+                                    None,
+                                ) {
+                                    Ok(_) => count += 1,
+                                    Err(e) => {
+                                        warn!(
+                                            ?e,
+                                            candidate_id = id.as_str(),
+                                            "candidate expiry skipped"
+                                        );
+                                    }
+                                }
+                            }
+                            last_ttl_run = Some(now.clone());
+                            let _ = reply.send(Ok(TtlSummary {
+                                candidates_expired: count,
+                                finished_at: now,
+                                ttl_days,
+                            }));
+                        }
+                        Err(e) => {
+                            let _ = reply.send(Err(DaemonError::JobFailed {
+                                job: "ttl".into(),
+                                reason: e.to_string(),
+                            }));
+                        }
                     }
                 }
             }
@@ -416,6 +556,19 @@ fn now_rfc3339() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
+/// Compute the RFC-3339 cutoff timestamp for a TTL of `ttl_days` days.
+///
+/// Subtracts `ttl_days × 86 400` seconds from the current UTC time. Candidates
+/// with `created_at < cutoff` are considered expired and eligible for rejection.
+/// Falls back to the Unix epoch on the (unreachable in practice) error path.
+fn compute_ttl_cutoff(ttl_days: u32) -> String {
+    let cutoff =
+        time::OffsetDateTime::now_utc() - time::Duration::seconds((ttl_days as i64) * 86_400);
+    cutoff
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
 /// Drain a single command with an error reply, consuming it.
 ///
 /// Called in the error-exit path when the store failed to open. Sends the
@@ -426,6 +579,12 @@ fn drain_command_with_error(cmd: WorkerCommand, err: DaemonError) {
             let _ = reply.send(Err(err));
         }
         WorkerCommand::Embed(reply) => {
+            let _ = reply.send(Err(err));
+        }
+        WorkerCommand::Prune(reply) => {
+            let _ = reply.send(Err(err));
+        }
+        WorkerCommand::Ttl { reply, .. } => {
             let _ = reply.send(Err(err));
         }
         WorkerCommand::Shutdown(reply) => {
@@ -581,6 +740,158 @@ mod tests {
             assert_eq!(result.embeddings_added, 0);
             assert!(!result.finished_at.is_empty(), "finished_at must be set");
             worker.shutdown().await.expect("shutdown ok");
+        });
+    }
+
+    #[test]
+    fn prune_round_trip() {
+        let rt = Runtime::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("memory.sqlite");
+
+        let project_id = ProjectId::from_slug("test-prune");
+        let repo_root = PathBuf::from("/tmp/test-repo-prune");
+
+        {
+            let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            seed_project(&mut store, &project_id);
+        }
+
+        let worker = ProjectWorker::spawn(
+            project_id,
+            "Prune Test".to_string(),
+            repo_root,
+            db_path,
+            5000,
+            fake_provider(),
+        )
+        .expect("worker spawns");
+
+        rt.block_on(async move {
+            let summary = worker.prune().await.expect("prune succeeds");
+            assert!(summary.vacuumed, "vacuumed must be true on success");
+            assert!(!summary.finished_at.is_empty(), "finished_at must be set");
+            worker.shutdown().await.expect("shutdown ok");
+        });
+    }
+
+    #[test]
+    fn ttl_zero_days_is_noop() {
+        let rt = Runtime::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("memory.sqlite");
+
+        let project_id = ProjectId::from_slug("test-ttl-zero");
+        let repo_root = PathBuf::from("/tmp/test-repo-ttl-zero");
+
+        {
+            let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            seed_project(&mut store, &project_id);
+        }
+
+        let worker = ProjectWorker::spawn(
+            project_id,
+            "TTL Zero Test".to_string(),
+            repo_root,
+            db_path,
+            5000,
+            fake_provider(),
+        )
+        .expect("worker spawns");
+
+        rt.block_on(async move {
+            let summary = worker.ttl(0).await.expect("ttl(0) must succeed");
+            assert_eq!(summary.candidates_expired, 0, "ttl=0 must expire nothing");
+            assert_eq!(summary.ttl_days, 0, "ttl_days must echo back as 0");
+            assert!(!summary.finished_at.is_empty(), "finished_at must be set");
+            worker.shutdown().await.expect("shutdown ok");
+        });
+    }
+
+    #[test]
+    fn ttl_expires_old_candidates() {
+        use vestige_core::{build_candidate_bundle, CandidateStatus, MemoryType, NewCandidate};
+
+        let rt = Runtime::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("memory.sqlite");
+
+        let project_id = ProjectId::from_slug("test-ttl-expire");
+        let repo_root = PathBuf::from("/tmp/test-repo-ttl-expire");
+
+        let (old_id, new_id) = {
+            let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            seed_project(&mut store, &project_id);
+
+            let make = |body: &str| {
+                build_candidate_bundle(NewCandidate {
+                    project_id: project_id.clone(),
+                    proposed_type: MemoryType::Observation,
+                    body: body.to_string(),
+                    rationale: None,
+                    title_override: None,
+                    importance: 0.5,
+                    confidence: 0.9,
+                    source: None,
+                    duplicate_of_memory_id: None,
+                    duplicate_of_candidate_id: None,
+                })
+                .unwrap()
+            };
+
+            let bundle_old = make("Old candidate that should be expired by TTL.");
+            let bundle_new = make("New candidate that should survive the TTL sweep.");
+            let old_id = bundle_old.id.clone();
+            let new_id = bundle_new.id.clone();
+            store.record_candidate(&bundle_old).unwrap();
+            store.record_candidate(&bundle_new).unwrap();
+
+            // Backdate the old candidate to well before the TTL window.
+            store
+                .connection()
+                .execute(
+                    "UPDATE candidate_memories SET created_at = '2020-01-01T00:00:00Z' WHERE id = ?1",
+                    rusqlite::params![old_id.as_str()],
+                )
+                .unwrap();
+
+            (old_id, new_id)
+        };
+
+        let worker = ProjectWorker::spawn(
+            project_id.clone(),
+            "TTL Expire Test".to_string(),
+            repo_root,
+            db_path.clone(),
+            5000,
+            fake_provider(),
+        )
+        .expect("worker spawns");
+
+        rt.block_on(async move {
+            // 1-day TTL — the old candidate (2020) is way over the limit.
+            let summary = worker.ttl(1).await.expect("ttl(1) must succeed");
+            assert_eq!(
+                summary.candidates_expired, 1,
+                "one candidate must be expired"
+            );
+            assert_eq!(summary.ttl_days, 1);
+            worker.shutdown().await.expect("shutdown ok");
+
+            // Verify directly: old candidate is now rejected, new is still pending.
+            let store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            let old_cand = store.get_candidate(&old_id).unwrap().unwrap();
+            let new_cand = store.get_candidate(&new_id).unwrap().unwrap();
+            assert_eq!(
+                old_cand.status,
+                CandidateStatus::Rejected,
+                "old candidate must be rejected"
+            );
+            assert_eq!(
+                new_cand.status,
+                CandidateStatus::Pending,
+                "new candidate must still be pending"
+            );
         });
     }
 

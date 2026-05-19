@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 use tokio::time;
 
 use vestige_config::ResolvedDaemonConfig;
@@ -36,21 +36,28 @@ use crate::registry::ProjectRegistry;
 
 /// Run the scheduler forever; return when `cancel` is notified.
 ///
-/// The scheduler drives two periodic ticks:
+/// The scheduler drives four periodic ticks:
 ///
 /// - **embed tick** (`config.embed_sweep_interval_secs`): calls
 ///   [`jobs::embed_sweep::run_once`] for every registered project.
+/// - **prune tick** (`config.trace_prune_interval_secs`): calls
+///   [`jobs::trace_prune::run_once`] to VACUUM each project DB.
+/// - **ttl tick** (`config.candidate_ttl_sweep_interval_secs`): calls
+///   [`jobs::candidate_ttl::run_once`] to expire stale candidates. When
+///   `candidate_ttl_days == 0`, the tick fires but the job exits immediately.
 /// - **status tick** (hardcoded 5 s): rewrites `status_file_path` atomically
 ///   via [`status_file::write_atomic`].
 ///
-/// The first embed tick is skipped (interval fires after the first period, not
-/// immediately), so the daemon does not run a full sweep on every startup.
+/// The first embed, prune, and ttl ticks are skipped (interval fires after the
+/// first period, not immediately), so the daemon does not run sweeps on every
+/// startup. The status tick fires immediately on first poll so the status file
+/// exists as soon as the daemon is up.
 ///
 /// # Arguments
 ///
 /// - `registry` — shared, mutex-guarded project registry; workers are owned
 ///   here and remain alive for the entire scheduler lifetime.
-/// - `config` — resolved daemon configuration (used for `embed_sweep_interval_secs`).
+/// - `config` — resolved daemon configuration (cadences, TTL settings).
 /// - `status_file_path` — path to write the JSON status file.
 /// - `started_at_rfc3339` — the daemon's start timestamp, embedded in every
 ///   status snapshot.
@@ -65,15 +72,21 @@ pub async fn run(
     let started = Instant::now();
 
     let embed_interval = std::time::Duration::from_secs(config.embed_sweep_interval_secs);
+    let prune_interval = std::time::Duration::from_secs(config.trace_prune_interval_secs);
+    let ttl_interval = std::time::Duration::from_secs(config.candidate_ttl_sweep_interval_secs);
     let status_interval = std::time::Duration::from_secs(5);
 
     let mut embed_tick = time::interval(embed_interval);
+    let mut prune_tick = time::interval(prune_interval);
+    let mut ttl_tick = time::interval(ttl_interval);
     let mut status_tick = time::interval(status_interval);
 
-    // Skip the first immediate embed tick so we don't run a full sweep at t=0.
-    // `status_tick` fires immediately on first poll — that is intentional so the
-    // status file exists as soon as the daemon is up.
+    // Skip the first immediate tick for embed/prune/ttl so we don't run full
+    // sweeps at t=0. `status_tick` fires immediately on first poll — intentional
+    // so the status file exists as soon as the daemon is up.
     embed_tick.tick().await;
+    prune_tick.tick().await;
+    ttl_tick.tick().await;
 
     loop {
         tokio::select! {
@@ -98,6 +111,33 @@ pub async fn run(
                     total_embeddings_added = report.total_embeddings_added,
                     elapsed_ms = report.elapsed_ms,
                     "embed sweep finished"
+                );
+            }
+            _ = prune_tick.tick() => {
+                let reg = registry.lock().await;
+                let report = jobs::trace_prune::run_once(&reg).await;
+                drop(reg);
+                tracing::info!(
+                    projects_scanned = report.projects_scanned,
+                    projects_succeeded = report.projects_succeeded,
+                    projects_failed = report.projects_failed,
+                    elapsed_ms = report.elapsed_ms,
+                    "trace prune finished"
+                );
+            }
+            _ = ttl_tick.tick() => {
+                let ttl_days = config.candidate_ttl_days;
+                let reg = registry.lock().await;
+                let report = jobs::candidate_ttl::run_once(&reg, ttl_days).await;
+                drop(reg);
+                tracing::info!(
+                    projects_scanned = report.projects_scanned,
+                    projects_succeeded = report.projects_succeeded,
+                    projects_failed = report.projects_failed,
+                    total_candidates_expired = report.total_candidates_expired,
+                    ttl_days = report.ttl_days,
+                    elapsed_ms = report.elapsed_ms,
+                    "candidate ttl finished"
                 );
             }
             _ = status_tick.tick() => {

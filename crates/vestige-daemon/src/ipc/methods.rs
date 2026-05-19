@@ -141,10 +141,16 @@ pub trait StatusProvider: Send + Sync {
 /// Async dispatcher — maps a parsed [`JsonRpcRequest`] to a [`JsonRpcResponse`].
 ///
 /// Pure logic layer: no I/O, no socket handling. `server.rs` owns framing.
+///
+/// `ttl_days_default` is read from the daemon's resolved config at startup and
+/// passed in so the TTL kick can use the configured value without the dispatcher
+/// needing to own the full config struct. A `KickParams` may not override this
+/// in V0.5; the config value is authoritative.
 pub async fn dispatch(
     registry: Arc<Mutex<ProjectRegistry>>,
     status_provider: &dyn StatusProvider,
     request: JsonRpcRequest,
+    ttl_days_default: u32,
 ) -> JsonRpcResponse {
     if request.jsonrpc != "2.0" {
         return invalid_request_response(
@@ -155,7 +161,9 @@ pub async fn dispatch(
 
     match request.method.as_str() {
         "daemon.status" => dispatch_status(status_provider, request.id).await,
-        "daemon.kick" => dispatch_kick(registry, request.id, request.params).await,
+        "daemon.kick" => {
+            dispatch_kick(registry, request.id, request.params, ttl_days_default).await
+        }
         "daemon.register_project" => {
             dispatch_register_project(registry, request.id, request.params).await
         }
@@ -195,24 +203,12 @@ async fn dispatch_kick(
     registry: Arc<Mutex<ProjectRegistry>>,
     id: serde_json::Value,
     params: serde_json::Value,
+    ttl_days_default: u32,
 ) -> JsonRpcResponse {
     let params: KickParams = match serde_json::from_value(params) {
         Ok(p) => p,
         Err(e) => return invalid_params_response(id, e.to_string()),
     };
-
-    // Prune and TTL land in Wave 5.
-    if matches!(params.job, KickJob::Prune | KickJob::Ttl) {
-        return error_response(
-            id,
-            StructuredError {
-                code: "JOB_NOT_IMPLEMENTED".to_string(),
-                message: format!("{:?} job is not implemented in V0.5", params.job),
-                retryable: false,
-            },
-            "job not implemented",
-        );
-    }
 
     // Validate and collect target project IDs while holding the lock briefly.
     let project_ids: Vec<vestige_core::ProjectId> = {
@@ -245,27 +241,56 @@ async fn dispatch_kick(
     let queued_at = now_rfc3339();
     let mut projects_queued = 0u32;
 
-    // Kick each project. Hold the registry lock across each individual embed
-    // call. Workers communicate over an `mpsc` channel and never re-acquire
-    // this lock, so there is no deadlock risk.
+    // Dispatch to each project worker. Hold the registry lock around each
+    // individual worker call. Workers communicate over an `mpsc` channel and
+    // never re-acquire this lock, so there is no deadlock risk.
     for pid in &project_ids {
         let guard = registry.lock().await;
-        let result = match guard.get(pid) {
-            Some(worker) => Some(worker.embed().await),
-            None => {
-                tracing::warn!(
-                    project = %pid.as_str(),
-                    "kick: worker disappeared between enumeration and embed; skipping"
-                );
-                None
-            }
+        let worker = guard.get(pid);
+
+        let result: Option<Result<(), String>> = match params.job {
+            KickJob::Embed => match worker {
+                Some(w) => Some(w.embed().await.map(|_| ()).map_err(|e| e.to_string())),
+                None => {
+                    tracing::warn!(
+                        project = %pid.as_str(),
+                        "kick embed: worker disappeared between enumeration and dispatch; skipping"
+                    );
+                    None
+                }
+            },
+            KickJob::Prune => match worker {
+                Some(w) => Some(w.prune().await.map(|_| ()).map_err(|e| e.to_string())),
+                None => {
+                    tracing::warn!(
+                        project = %pid.as_str(),
+                        "kick prune: worker disappeared between enumeration and dispatch; skipping"
+                    );
+                    None
+                }
+            },
+            KickJob::Ttl => match worker {
+                Some(w) => Some(
+                    w.ttl(ttl_days_default)
+                        .await
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                ),
+                None => {
+                    tracing::warn!(
+                        project = %pid.as_str(),
+                        "kick ttl: worker disappeared between enumeration and dispatch; skipping"
+                    );
+                    None
+                }
+            },
         };
         drop(guard);
 
         match result {
-            Some(Ok(_)) => projects_queued += 1,
+            Some(Ok(())) => projects_queued += 1,
             Some(Err(e)) => {
-                tracing::warn!(project = %pid.as_str(), error = ?e, "kick embed failed");
+                tracing::warn!(project = %pid.as_str(), error = %e, "kick {:?} failed", params.job);
             }
             None => {}
         }
@@ -476,7 +501,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.status", serde_json::json!({}));
-        let resp = dispatch(registry, &provider, req).await;
+        let resp = dispatch(registry, &provider, req, 0).await;
 
         assert!(resp.error.is_none(), "no error expected: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -495,7 +520,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.no_such_method", serde_json::json!({}));
-        let resp = dispatch(registry, &provider, req).await;
+        let resp = dispatch(registry, &provider, req, 0).await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -510,7 +535,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "garbage"}));
-        let resp = dispatch(registry, &provider, req).await;
+        let resp = dispatch(registry, &provider, req, 0).await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -547,10 +572,8 @@ mod tests {
                 .unwrap();
         }
         let mut reg = crate::registry::ProjectRegistry::new(5000);
-        reg.set_provider(Some(
-            Arc::new(FakeEmbeddingProvider::default())
-                as Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>,
-        ));
+        reg.set_provider(Some(Arc::new(FakeEmbeddingProvider::default())
+            as Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>));
         reg.discover_and_spawn_in(tmp.path()).unwrap();
         let registry = Arc::new(Mutex::new(reg));
 
@@ -561,14 +584,17 @@ mod tests {
             "repo_root": "/tmp"
         });
         let req1 = make_request("daemon.register_project", params.clone());
-        let resp1 = dispatch(registry.clone(), &provider, req1).await;
+        let resp1 = dispatch(registry.clone(), &provider, req1, 0).await;
         let result1 = resp1.result.expect("first call must succeed");
         let r1: RegisterProjectResult = serde_json::from_value(result1).unwrap();
-        assert!(!r1.registered, "project was already registered; must return false");
+        assert!(
+            !r1.registered,
+            "project was already registered; must return false"
+        );
 
         // Second call: still in registry → still registered=false.
         let req2 = make_request("daemon.register_project", params.clone());
-        let resp2 = dispatch(registry.clone(), &provider, req2).await;
+        let resp2 = dispatch(registry.clone(), &provider, req2, 0).await;
         let result2 = resp2.result.expect("second call must succeed");
         let r2: RegisterProjectResult = serde_json::from_value(result2).unwrap();
         assert!(!r2.registered, "second call must also return false");
@@ -580,22 +606,23 @@ mod tests {
         reg.shutdown_all().await;
     }
 
-    /// `daemon.kick` with `job: "prune"` returns a structured JOB_NOT_IMPLEMENTED error.
+    /// `daemon.kick` with `job: "prune"` on an empty registry reports 0 projects queued.
+    ///
+    /// Prune is now implemented — on an empty registry it just has no projects to work on.
     #[tokio::test]
-    async fn dispatch_kick_unimplemented_job_returns_structured_error() {
+    async fn dispatch_kick_prune_empty_registry_returns_zero() {
         let provider = FakeStatusProvider {
             status: fake_status(),
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "prune"}));
-        let resp = dispatch(registry, &provider, req).await;
+        let resp = dispatch(registry, &provider, req, 0).await;
 
-        assert!(resp.result.is_none());
-        let err = resp.error.expect("error must be present");
-        assert_eq!(err.code, -32000, "expected server-defined error code");
-        let data = err.data.expect("structured error data must be present");
-        assert_eq!(data.code, "JOB_NOT_IMPLEMENTED");
-        assert!(!data.retryable);
+        assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+        let result = resp.result.expect("result must be present");
+        let kick: KickResult = serde_json::from_value(result).unwrap();
+        assert!(kick.queued);
+        assert_eq!(kick.projects_queued, 0);
     }
 
     /// Kicking embed on an empty registry reports 0 projects queued (not an error).
@@ -606,7 +633,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "embed"}));
-        let resp = dispatch(registry, &provider, req).await;
+        let resp = dispatch(registry, &provider, req, 0).await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -627,7 +654,7 @@ mod tests {
             "daemon.kick",
             serde_json::json!({"job": "embed", "project_id": "proj_nonexistent"}),
         );
-        let resp = dispatch(registry, &provider, req).await;
+        let resp = dispatch(registry, &provider, req, 0).await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -664,10 +691,8 @@ mod tests {
         }
 
         let mut reg = crate::registry::ProjectRegistry::new(5000);
-        reg.set_provider(Some(
-            Arc::new(FakeEmbeddingProvider::default())
-                as Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>,
-        ));
+        reg.set_provider(Some(Arc::new(FakeEmbeddingProvider::default())
+            as Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>));
         reg.discover_and_spawn_in(tmp.path()).unwrap();
         assert_eq!(reg.project_ids().count(), 1, "one project discovered");
 
@@ -677,7 +702,7 @@ mod tests {
             "daemon.kick",
             serde_json::json!({"job": "embed", "project_id": project_id.as_str()}),
         );
-        let resp = dispatch(registry.clone(), &provider, req).await;
+        let resp = dispatch(registry.clone(), &provider, req, 0).await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");

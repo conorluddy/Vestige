@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 
-use vestige_daemon::{DaemonOpts, run_with_cancel};
+use vestige_daemon::{run_with_cancel, DaemonOpts};
 
 // === HELPERS ===
 
@@ -64,7 +64,10 @@ async fn wait_for_socket(socket: &std::path::Path) {
             return;
         }
         if std::time::Instant::now() > deadline {
-            panic!("daemon socket did not appear within 5s at {}", socket.display());
+            panic!(
+                "daemon socket did not appear within 5s at {}",
+                socket.display()
+            );
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
@@ -131,16 +134,22 @@ async fn daemon_register_project_idempotent() {
         assert_eq!(resp1["result"]["project_id"], "proj_ipc-test");
 
         let resp2 = rpc(&socket, req).await;
-        assert_eq!(resp2["result"]["registered"], false, "second call must be idempotent");
+        assert_eq!(
+            resp2["result"]["registered"], false,
+            "second call must be idempotent"
+        );
     }
 
     cancel_tx.send(true).ok();
     daemon.await.unwrap();
 }
 
-/// `daemon.kick` with an unimplemented job returns JOB_NOT_IMPLEMENTED.
+/// `daemon.kick` with `job: "prune"` on an empty-project daemon succeeds with 0 queued.
+///
+/// Prune is fully implemented in Wave 5 — on a daemon with no registered projects
+/// it returns a valid `queued=true` result with `projects_queued=0`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn daemon_kick_unimplemented_job_over_socket() {
+async fn daemon_kick_prune_over_socket() {
     let tmp = tempfile::TempDir::new().unwrap();
     let (opts, socket) = opts_in(tmp.path());
     let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -159,10 +168,13 @@ async fn daemon_kick_unimplemented_job_over_socket() {
     )
     .await;
 
-    assert!(resp["error"].is_object(), "expected an error response");
-    assert_eq!(resp["error"]["code"], -32000);
-    assert_eq!(resp["error"]["data"]["code"], "JOB_NOT_IMPLEMENTED");
-    assert_eq!(resp["error"]["data"]["retryable"], false);
+    assert!(
+        resp["error"].is_null(),
+        "no error expected: {}",
+        resp["error"]
+    );
+    assert_eq!(resp["result"]["queued"], true);
+    assert_eq!(resp["result"]["projects_queued"], 0);
 
     cancel_tx.send(true).ok();
     daemon.await.unwrap();
@@ -213,12 +225,13 @@ async fn daemon_multiple_requests() {
 
     // Fire three sequential status requests.
     for i in 1..=3_u32 {
-        let req = format!(
-            r#"{{"jsonrpc":"2.0","id":{i},"method":"daemon.status","params":{{}}}}"#
-        );
+        let req = format!(r#"{{"jsonrpc":"2.0","id":{i},"method":"daemon.status","params":{{}}}}"#);
         let resp = rpc(&socket, &req).await;
         assert_eq!(resp["id"], i, "id must echo back");
-        assert!(resp["result"].is_object(), "request {i}: result must be present");
+        assert!(
+            resp["result"].is_object(),
+            "request {i}: result must be present"
+        );
     }
 
     cancel_tx.send(true).ok();

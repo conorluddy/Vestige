@@ -57,7 +57,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 use vestige_config::ResolvedDaemonConfig;
 use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 
@@ -182,8 +182,11 @@ pub async fn run_with_cancel(
         let registry = registry_mutex.clone();
         let status_provider = status_provider.clone();
         let cancel = cancel_rx.clone();
+        let ttl_days = config.candidate_ttl_days;
         async move {
-            if let Err(e) = ipc::server::run(socket_path, registry, status_provider, cancel).await {
+            if let Err(e) =
+                ipc::server::run(socket_path, registry, status_provider, ttl_days, cancel).await
+            {
                 tracing::error!(error = ?e, "ipc server exited with error");
             }
         }
@@ -218,7 +221,9 @@ pub async fn run_with_cancel(
         let registry = mutex.into_inner();
         registry.shutdown_all().await;
     } else {
-        tracing::warn!("registry Arc still has multiple owners at shutdown; workers may not join cleanly");
+        tracing::warn!(
+            "registry Arc still has multiple owners at shutdown; workers may not join cleanly"
+        );
     }
 
     tracing::info!("vestige-daemon stopped");

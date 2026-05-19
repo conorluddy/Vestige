@@ -201,6 +201,56 @@ impl Store {
         Ok(())
     }
 
+    /// Run `VACUUM` on the database to reclaim free pages and defragment.
+    ///
+    /// SQLite WAL mode accumulates free pages over time as rows are deleted or
+    /// updated. `VACUUM` rebuilds the database file from scratch — it reclaims
+    /// space and rewrites the file into a compact form.
+    ///
+    /// This is a DDL operation; it briefly holds an exclusive lock on the file.
+    /// The daemon's `busy_timeout` ensures polite waiting under contention.
+    /// Safe to call at any time — it is a no-op if the database is already compact.
+    pub fn vacuum(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
+    /// List IDs of pending candidates whose `created_at` predates `cutoff_rfc3339`.
+    ///
+    /// Returns only `status = 'pending'` rows — approved, rejected, and
+    /// superseded candidates are excluded. Used by the daemon's candidate-TTL job
+    /// to find stale inbox entries for expiry.
+    ///
+    /// `cutoff_rfc3339` must be a valid RFC-3339 timestamp string. SQLite compares
+    /// it lexicographically against the stored `created_at` values (also RFC-3339),
+    /// which is correct because RFC-3339 timestamps sort lexicographically when
+    /// normalised to UTC (as stored by `rfc3339()`).
+    pub fn list_pending_candidates_older_than(
+        &self,
+        project_id: &vestige_core::ProjectId,
+        cutoff_rfc3339: &str,
+    ) -> Result<Vec<vestige_core::CandidateId>> {
+        use std::str::FromStr;
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM candidate_memories
+             WHERE project_id = ?1
+               AND status = 'pending'
+               AND created_at < ?2
+             ORDER BY created_at ASC",
+        )?;
+        let ids: Vec<vestige_core::CandidateId> = stmt
+            .query_map(
+                rusqlite::params![project_id.as_str(), cutoff_rfc3339],
+                |row| row.get::<_, String>(0),
+            )?
+            .filter_map(|r| {
+                r.ok()
+                    .and_then(|s| vestige_core::CandidateId::from_str(&s).ok())
+            })
+            .collect();
+        Ok(ids)
+    }
+
     /// Hard-delete every embedding row (and cascading vector blob) for `project_id`.
     ///
     /// Embeddings are a disposable acceleration layer (PRD §5.3) — clearing them
@@ -336,5 +386,78 @@ mod tests {
             timeout_ms >= 5000,
             "expected busy_timeout ≥5000 ms, got {timeout_ms}"
         );
+    }
+
+    #[test]
+    fn vacuum_on_empty_store_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        store
+            .vacuum()
+            .expect("vacuum must succeed on an empty store");
+    }
+
+    #[test]
+    fn list_pending_candidates_older_than_returns_stale_ids() {
+        use vestige_core::{build_candidate_bundle, CandidateId, MemoryType, NewCandidate};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let project_id = ProjectId::from_slug("ttl-test");
+        store
+            .ensure_project(&project_id, "TTL Test", Some("/tmp"), None)
+            .unwrap();
+
+        // Insert two candidates normally.
+        let make = |body: &str| {
+            build_candidate_bundle(NewCandidate {
+                project_id: project_id.clone(),
+                proposed_type: MemoryType::Observation,
+                body: body.to_string(),
+                rationale: None,
+                title_override: None,
+                importance: 0.5,
+                confidence: 0.9,
+                source: None,
+                duplicate_of_memory_id: None,
+                duplicate_of_candidate_id: None,
+            })
+            .unwrap()
+        };
+
+        let bundle_old = make("Old candidate body that should be expired.");
+        let bundle_new = make("New candidate body that should survive.");
+        let old_id: CandidateId = bundle_old.id.clone();
+        let new_id: CandidateId = bundle_new.id.clone();
+        store.record_candidate(&bundle_old).unwrap();
+        store.record_candidate(&bundle_new).unwrap();
+
+        // Backdate one candidate to 2 days ago using the test helper.
+        seed_backdate_candidate(&store, &old_id, "2024-01-01T00:00:00Z");
+
+        // A cutoff of "2024-06-01" should find the backdated candidate.
+        let stale = store
+            .list_pending_candidates_older_than(&project_id, "2024-06-01T00:00:00Z")
+            .unwrap();
+        assert_eq!(stale.len(), 1, "only the backdated candidate should appear");
+        assert_eq!(stale[0], old_id);
+
+        // The new candidate should not be in the result.
+        assert!(!stale.contains(&new_id), "new candidate must not be stale");
+    }
+
+    /// Test helper: backdate a candidate's `created_at` column directly.
+    ///
+    /// This bypasses the normal write path to simulate an old candidate for TTL tests.
+    /// Only available in tests; there is no public API for timestamp overrides.
+    #[cfg(test)]
+    fn seed_backdate_candidate(store: &Store, id: &vestige_core::CandidateId, rfc3339: &str) {
+        store
+            .connection()
+            .execute(
+                "UPDATE candidate_memories SET created_at = ?1 WHERE id = ?2",
+                rusqlite::params![rfc3339, id.as_str()],
+            )
+            .expect("backdate candidate created_at");
     }
 }
