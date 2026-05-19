@@ -30,6 +30,11 @@ fs2 = "0.4"
 directories.workspace = true
 time = { workspace = true }
 
+[features]
+default = []
+fastembed = ["vestige-embed/fastembed"]
+ollama = ["vestige-embed/ollama"]
+
 [dev-dependencies]
 tempfile.workspace = true
 rusqlite.workspace = true

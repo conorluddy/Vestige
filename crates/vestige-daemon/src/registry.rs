@@ -26,10 +26,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use vestige_core::ProjectId;
-use vestige_embed::EmbeddingProvider;
+use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 use vestige_store::Store;
 
 use crate::errors::DaemonError;
@@ -45,8 +45,6 @@ use crate::workers::ProjectWorker;
 pub struct ProjectRegistry {
     workers: HashMap<ProjectId, ProjectWorker>,
     busy_timeout_ms: u32,
-    /// Shared embedding provider forwarded to each worker at spawn time.
-    provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
 }
 
 // === PUBLIC API ===
@@ -57,16 +55,7 @@ impl ProjectRegistry {
         Self {
             workers: HashMap::new(),
             busy_timeout_ms,
-            provider: None,
         }
-    }
-
-    /// Set the embedding provider forwarded to all subsequently spawned workers.
-    ///
-    /// Must be called before [`discover_and_spawn`][Self::discover_and_spawn] or
-    /// [`ensure_registered`][Self::ensure_registered] if embedding is desired.
-    pub fn set_provider(&mut self, provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>) {
-        self.provider = provider;
     }
 
     /// Scan `~/.vestige/projects/*/memory.sqlite` and spawn a worker for each.
@@ -224,6 +213,10 @@ impl ProjectRegistry {
 // === PRIVATE HELPERS ===
 
 /// Spawn a `ProjectWorker` for the given coordinates and insert it into the map.
+///
+/// Reads the project's `.vestige/config.toml` at `repo_root` to select the
+/// correct embedding provider. Falls back to `FakeEmbeddingProvider` if the
+/// config cannot be read or contains no `[embeddings]` section.
 impl ProjectRegistry {
     fn spawn_and_insert(
         &mut self,
@@ -232,16 +225,113 @@ impl ProjectRegistry {
         repo_root: PathBuf,
         storage_path: PathBuf,
     ) -> Result<(), DaemonError> {
+        let provider = build_project_provider(&repo_root, &project_id);
         let worker = ProjectWorker::spawn(
             project_id.clone(),
             project_name,
             repo_root,
             storage_path,
             self.busy_timeout_ms,
-            self.provider.clone(),
+            provider,
         )?;
         self.workers.insert(project_id, worker);
         Ok(())
+    }
+}
+
+/// Thin wrapper that lets a `Box<dyn EmbeddingProvider>` live inside an `Arc`.
+///
+/// `EmbeddingProvider: Send + Sync` (supertrait bounds), but Rust does not
+/// implement `From<Box<dyn Trait>>` for `Arc<dyn Trait + Send + Sync>` without
+/// an explicit coercion. This zero-overhead newtype bridges the gap without
+/// unsafe code: it owns the `Box` and delegates all trait calls through.
+struct BoxedProvider(Box<dyn EmbeddingProvider>);
+
+impl EmbeddingProvider for BoxedProvider {
+    fn provider_name(&self) -> &'static str {
+        self.0.provider_name()
+    }
+    fn model_name(&self) -> &str {
+        self.0.model_name()
+    }
+    fn dimensions(&self) -> usize {
+        self.0.dimensions()
+    }
+    fn embed(&self, input: &str) -> Result<Vec<f32>, vestige_embed::EmbedError> {
+        self.0.embed(input)
+    }
+    fn embed_batch(&self, inputs: &[&str]) -> Result<Vec<Vec<f32>>, vestige_embed::EmbedError> {
+        self.0.embed_batch(inputs)
+    }
+}
+
+/// Build a per-project embedding provider from the project's `.vestige/config.toml`.
+///
+/// Precedence:
+/// 1. Config has `[embeddings]` with a valid provider → use it.
+/// 2. Config has `[embeddings]` but the provider cannot be built → warn + fake.
+/// 3. Config has no `[embeddings]` section → fake (debug log only).
+/// 4. Config file cannot be read → warn + fake.
+///
+/// `FakeEmbeddingProvider` is always a safe fallback: it is deterministic and
+/// never causes a worker thread to fail. The real correctness concern is
+/// preventing silent drift when the user has configured `fastembed` or `ollama`
+/// via `vestige embed --all`; those cases succeed on path 1 above.
+fn build_project_provider(
+    repo_root: &Path,
+    project_id: &ProjectId,
+) -> Option<Arc<dyn EmbeddingProvider + Send + Sync>> {
+    let config_path = repo_root
+        .join(vestige_config::CONFIG_DIR)
+        .join(vestige_config::CONFIG_FILE);
+
+    let config = match vestige_config::read_config(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(
+                project = %project_id.as_str(),
+                repo_root = %repo_root.display(),
+                error = %e,
+                "could not read project config; falling back to FakeEmbeddingProvider"
+            );
+            return Some(Arc::new(FakeEmbeddingProvider::default()));
+        }
+    };
+
+    let embeddings_cfg = match config.embeddings.as_ref() {
+        Some(section) => vestige_config::embeddings_config_for(Some(section)),
+        None => {
+            debug!(
+                project = %project_id.as_str(),
+                "no [embeddings] section in config; using FakeEmbeddingProvider"
+            );
+            return Some(Arc::new(FakeEmbeddingProvider::default()));
+        }
+    };
+
+    match vestige_embed::build_provider(&embeddings_cfg) {
+        Ok(p) => {
+            info!(
+                project = %project_id.as_str(),
+                provider = p.provider_name(),
+                model = p.model_name(),
+                dimensions = p.dimensions(),
+                "spawned worker with configured embedding provider"
+            );
+            // EmbeddingProvider: Send + Sync (supertrait), so Box<dyn EmbeddingProvider>
+            // is already Send + Sync. We wrap in Arc via a concrete wrapper that
+            // forwards all calls — avoids unsafe pointer casts.
+            Some(Arc::new(BoxedProvider(p)))
+        }
+        Err(e) => {
+            warn!(
+                project = %project_id.as_str(),
+                provider = %embeddings_cfg.provider,
+                error = %e,
+                "could not build configured embedding provider; falling back to FakeEmbeddingProvider"
+            );
+            Some(Arc::new(FakeEmbeddingProvider::default()))
+        }
     }
 }
 
@@ -295,6 +385,87 @@ fn resolve_projects_root() -> Result<PathBuf, DaemonError> {
     Ok(projects_root)
 }
 
+// === TEST-ONLY API ===
+
+#[cfg(test)]
+impl ProjectRegistry {
+    /// Override per-project provider construction with a single fixed provider.
+    ///
+    /// Identical to [`discover_and_spawn_in`][Self::discover_and_spawn_in] but
+    /// bypasses `.vestige/config.toml` reads and passes `provider` directly to
+    /// every worker. Used by unit tests that need a controlled provider without
+    /// writing real config files on disk.
+    pub fn discover_and_spawn_with_provider_for_tests(
+        &mut self,
+        projects_root: &Path,
+        provider: Arc<dyn EmbeddingProvider + Send + Sync>,
+    ) -> Result<(), DaemonError> {
+        if !projects_root.exists() {
+            info!(path = %projects_root.display(), "projects root does not exist; no projects to discover");
+            return Ok(());
+        }
+
+        let entries = std::fs::read_dir(projects_root).map_err(DaemonError::Io)?;
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(error = %e, "failed to read directory entry in projects root; skipping");
+                    continue;
+                }
+            };
+
+            let entry_path = entry.path();
+            if !entry_path.is_dir() {
+                continue;
+            }
+
+            let db_path = entry_path.join("memory.sqlite");
+            if !db_path.exists() {
+                continue;
+            }
+
+            match load_project_from_db(&db_path) {
+                Ok(Some((project_id, project_name, repo_root))) => {
+                    let worker = ProjectWorker::spawn(
+                        project_id.clone(),
+                        project_name,
+                        repo_root,
+                        db_path.clone(),
+                        self.busy_timeout_ms,
+                        Some(provider.clone()),
+                    );
+                    match worker {
+                        Ok(w) => {
+                            self.workers.insert(project_id, w);
+                        }
+                        Err(e) => {
+                            warn!(
+                                db = %db_path.display(),
+                                error = %e,
+                                "failed to spawn worker; skipping"
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {
+                    warn!(db = %db_path.display(), "projects table is empty; skipping");
+                }
+                Err(e) => {
+                    warn!(
+                        db = %db_path.display(),
+                        error = %e,
+                        "failed to open or query discovered DB; skipping"
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 // === TESTS ===
 
 #[cfg(test)]
@@ -313,8 +484,8 @@ mod tests {
             .expect("seed project row");
     }
 
-    fn fake_provider() -> Option<Arc<dyn EmbeddingProvider + Send + Sync>> {
-        Some(Arc::new(FakeEmbeddingProvider::default()))
+    fn fake_provider() -> Arc<dyn EmbeddingProvider + Send + Sync> {
+        Arc::new(FakeEmbeddingProvider::default())
     }
 
     #[test]
@@ -341,7 +512,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let projects_root = tmp.path().join("projects");
 
-        // Project A
+        // Project A — repo_root points at a temp dir so config read falls back to fake.
         let id_a = ProjectId::from_slug("aaa");
         let dir_a = projects_root.join(id_a.as_str());
         std::fs::create_dir_all(&dir_a).unwrap();
@@ -356,9 +527,10 @@ mod tests {
         seed_db(&db_b, &id_b, "Project BBB", "/repos/bbb");
 
         let mut registry = ProjectRegistry::new(5000);
-        registry.set_provider(fake_provider());
+        // Use the test helper to supply a fixed provider rather than reading
+        // non-existent config files at /repos/aaa and /repos/bbb.
         registry
-            .discover_and_spawn_in(&projects_root)
+            .discover_and_spawn_with_provider_for_tests(&projects_root, fake_provider())
             .expect("discover returns Ok");
 
         assert_eq!(registry.workers.len(), 2, "two workers spawned");
@@ -368,5 +540,59 @@ mod tests {
         rt.block_on(async move {
             registry.shutdown_all().await;
         });
+    }
+
+    #[test]
+    fn build_project_provider_falls_back_to_fake_for_missing_config() {
+        // A path with no .vestige/config.toml — provider must fall back to fake.
+        let tmp = TempDir::new().unwrap();
+        let project_id = ProjectId::from_slug("no-config");
+        let provider =
+            build_project_provider(tmp.path(), &project_id).expect("always returns Some");
+        assert_eq!(
+            provider.provider_name(),
+            "fake",
+            "missing config must yield FakeEmbeddingProvider"
+        );
+    }
+
+    #[test]
+    fn build_project_provider_uses_config_when_present() {
+        use std::io::Write;
+
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join(".vestige");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config_path = config_dir.join("config.toml");
+
+        // Write a minimal config with an explicit fake provider to confirm the
+        // config read succeeds and the provider is selected from config.
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        writeln!(
+            f,
+            r#"project_id = "proj_test"
+project_name = "Test"
+
+[embeddings]
+provider = "fake"
+dimensions = 32
+"#
+        )
+        .unwrap();
+
+        let project_id = ProjectId::from_slug("with-config");
+        let provider =
+            build_project_provider(tmp.path(), &project_id).expect("always returns Some");
+        assert_eq!(
+            provider.provider_name(),
+            "fake",
+            "config-sourced fake provider must be selected"
+        );
+        // The config set dimensions = 32; confirm the provider respects it.
+        assert_eq!(
+            provider.dimensions(),
+            32,
+            "provider dimensions must match config"
+        );
     }
 }

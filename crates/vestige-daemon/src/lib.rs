@@ -61,7 +61,6 @@ use std::time::Instant;
 
 use tokio::sync::{watch, Mutex};
 use vestige_config::ResolvedDaemonConfig;
-use vestige_embed::{EmbeddingProvider, FakeEmbeddingProvider};
 
 use crate::ipc::methods::StatusProvider;
 use crate::ipc::status_file::DaemonStatus;
@@ -226,10 +225,11 @@ pub async fn run(opts: DaemonOpts) -> Result<(), DaemonError> {
 /// # Steps
 ///
 /// 1. Resolves daemon config (embed cadence etc.).
-/// 2. Sets the `FakeEmbeddingProvider` (V0.5 default; real provider selection in V0.6).
-/// 3. Builds a [`ProjectRegistry`], discovers existing project DBs.
-/// 4. Spawns the IPC server and the scheduler as parallel tokio tasks.
-/// 5. Awaits both tasks — they exit when `cancel_rx` holds `true`.
+/// 2. Builds a [`ProjectRegistry`], discovers existing project DBs. Each
+///    project's embedding provider is resolved from its own `.vestige/config.toml`
+///    at worker spawn time.
+/// 3. Spawns the IPC server and the scheduler as parallel tokio tasks.
+/// 4. Awaits both tasks — they exit when `cancel_rx` holds `true`.
 pub async fn run_with_cancel(
     opts: DaemonOpts,
     cancel_rx: watch::Receiver<bool>,
@@ -241,17 +241,12 @@ pub async fn run_with_cancel(
         None => vestige_config::daemon_config_for(None),
     };
 
-    // Embedding provider — V0.5 defaults to `fake` (deterministic, no model
-    // download). Real provider selection (fastembed/ollama) is wired in V0.6
-    // when the daemon reads the project's `[embeddings]` config section.
-    let provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>> =
-        Some(Arc::new(FakeEmbeddingProvider::default()));
-
     // Build registry and discover all project DBs.
+    // Each project's embedding provider is resolved from its own
+    // `.vestige/config.toml` at worker spawn time (T8.1).
     // `opts.projects_root` lets tests supply an empty TempDir to avoid
     // inheriting real project workers (which may have WAL locks or latency).
     let mut registry = ProjectRegistry::new(WORKER_BUSY_TIMEOUT_MS);
-    registry.set_provider(provider);
     match opts.projects_root {
         Some(ref root) => {
             registry.discover_and_spawn_in(root)?;

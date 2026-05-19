@@ -689,9 +689,11 @@ mod tests {
                 .unwrap();
         }
         let mut reg = crate::registry::ProjectRegistry::new(5000);
-        reg.set_provider(Some(Arc::new(FakeEmbeddingProvider::default())
-            as Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>));
-        reg.discover_and_spawn_in(tmp.path()).unwrap();
+        reg.discover_and_spawn_with_provider_for_tests(
+            tmp.path(),
+            Arc::new(FakeEmbeddingProvider::default()),
+        )
+        .unwrap();
         let registry = Arc::new(Mutex::new(reg));
 
         // First call: project already in the registry → registered=false (no new insert).
@@ -808,9 +810,11 @@ mod tests {
         }
 
         let mut reg = crate::registry::ProjectRegistry::new(5000);
-        reg.set_provider(Some(Arc::new(FakeEmbeddingProvider::default())
-            as Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>));
-        reg.discover_and_spawn_in(tmp.path()).unwrap();
+        reg.discover_and_spawn_with_provider_for_tests(
+            tmp.path(),
+            Arc::new(FakeEmbeddingProvider::default()),
+        )
+        .unwrap();
         assert_eq!(reg.project_ids().count(), 1, "one project discovered");
 
         let registry = Arc::new(Mutex::new(reg));

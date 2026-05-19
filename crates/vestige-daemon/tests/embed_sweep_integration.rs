@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 use vestige_core::{build_bundle, MemoryType, NewMemory, ProjectId};
-use vestige_embed::FakeEmbeddingProvider;
 use vestige_store::Store;
 
 use vestige_daemon::{jobs::embed_sweep, registry::ProjectRegistry};
@@ -87,12 +86,10 @@ async fn embed_sweep_populates_embeddings() {
         assert_eq!(status.embedded_representations, 0, "no embeddings yet");
     }
 
-    // ── 2. Build registry with fake provider ─────────────────────────────────
-    let provider: Option<Arc<dyn vestige_embed::EmbeddingProvider + Send + Sync>> =
-        Some(Arc::new(FakeEmbeddingProvider::default()));
-
+    // ── 2. Build registry ────────────────────────────────────────────────────
+    // The project's repo_root (/tmp/test-repo-*) has no .vestige/config.toml,
+    // so build_project_provider falls back to FakeEmbeddingProvider automatically.
     let mut registry = ProjectRegistry::new(5000);
-    registry.set_provider(provider);
     registry
         .discover_and_spawn_in(&projects_root)
         .expect("discover_and_spawn_in");
@@ -130,24 +127,34 @@ async fn embed_sweep_populates_embeddings() {
     );
 }
 
-/// Sweep with no provider returns failures (not panics) for every project.
+/// Sweep on a project with no `.vestige/config.toml` succeeds via FakeEmbeddingProvider fallback.
+///
+/// T8.1: the daemon no longer supports a "no provider" state — every project
+/// gets at least `FakeEmbeddingProvider` when config is absent. This test
+/// confirms that a project whose `repo_root` has no config still embeds
+/// successfully (using the fake provider) rather than counting as failed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn embed_sweep_no_provider_reports_failures() {
+async fn embed_sweep_no_config_falls_back_to_fake_and_succeeds() {
     let tmp = TempDir::new().unwrap();
     let projects_root = tmp.path().join("projects");
 
-    let project_id = ProjectId::from_slug("no-provider-sweep");
+    let project_id = ProjectId::from_slug("no-config-sweep");
     let project_dir = projects_root.join(project_id.as_str());
     std::fs::create_dir_all(&project_dir).unwrap();
 
     {
         let mut store = open_store(&project_dir);
         seed_project(&mut store, &project_id);
-        seed_memory(&mut store, &project_id, "Memory without a provider.");
+        seed_memory(
+            &mut store,
+            &project_id,
+            "Memory with no config, fake fallback.",
+        );
     }
 
+    // No .vestige/config.toml at repo_root (/tmp/test-repo) — build_project_provider
+    // warns and falls back to FakeEmbeddingProvider.
     let mut registry = ProjectRegistry::new(5000);
-    // No provider set.
     registry
         .discover_and_spawn_in(&projects_root)
         .expect("discover_and_spawn_in");
@@ -156,13 +163,14 @@ async fn embed_sweep_no_provider_reports_failures() {
     let report = embed_sweep::run_once(&registry).await;
 
     assert_eq!(report.projects_scanned, 1);
-    // The sweep counts "no provider configured" as a failure for the project
-    // (logged at debug, not a hard error, but still reflected in the count).
     assert_eq!(
-        report.projects_failed, 1,
-        "no-provider must count as failed"
+        report.projects_succeeded, 1,
+        "no-config project must succeed via fake fallback (T8.1)"
     );
-    assert_eq!(report.total_embeddings_added, 0);
+    assert_eq!(
+        report.projects_failed, 0,
+        "no-config must not count as failed after T8.1"
+    );
 
     let registry = Arc::try_unwrap(registry).unwrap_or_else(|_| panic!("single owner"));
     registry.shutdown_all().await;
