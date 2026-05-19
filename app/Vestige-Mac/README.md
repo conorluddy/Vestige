@@ -47,6 +47,14 @@ app/Vestige-Mac/
 
 `xcuserdata/` and `*.xcuserstate` are gitignored.
 
+## Building a Release .app
+
+```sh
+./app/Vestige-Mac/scripts/build-app.sh
+```
+
+Outputs an unsigned `dist/Vestige.app`. Drag it to `/Applications` to install; first launch needs right-click → Open to bypass Gatekeeper (unsigned). Signing + notarisation + auto-update are deferred until there's a v1.0.
+
 ## Tests
 
 Sources live at `Vestige/VestigeTests/` with a fixture under `Fixtures/`. Wire them into Xcode once:
