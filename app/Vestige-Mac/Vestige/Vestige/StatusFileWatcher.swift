@@ -97,9 +97,10 @@ final class StatusFileWatcher {
         timerSource = nil
     }
 
-    deinit {
-        stop()
-    }
+    // No deinit: the watcher lives for the whole app lifetime (top-level @State
+    // on the App scene), so cleanup only happens at process exit — the kernel
+    // reclaims the fd then. A main-actor stop() can't be called from a
+    // nonisolated deinit under Swift 6.
 
     // MARK: - Private helpers
 

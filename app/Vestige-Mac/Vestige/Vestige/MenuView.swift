@@ -6,6 +6,9 @@ import AppKit
 struct MenuView: View {
     var watcher: StatusFileWatcher
     @State private var copied = false
+    @State private var showInactive = false
+
+    private static let inactiveThreshold: TimeInterval = 30 * 24 * 60 * 60  // 30 days
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -98,22 +101,10 @@ struct MenuView: View {
 
             Divider()
 
-            if status.projects.isEmpty {
-                Text("No projects supervised yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-            } else {
-                ForEach(status.projects, id: \.projectId) { project in
-                    ProjectRow(project: project)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                }
-            }
+            projectList(status.projects)
 
             if let nextJob = status.nextJobs.first {
-                Text("Next: \(nextJob.kind.rawValue) in \(RelativeTime.short(from: nextJob.at))")
+                Text("Next: \(nextJob.kind.rawValue) \(RelativeTime.short(from: nextJob.at))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
@@ -137,6 +128,70 @@ struct MenuView: View {
             .foregroundStyle(.red)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
+    }
+
+    // MARK: - Project list
+
+    @ViewBuilder
+    private func projectList(_ projects: [ProjectStatus]) -> some View {
+        if projects.isEmpty {
+            Text("No projects supervised yet.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+        } else {
+            let cutoff = Date().addingTimeInterval(-Self.inactiveThreshold)
+            let active = projects.filter { isActive($0, cutoff: cutoff) }
+            let inactive = projects.filter { !isActive($0, cutoff: cutoff) }
+
+            if active.isEmpty {
+                Text("No active projects in the last 30 days.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            } else {
+                ForEach(active, id: \.projectId) { project in
+                    ProjectRow(project: project)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                }
+            }
+
+            if !inactive.isEmpty {
+                Divider().padding(.vertical, 4)
+                Button {
+                    showInactive.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: showInactive ? "chevron.down" : "chevron.right")
+                            .font(.caption2)
+                        Text("\(showInactive ? "Hide" : "Show") \(inactive.count) inactive")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+
+                if showInactive {
+                    ForEach(inactive, id: \.projectId) { project in
+                        ProjectRow(project: project)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 4)
+                            .opacity(0.7)
+                    }
+                }
+            }
+        }
+    }
+
+    private func isActive(_ project: ProjectStatus, cutoff: Date) -> Bool {
+        if project.pendingEmbeds > 0 { return true }
+        guard let lastEmbed = project.lastEmbedRun else { return false }
+        return lastEmbed >= cutoff
     }
 
     // MARK: - Private helpers
