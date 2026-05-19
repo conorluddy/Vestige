@@ -280,7 +280,7 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 - **Progressive disclosure.** Memory returns compact handles first, expands on demand. Same shape for the code: types → public API → helpers.
 - **Source-of-truth separation.** Durable journal (`memory_events`) ≠ derived interpretation (`memories`) ≠ disposable indexes (`memory_fts`).
 - **Soft delete only in V0.** `forget` flips status; `restore` flips it back.
-- **No daemon, no background threads.** Each CLI invocation opens SQLite, does its work, closes.
+- **No daemon in V0–V0.4; opt-in daemon from V0.5.** Each CLI invocation opens SQLite, does its work, closes. V0.5 adds an opt-in per-host LaunchAgent for scheduled maintenance jobs — it coexists with one-shot CLI/MCP via WAL.
 - **MCP exposes intent, not mechanics.** No raw SQL tools. No destructive defaults.
 
 ## What's shipped
@@ -301,6 +301,20 @@ V0.4 adds an interactive terminal browser over the project's memory store. Three
 The browser is interactive-only — pipe-friendly inspection still lives in `list`, `show`, `search`, `why`, `sources`, `trace`. Running `vestige browse` without a TTY fails fast with a friendly message.
 
 See [`docs/v0.4.md`](docs/v0.4.md) for the full walkthrough. Full spec: [`docs/prd/vestige_v_0_4_browser_prd.md`](docs/prd/vestige_v_0_4_browser_prd.md).
+
+### V0.5 — Daemon Runtime (in progress)
+
+Opt-in per-host daemon for scheduled maintenance jobs. Coexists with one-shot CLI/MCP via WAL.
+
+- Periodic embed sweep across all known projects
+- Daily trace VACUUM
+- Optional candidate stale-TTL
+- LaunchAgent install on macOS (`vestige daemon install`)
+- CLI controller: `vestige daemon {start,stop,status,kick,install,uninstall,log}`
+- Status: JSON status file + Unix-domain control socket
+- Optional `Vestige.app` SwiftUI menu-bar UI (parallel track)
+
+Spec: `docs/prd/vestige_v_0_5_daemon_prd.md`. Walkthrough: `docs/v0.5.md`.
 
 ### V0.3 — Provenance and Receipts
 
@@ -348,7 +362,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 (Daemon runtime) is the active next milestone. Full roadmap in `vestige_prd.md` §20 — note the landing-page order: V0.4 = browser (shipped), V0.5 = daemon, V0.6 = directives.
+V0.5 (Daemon runtime) is the active milestone — in progress on `feat/v0.5-daemon`. Full roadmap in `vestige_prd.md` §20 — note the landing-page order: V0.4 = browser (shipped), V0.5 = daemon (in progress), V0.6 = directives.
 
 ## Contributing
 

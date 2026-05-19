@@ -1,0 +1,39 @@
+//! Daemon command options parsed by the CLI and passed into `run`.
+
+use std::path::PathBuf;
+
+/// Options forwarded from `vestige daemon` CLI flags into [`crate::run`].
+///
+/// All path overrides default to `None`, which causes the daemon to resolve
+/// standard locations under `~/.vestige/`. Override them in tests to keep
+/// state isolated in a `tempfile::TempDir`.
+#[derive(Debug, Clone)]
+pub struct DaemonOpts {
+    /// Run attached to the controlling terminal (no fork). Default for direct
+    /// CLI use; required under launchd (launchd manages the process lifetime).
+    pub foreground: bool,
+
+    /// Override `~/.vestige/daemon.pid` for tests.
+    pub pid_file: Option<PathBuf>,
+
+    /// Override `~/.vestige/daemon.sock` for tests.
+    pub socket_path: Option<PathBuf>,
+
+    /// Override `~/.vestige/daemon.status.json` for tests.
+    pub status_file: Option<PathBuf>,
+
+    /// Override `~/.vestige/daemon.log` for tests.
+    pub log_file: Option<PathBuf>,
+}
+
+impl Default for DaemonOpts {
+    fn default() -> Self {
+        Self {
+            foreground: true,
+            pid_file: None,
+            socket_path: None,
+            status_file: None,
+            log_file: None,
+        }
+    }
+}

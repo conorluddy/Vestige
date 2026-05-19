@@ -145,6 +145,24 @@ impl Store {
         Ok(Self { conn, path })
     }
 
+    /// Open the store and set a `PRAGMA busy_timeout` so writers wait politely
+    /// under contention instead of returning `SQLITE_BUSY` immediately.
+    ///
+    /// Intended for the V0.5 daemon, which coexists with CLI/MCP processes via
+    /// WAL. Use [`Store::open`] for one-shot CLI invocations where failing fast
+    /// is preferable.
+    ///
+    /// `busy_timeout_ms` is passed to `rusqlite`'s `Connection::busy_timeout`;
+    /// SQLite will poll-wait for up to that many milliseconds before surfacing
+    /// a busy error to the caller.
+    pub fn open_with_busy_timeout(path: impl AsRef<Path>, busy_timeout_ms: u32) -> Result<Self> {
+        let store = Self::open(path)?;
+        store
+            .conn
+            .busy_timeout(std::time::Duration::from_millis(busy_timeout_ms.into()))?;
+        Ok(store)
+    }
+
     /// Filesystem path of the database file this `Store` was opened from.
     pub fn path(&self) -> &Path {
         &self.path
@@ -302,5 +320,21 @@ mod tests {
     fn migrations_check_valid() {
         // rusqlite_migration ships a self-check ensuring SQL parses cleanly.
         migrations().validate().unwrap();
+    }
+
+    #[test]
+    fn open_with_busy_timeout_sets_pragma() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("memory.sqlite");
+        let store = Store::open_with_busy_timeout(&path, 5000).unwrap();
+        // Verify SQLite honoured the request via the read-back pragma.
+        let timeout_ms: i64 = store
+            .connection()
+            .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            timeout_ms >= 5000,
+            "expected busy_timeout ≥5000 ms, got {timeout_ms}"
+        );
     }
 }

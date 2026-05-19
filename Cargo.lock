@@ -3821,6 +3821,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -4254,6 +4255,23 @@ dependencies = [
  "time",
  "tracing",
  "ulid",
+]
+
+[[package]]
+name = "vestige-daemon"
+version = "0.4.2"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "vestige-config",
+ "vestige-core",
+ "vestige-engine",
+ "vestige-store",
 ]
 
 [[package]]
