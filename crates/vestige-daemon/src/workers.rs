@@ -370,8 +370,21 @@ fn run_worker(
         }
     };
 
-    // Per-job last-run timestamps — updated in the handler when a job completes.
-    let mut last_embed_run: Option<String> = None;
+    // Hydrate last_embed_run from the store so timestamps survive daemon restarts.
+    // MAX(updated_at) across active embeddings is the best available proxy for
+    // "when were this project's embeddings last written."
+    let mut last_embed_run: Option<String> = match store.latest_embedded_at(&project_id) {
+        Ok(ts) => ts,
+        Err(e) => {
+            warn!(
+                project = project_id.as_str(),
+                ?e,
+                "could not read latest_embedded_at; starting with None"
+            );
+            None
+        }
+    };
+    // last_prune_run/last_ttl_run not hydrated; no natural backing source — they remain None until the daemon runs them.
     let mut last_prune_run: Option<String> = None;
     let mut last_ttl_run: Option<String> = None;
 
@@ -892,6 +905,81 @@ mod tests {
                 CandidateStatus::Pending,
                 "new candidate must still be pending"
             );
+        });
+    }
+
+    #[test]
+    fn worker_hydrates_last_embed_run_from_store() {
+        use vestige_core::{build_bundle, MemoryType, NewMemory, RepresentationDepth};
+
+        let rt = Runtime::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("memory.sqlite");
+
+        let project_id = ProjectId::from_slug("test-hydrate-embed");
+        let repo_root = PathBuf::from("/tmp/test-repo-hydrate");
+
+        // Known embedded_at value we will backdate into the store.
+        let known_ts = "2026-01-15T10:30:00Z";
+
+        {
+            let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            seed_project(&mut store, &project_id);
+
+            // Record a memory so we can obtain a representation ID.
+            let bundle = build_bundle(
+                &project_id,
+                NewMemory {
+                    r#type: MemoryType::Observation,
+                    body: "Hydration test memory.",
+                    importance: 0.5,
+                    source: None,
+                },
+            )
+            .unwrap();
+            store.record_memory(&bundle).unwrap();
+
+            // Look up the summary representation ID.
+            let rep_id = store
+                .repr_id_for_depth(&bundle.memory.id, RepresentationDepth::Summary)
+                .unwrap()
+                .expect("summary rep must exist after record_memory");
+
+            // Insert an embedding row with a known updated_at value.
+            store
+                .connection()
+                .execute(
+                    "INSERT INTO memory_embeddings
+                        (id, memory_id, representation_id, representation_type,
+                         provider, model, dimensions, vector_hash,
+                         status, created_at, updated_at, stale_at)
+                     VALUES ('emb_HYDRATE', ?1, ?2, 'summary', 'fake', 'fake-v1', 4,
+                             'hash_hydrate', 'active', ?3, ?3, NULL)",
+                    rusqlite::params![bundle.memory.id.as_str(), rep_id, known_ts],
+                )
+                .unwrap();
+        }
+
+        // Spawn a fresh worker pointing at the same store — it should hydrate
+        // last_embed_run from the embedding written above.
+        let worker = ProjectWorker::spawn(
+            project_id.clone(),
+            "Hydrate Embed Test".to_string(),
+            repo_root,
+            db_path,
+            5000,
+            fake_provider(),
+        )
+        .expect("worker spawns");
+
+        rt.block_on(async move {
+            let snapshot = worker.ping().await.expect("ping succeeds");
+            assert_eq!(
+                snapshot.last_embed_run,
+                Some(known_ts.to_string()),
+                "worker must hydrate last_embed_run from the store on startup"
+            );
+            worker.shutdown().await.expect("shutdown ok");
         });
     }
 

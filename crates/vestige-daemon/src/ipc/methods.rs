@@ -240,6 +240,13 @@ async fn dispatch_kick(
 
     let queued_at = now_rfc3339();
     let mut projects_queued = 0u32;
+    let kick_start = std::time::Instant::now();
+
+    tracing::info!(
+        job = ?params.job,
+        project_id = ?params.project_id,
+        "kick request received"
+    );
 
     // Dispatch to each project worker. Hold the registry lock around each
     // individual worker call. Workers communicate over an `mpsc` channel and
@@ -248,53 +255,93 @@ async fn dispatch_kick(
         let guard = registry.lock().await;
         let worker = guard.get(pid);
 
-        let result: Option<Result<(), String>> = match params.job {
+        match params.job {
             KickJob::Embed => match worker {
-                Some(w) => Some(w.embed().await.map(|_| ()).map_err(|e| e.to_string())),
+                Some(w) => match w.embed().await {
+                    Ok(summary) => {
+                        drop(guard);
+                        projects_queued += 1;
+                        tracing::info!(
+                            project = %pid.as_str(),
+                            representations_processed = summary.representations_processed,
+                            embeddings_added = summary.embeddings_added,
+                            finished_at = %summary.finished_at,
+                            "kick embed ok"
+                        );
+                    }
+                    Err(e) => {
+                        drop(guard);
+                        tracing::warn!(project = %pid.as_str(), error = %e, "kick embed failed");
+                    }
+                },
                 None => {
+                    drop(guard);
                     tracing::warn!(
                         project = %pid.as_str(),
                         "kick embed: worker disappeared between enumeration and dispatch; skipping"
                     );
-                    None
                 }
             },
             KickJob::Prune => match worker {
-                Some(w) => Some(w.prune().await.map(|_| ()).map_err(|e| e.to_string())),
+                Some(w) => match w.prune().await {
+                    Ok(summary) => {
+                        drop(guard);
+                        projects_queued += 1;
+                        tracing::info!(
+                            project = %pid.as_str(),
+                            vacuumed = summary.vacuumed,
+                            finished_at = %summary.finished_at,
+                            "kick prune ok"
+                        );
+                    }
+                    Err(e) => {
+                        drop(guard);
+                        tracing::warn!(project = %pid.as_str(), error = %e, "kick prune failed");
+                    }
+                },
                 None => {
+                    drop(guard);
                     tracing::warn!(
                         project = %pid.as_str(),
                         "kick prune: worker disappeared between enumeration and dispatch; skipping"
                     );
-                    None
                 }
             },
             KickJob::Ttl => match worker {
-                Some(w) => Some(
-                    w.ttl(ttl_days_default)
-                        .await
-                        .map(|_| ())
-                        .map_err(|e| e.to_string()),
-                ),
+                Some(w) => match w.ttl(ttl_days_default).await {
+                    Ok(summary) => {
+                        drop(guard);
+                        projects_queued += 1;
+                        tracing::info!(
+                            project = %pid.as_str(),
+                            candidates_expired = summary.candidates_expired,
+                            ttl_days = summary.ttl_days,
+                            finished_at = %summary.finished_at,
+                            "kick ttl ok"
+                        );
+                    }
+                    Err(e) => {
+                        drop(guard);
+                        tracing::warn!(project = %pid.as_str(), error = %e, "kick ttl failed");
+                    }
+                },
                 None => {
+                    drop(guard);
                     tracing::warn!(
                         project = %pid.as_str(),
                         "kick ttl: worker disappeared between enumeration and dispatch; skipping"
                     );
-                    None
                 }
             },
-        };
-        drop(guard);
-
-        match result {
-            Some(Ok(())) => projects_queued += 1,
-            Some(Err(e)) => {
-                tracing::warn!(project = %pid.as_str(), error = %e, "kick {:?} failed", params.job);
-            }
-            None => {}
         }
     }
+
+    tracing::info!(
+        job = ?params.job,
+        projects_queued,
+        elapsed_ms = kick_start.elapsed().as_millis(),
+        "kick completed"
+    );
 
     ok_response(
         id,

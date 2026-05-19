@@ -54,6 +54,7 @@ pub use lifecycle::{DaemonLifecycle, ShutdownReason};
 pub use opts::DaemonOpts;
 
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
@@ -94,6 +95,84 @@ impl StatusProvider for SchedulerStatusProvider {
     }
 }
 
+// === LOGGING ===
+
+/// Resolve the directory where rolling log files are written.
+///
+/// - If `log_file_override` is `Some(path)` and `path` is a directory, use it
+///   directly; if it is a file path, use its parent directory.
+/// - Otherwise, default to `~/.vestige/logs/`.
+///
+/// # Test helper
+///
+/// Pass `Some(tmp_dir.path())` in tests to keep log files in a `TempDir` so
+/// they never touch the real `~/.vestige/` tree.
+pub fn resolve_log_dir(log_file_override: Option<&Path>) -> PathBuf {
+    if let Some(p) = log_file_override {
+        if p.is_dir() {
+            return p.to_path_buf();
+        }
+        // If the override is a file path (legacy `--log-file` flag), use its
+        // parent directory so the rolling appender writes siblings there.
+        if let Some(parent) = p.parent() {
+            if !parent.as_os_str().is_empty() {
+                return parent.to_path_buf();
+            }
+        }
+        // Caller passed a bare filename with no directory component — fall through.
+    }
+
+    // Default: ~/.vestige/logs/
+    directories::BaseDirs::new()
+        .map(|b| b.home_dir().join(".vestige").join("logs"))
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                .join(".vestige")
+                .join("logs")
+        })
+}
+
+/// Initialise the daemon's rolling-file tracing subscriber.
+///
+/// Writes structured log lines to `<log_dir>/daemon.log.<YYYY-MM-DD>` via
+/// [`tracing_appender::rolling::daily`]. The level is controlled by
+/// `VESTIGE_LOG` (falls back to `info`).
+///
+/// # Important — keep the guard alive
+///
+/// Returns a [`tracing_appender::non_blocking::WorkerGuard`] that flushes any
+/// buffered log lines when dropped. Callers MUST bind it to a local variable
+/// that lives for the whole daemon lifetime:
+///
+/// ```ignore
+/// let _log_guard = init_rolling_logger(&log_dir);
+/// // ... daemon runs ...
+/// // _log_guard drops here, flushing final writes.
+/// ```
+///
+/// Silently no-ops if a global subscriber has already been set (e.g. in tests
+/// that call `run_with_cancel` directly after installing their own subscriber).
+fn init_rolling_logger(log_dir: &Path) -> tracing_appender::non_blocking::WorkerGuard {
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+    let file_appender = tracing_appender::rolling::daily(log_dir, "daemon.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter =
+        EnvFilter::try_from_env("VESTIGE_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let subscriber = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt::layer().with_writer(non_blocking).with_ansi(false));
+
+    // Ignore the error — it means a subscriber is already installed (tests,
+    // or the CLI initialised one before forking). The daemon still runs; it
+    // just logs to wherever the existing subscriber writes.
+    let _ = tracing::subscriber::set_global_default(subscriber);
+
+    guard
+}
+
 // === PUBLIC API ===
 
 /// Start the daemon runtime and park until a UNIX signal arrives.
@@ -101,6 +180,13 @@ impl StatusProvider for SchedulerStatusProvider {
 /// Acquires the pidfile lock and hooks `SIGTERM` / `SIGINT` to the cancellation
 /// channel. Delegates to [`run_with_cancel`] for the actual runtime.
 pub async fn run(opts: DaemonOpts) -> Result<(), DaemonError> {
+    // Set up the rolling-file subscriber before anything else so all startup
+    // logs land in the file. `_log_guard` must live until `run` returns so the
+    // non-blocking writer flushes on graceful shutdown.
+    let log_dir = resolve_log_dir(opts.log_file.as_deref());
+    std::fs::create_dir_all(&log_dir).ok();
+    let _log_guard = init_rolling_logger(&log_dir);
+
     tracing::info!(foreground = opts.foreground, "vestige-daemon starting");
 
     let pid_path = lifecycle::DaemonLifecycle::resolve_pid_path(opts.pid_file.as_deref());
@@ -229,4 +315,60 @@ pub async fn run_with_cancel(
 
     tracing::info!("vestige-daemon stopped");
     Ok(())
+}
+
+// === TESTS ===
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_tempdir() -> TempDir {
+        tempfile::tempdir().expect("tempdir")
+    }
+
+    #[test]
+    fn resolve_log_dir_none_override_returns_vestige_logs_suffix() {
+        // Without an override the path ends with .vestige/logs. We can't
+        // assert the prefix because HOME varies per machine, so just check
+        // the suffix and that it's absolute.
+        let dir = resolve_log_dir(None);
+        assert!(dir.is_absolute(), "expected absolute path, got {dir:?}");
+        let s = dir.to_string_lossy();
+        assert!(
+            s.ends_with(".vestige/logs") || s.ends_with(".vestige\\logs"),
+            "expected path to end with .vestige/logs, got {s}"
+        );
+    }
+
+    #[test]
+    fn resolve_log_dir_directory_override_returns_it_unchanged() {
+        let tmp = make_tempdir();
+        let dir = resolve_log_dir(Some(tmp.path()));
+        assert_eq!(dir, tmp.path());
+    }
+
+    #[test]
+    fn resolve_log_dir_file_override_returns_parent() {
+        let tmp = make_tempdir();
+        let file = tmp.path().join("daemon.log");
+        // File doesn't need to exist for resolve_log_dir — it checks is_dir(),
+        // not is_file(), so a non-existent file path falls to the parent branch.
+        let dir = resolve_log_dir(Some(&file));
+        assert_eq!(dir, tmp.path());
+    }
+
+    #[test]
+    fn resolve_log_dir_bare_filename_falls_back_to_default() {
+        // A bare filename has no parent component; should fall through to the
+        // default `~/.vestige/logs` path.
+        let bare = std::path::Path::new("daemon.log");
+        let dir = resolve_log_dir(Some(bare));
+        let s = dir.to_string_lossy();
+        assert!(
+            s.ends_with(".vestige/logs") || s.ends_with(".vestige\\logs"),
+            "expected fallback to .vestige/logs, got {s}"
+        );
+    }
 }
