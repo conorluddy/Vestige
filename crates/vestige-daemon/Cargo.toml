@@ -23,6 +23,9 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+fs2 = "0.4"
+directories.workspace = true
+time = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

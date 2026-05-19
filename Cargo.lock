@@ -1049,6 +1049,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4262,10 +4272,13 @@ name = "vestige-daemon"
 version = "0.4.2"
 dependencies = [
  "anyhow",
+ "directories",
+ "fs2",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "tracing",
  "vestige-config",
