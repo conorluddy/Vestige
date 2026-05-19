@@ -44,6 +44,7 @@ pub mod ipc;
 pub mod jobs;
 pub mod lifecycle;
 pub mod opts;
+pub mod plist;
 pub mod registry;
 pub mod scheduler;
 pub mod workers;

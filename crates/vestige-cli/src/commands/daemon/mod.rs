@@ -4,11 +4,13 @@
 
 use clap::{Args, Subcommand};
 
+pub mod install;
 pub mod kick;
 pub mod log;
 pub mod start;
 pub mod status;
 pub mod stop;
+pub mod uninstall;
 
 // === TYPES ===
 
@@ -30,6 +32,10 @@ pub enum DaemonCommand {
     Kick(kick::KickArgs),
     /// Tail the daemon log file.
     Log(log::LogArgs),
+    /// Install the macOS LaunchAgent so the daemon starts at login.
+    Install(install::InstallArgs),
+    /// Uninstall the macOS LaunchAgent.
+    Uninstall(uninstall::UninstallArgs),
 }
 
 // === PUBLIC API ===
@@ -41,5 +47,7 @@ pub fn run(args: DaemonArgs) -> anyhow::Result<()> {
         DaemonCommand::Status(a) => status::run(a),
         DaemonCommand::Kick(a) => kick::run(a),
         DaemonCommand::Log(a) => log::run(a),
+        DaemonCommand::Install(a) => install::run(a),
+        DaemonCommand::Uninstall(a) => uninstall::run(a),
     }
 }

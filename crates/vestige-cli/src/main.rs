@@ -32,7 +32,7 @@ enum Command {
     /// Initialise Vestige memory in the current repo.
     Init(commands::init::InitArgs),
     /// Show current Vestige project state.
-    Status,
+    Status(commands::status::StatusArgs),
     /// Capture a free-form memory (default type: note).
     Remember(commands::remember::RememberArgs),
     /// Capture a note.
@@ -98,7 +98,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Init(args) => commands::init::run(args),
-        Command::Status => commands::status::run(),
+        Command::Status(args) => commands::status::run(args),
         Command::Remember(args) => commands::remember::run(args),
         Command::Note(args) => commands::note::run(args),
         Command::Decision(args) => commands::decision::run(args),
