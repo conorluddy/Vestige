@@ -12,7 +12,10 @@
       "last_embed_run": "2026-05-19T10:30:00Z",
       "last_prune_run": null,
       "last_ttl_run": null,
-      "pending_embeds": 0
+      "pending_embeds": 0,
+      "memory_count": 127,
+      "candidate_count": 3,
+      "last_memory_at": "2026-05-19T10:25:00Z"
     },
     {
       "project_id": "proj_grapla",
@@ -21,7 +24,9 @@
       "last_embed_run": null,
       "last_prune_run": null,
       "last_ttl_run": null,
-      "pending_embeds": 7
+      "pending_embeds": 7,
+      "memory_count": 0,
+      "candidate_count": 0
     }
   ],
   "next_jobs": [

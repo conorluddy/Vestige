@@ -97,7 +97,15 @@ struct MenuView: View {
             Text(formatHeader(status: status))
                 .font(.headline)
                 .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .padding(.bottom, 2)
+
+            if let aggregate = aggregateLine(status: status) {
+                Text(aggregate)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
 
             Divider()
 
@@ -198,6 +206,17 @@ struct MenuView: View {
 
     private func formatHeader(status: DaemonStatus) -> String {
         "v\(status.version) · pid \(status.pid) · up \(formatUptime(status.uptimeSecs))"
+    }
+
+    private func aggregateLine(status: DaemonStatus) -> String? {
+        let memories = status.projects.reduce(0) { $0 + $1.memoryCount }
+        let candidates = status.projects.reduce(0) { $0 + $1.candidateCount }
+        guard memories > 0 || candidates > 0 else { return nil }
+        let memoryNoun = memories == 1 ? "memory" : "memories"
+        if candidates > 0 {
+            return "\(memories) \(memoryNoun) · \(candidates) candidates"
+        }
+        return "\(memories) \(memoryNoun)"
     }
 }
 

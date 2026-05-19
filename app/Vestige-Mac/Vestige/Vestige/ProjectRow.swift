@@ -12,13 +12,13 @@ struct ProjectRow: View {
             Button(action: { isExpanded.toggle() }) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(embedColor)
+                        .fill(statusColor)
                         .frame(width: 8, height: 8)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(project.projectName)
                             .font(.body)
-                        Text("embedded \(RelativeTime.short(from: project.lastEmbedRun))")
+                        Text(subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -54,6 +54,7 @@ struct ProjectRow: View {
         VStack(alignment: .leading, spacing: 4) {
             detailRow("ID", project.projectId)
             detailRow("Path", tildePath(project.repoRoot))
+            detailRow("Last memory", absoluteOrNever(project.lastMemoryAt))
             detailRow("Embed", absoluteOrNever(project.lastEmbedRun))
             detailRow("Prune", absoluteOrNever(project.lastPruneRun))
             detailRow("TTL",   absoluteOrNever(project.lastTtlRun))
@@ -87,12 +88,27 @@ struct ProjectRow: View {
 
     // MARK: - Formatting
 
-    private var embedColor: Color {
-        switch project.pendingEmbeds {
-        case 0: .green
-        case 1..<10: .orange
-        default: .red
+    private var subtitle: String {
+        if project.memoryCount == 0 && project.candidateCount == 0 {
+            return "embedded \(RelativeTime.short(from: project.lastEmbedRun))"
         }
+        let memories = "\(project.memoryCount) \(project.memoryCount == 1 ? "memory" : "memories")"
+        if project.candidateCount > 0 {
+            return "\(memories) · \(project.candidateCount) candidates"
+        }
+        return memories
+    }
+
+    private var statusColor: Color {
+        // Pending-embed backlog dominates: anything queued is more urgent than staleness.
+        if project.pendingEmbeds >= 10 { return .red }
+        if project.pendingEmbeds >= 1 { return .orange }
+
+        // Age-of-last-embed: amber after 7 days, hidden by inactive-collapse after 30.
+        guard let lastEmbed = project.lastEmbedRun else { return .gray }
+        let ageDays = Date().timeIntervalSince(lastEmbed) / 86_400
+        if ageDays > 7 { return .yellow }
+        return .green
     }
 
     private func tildePath(_ path: String) -> String {

@@ -39,10 +39,37 @@ final class DaemonStatusTests: XCTestCase {
         XCTAssertNotNil(vestige.lastEmbedRun)
         XCTAssertNil(vestige.lastPruneRun)
         XCTAssertEqual(vestige.pendingEmbeds, 0)
+        XCTAssertEqual(vestige.memoryCount, 127)
+        XCTAssertEqual(vestige.candidateCount, 3)
+        XCTAssertNotNil(vestige.lastMemoryAt)
 
         let grapla = status.projects[1]
         XCTAssertNil(grapla.lastEmbedRun, "null timestamps must decode as nil, not distantPast")
         XCTAssertEqual(grapla.pendingEmbeds, 7)
+        XCTAssertEqual(grapla.memoryCount, 0)
+        XCTAssertNil(grapla.lastMemoryAt, "absent last_memory_at must decode as nil")
+    }
+
+    func test_decode_missingCountsDefaultToZero() throws {
+        // Backward compat: a pre-enrichment daemon that omits memory_count /
+        // candidate_count / last_memory_at must still decode without error,
+        // with counts defaulting to 0 and the timestamp to nil.
+        let json = """
+        {
+          "schema_version": 1, "version": "0.5.0", "pid": 1,
+          "started_at": "2026-01-01T00:00:00Z", "uptime_secs": 0,
+          "projects": [{
+            "project_id": "proj_old", "project_name": "Old", "repo_root": "/x",
+            "last_embed_run": null, "last_prune_run": null, "last_ttl_run": null,
+            "pending_embeds": 0
+          }],
+          "next_jobs": []
+        }
+        """.data(using: .utf8)!
+        let status = try DaemonStatus.recommendedDecoder.decode(DaemonStatus.self, from: json)
+        XCTAssertEqual(status.projects[0].memoryCount, 0)
+        XCTAssertEqual(status.projects[0].candidateCount, 0)
+        XCTAssertNil(status.projects[0].lastMemoryAt)
     }
 
     func test_decode_jobKindRawValues() throws {

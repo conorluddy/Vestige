@@ -118,6 +118,12 @@ pub struct ProjectStatusSnapshot {
     pub repo_root: PathBuf,
     /// Un-embedded representation count (best-effort; see [`compute_snapshot`]).
     pub pending_embeds: u64,
+    /// Count of non-deleted memories (best-effort; defaults to 0 on store error).
+    pub memory_count: u64,
+    /// Count of `pending` assimilation candidates (best-effort; 0 on store error).
+    pub candidate_count: u64,
+    /// RFC-3339 timestamp of the most recent active memory, if any.
+    pub last_memory_at: Option<String>,
     /// RFC-3339 timestamp of the last completed embed sweep, if any.
     pub last_embed_run: Option<String>,
     /// RFC-3339 timestamp of the last completed prune run, if any.
@@ -547,11 +553,50 @@ fn compute_snapshot(
         }
     };
 
+    let memory_count = match store.memory_counts(project_id) {
+        Ok(counts) => counts.active.max(0) as u64,
+        Err(e) => {
+            warn!(
+                project_id = project_id.as_str(),
+                error = %e,
+                "failed to query memory counts; defaulting memory_count to 0"
+            );
+            0
+        }
+    };
+
+    let candidate_count = match store.pending_candidate_count(project_id) {
+        Ok(n) => n.max(0) as u64,
+        Err(e) => {
+            warn!(
+                project_id = project_id.as_str(),
+                error = %e,
+                "failed to query pending candidate count; defaulting candidate_count to 0"
+            );
+            0
+        }
+    };
+
+    let last_memory_at = match store.latest_active_memory_at(project_id) {
+        Ok(ts) => ts,
+        Err(e) => {
+            warn!(
+                project_id = project_id.as_str(),
+                error = %e,
+                "failed to query latest memory timestamp; defaulting last_memory_at to None"
+            );
+            None
+        }
+    };
+
     ProjectStatusSnapshot {
         project_id: project_id.clone(),
         project_name: project_name.to_string(),
         repo_root: repo_root.to_path_buf(),
         pending_embeds,
+        memory_count,
+        candidate_count,
+        last_memory_at,
         last_embed_run: last_embed_run.clone(),
         last_prune_run: last_prune_run.clone(),
         last_ttl_run: last_ttl_run.clone(),

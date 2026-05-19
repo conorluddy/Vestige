@@ -71,6 +71,17 @@ pub struct ProjectStatus {
     pub last_ttl_run: Option<String>,
     /// Count of memory representations that still need embedding.
     pub pending_embeds: u64,
+    /// Count of non-deleted memories for this project. Additive field; older
+    /// readers without it default to 0 via serde's `default` attribute.
+    #[serde(default)]
+    pub memory_count: u64,
+    /// Count of `pending` assimilation candidates. Additive field.
+    #[serde(default)]
+    pub candidate_count: u64,
+    /// RFC-3339 timestamp of the most recently created active memory in this
+    /// project, or `None` if the project has never recorded one. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_memory_at: Option<String>,
 }
 
 /// A scheduled job entry, used in [`DaemonStatus::next_jobs`].
@@ -314,6 +325,9 @@ mod tests {
                     last_prune_run: None,
                     last_ttl_run: Some("2026-05-19T08:00:00Z".to_string()),
                     pending_embeds: 3,
+                    memory_count: 42,
+                    candidate_count: 1,
+                    last_memory_at: Some("2026-05-19T09:55:00Z".to_string()),
                 },
                 ProjectStatus {
                     project_id: ProjectId::from_slug("beta"),
@@ -323,6 +337,9 @@ mod tests {
                     last_prune_run: Some("2026-05-18T22:00:00Z".to_string()),
                     last_ttl_run: None,
                     pending_embeds: 0,
+                    memory_count: 0,
+                    candidate_count: 0,
+                    last_memory_at: None,
                 },
             ],
             next_jobs: vec![
