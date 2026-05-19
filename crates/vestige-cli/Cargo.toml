@@ -1,6 +1,6 @@
 [package]
 name = "vestige"
-description = "Local-first, repo-pinned memory layer for coding agents. CLI + MCP server over a SQLite store. No daemon."
+description = "Vestige CLI — repo-pinned memory layer for coding agents. Local-first SQLite store + MCP server + optional opt-in daemon for scheduled embedding sweeps, trace VACUUM, and per-project candidate TTL."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

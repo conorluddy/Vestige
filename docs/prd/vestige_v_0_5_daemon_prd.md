@@ -44,7 +44,7 @@ V0.5 should not include:
 - **Linux/Windows.** macOS only; `vestige daemon install` emits a clear error on other platforms. Linux systemd user-service in V0.6; Windows in V0.8+.
 - **Dream/consolidation jobs.** Memory rewriting, clustering, and the "Dream-Lite" concept shifted to V0.7 after the PRD was reordered.
 - **iOS.** No Unix sockets accessible across iOS apps; no LaunchAgents equivalent; no on-device way to run a persistent Rust process against `~/.vestige/`. An iOS surface requires a server-hosted Vestige — V0.8+ and a different product shape.
-- **Real embedding provider selection in the daemon.** The daemon defaults to `FakeEmbeddingProvider` in V0.5. Wiring the configured `[embeddings]` provider into the daemon (so workers use the same model as the CLI) lands in V0.6.
+- **Real embedding provider selection in the daemon.** ~~The daemon defaults to `FakeEmbeddingProvider` in V0.5. Wiring the configured `[embeddings]` provider into the daemon (so workers use the same model as the CLI) lands in V0.6.~~ Delivered in Wave 8 — each worker reads its project's `[embeddings]` config and builds a provider via `vestige_embed::build_provider`, with `FakeEmbeddingProvider` as fallback.
 
 ## 5. Target User
 
@@ -82,7 +82,7 @@ The daemon uses `tokio::sync::watch<bool>` for fan-out cancellation. Once `true`
 
 ### 6.6 Control socket
 
-`~/.vestige/daemon.sock` is a Unix-domain socket accepting newline-delimited JSON-RPC 2.0. One request per connection; the server closes the connection after writing the response. Three methods: `daemon.status`, `daemon.kick`, `daemon.register_project`.
+`~/.vestige/daemon.sock` is a Unix-domain socket accepting newline-delimited JSON-RPC 2.0. One request per connection; the server closes the connection after writing the response. Four methods: `daemon.status`, `daemon.kick`, `daemon.register_project`, `daemon.reload_config`.
 
 ## 7. User Experience
 
@@ -107,6 +107,8 @@ vestige daemon kick embed --project proj_vestige   # one project only
 vestige daemon kick prune           # force trace prune now
 vestige daemon kick ttl             # force candidate TTL now
 vestige daemon stop                 # SIGTERM + wait
+vestige daemon restart              # stop + launchctl kickstart -k (Wave 8)
+vestige daemon doctor               # 8-check health diagnostic (Wave 8)
 vestige daemon log -f               # follow the log
 ```
 
@@ -187,6 +189,22 @@ vestige daemon uninstall [--no-unload] [--if-exists] [--json]
 
 macOS only. Calls `launchctl unload -w` on the plist (unless `--no-unload`) then removes the plist file. Non-zero `launchctl unload` exit is a warning, not a hard error — the plist is removed regardless. `--if-exists` suppresses the error when the plist is already absent.
 
+### 9.8 `vestige daemon restart` (Wave 8)
+
+```
+vestige daemon restart [--json]
+```
+
+macOS only. Sends SIGTERM and waits for the daemon to stop (up to 10 s), then calls `launchctl kickstart -k gui/$UID/com.vestige.daemon` to start a fresh instance under launchd. Exits with error if the LaunchAgent plist is not installed. Prints the new PID on success.
+
+### 9.9 `vestige daemon doctor` (Wave 8)
+
+```
+vestige daemon doctor [--json]
+```
+
+Runs 8 health checks and prints a pass/fail summary. Checks include: LaunchAgent plist present, plist binary path matches current binary, daemon process running, status file fresh (< 30 s old), socket accepting connections, at least one project registered, all project DBs readable, and no stale pidfile from a dead process. Exits 0 if all checks pass; exits 1 with a structured list of failures otherwise.
+
 ## 10. MCP Requirements
 
 **None.** The daemon has no MCP surface in V0.5. The MCP contract is unchanged. Agents communicate with `vestige mcp` over stdio as before.
@@ -195,7 +213,7 @@ The existing `vestige_bootstrap` tool is unaffected. Agents detect daemon presen
 
 ## 11. IPC Surface
 
-Three JSON-RPC 2.0 methods over `~/.vestige/daemon.sock`. Newline-delimited framing. One request per connection; the server closes the connection after writing the response.
+Four JSON-RPC 2.0 methods over `~/.vestige/daemon.sock`. Newline-delimited framing. One request per connection; the server closes the connection after writing the response.
 
 ### 11.1 `daemon.status`
 
@@ -245,7 +263,19 @@ Called by CLI invocations after `vestige init` to notify the daemon of a newly c
 Params: `project_id` (required, `proj_` prefixed), `project_name` (required), `repo_root` (required, absolute path).
 Result: `registered` (bool — true on new insert, false on no-op), `project_id` (echoed).
 
-### 11.4 Error envelope
+### 11.4 `daemon.reload_config`
+
+Reloads the `[daemon]` cadence configuration from each project's `.vestige/config.toml` without requiring a daemon restart. Scoped to cadence fields only — `embed_sweep_interval_secs`, `trace_prune_interval_secs`, `candidate_ttl_days`, `candidate_ttl_sweep_interval_secs`. Provider changes (`[embeddings]`) still require a restart.
+
+```
+→ {"jsonrpc":"2.0","id":5,"method":"daemon.reload_config","params":{}}
+← {"jsonrpc":"2.0","id":5,"result":{"reloaded":true,"projects_reloaded":2}}
+```
+
+Params: `{}` (none required).
+Result: `reloaded` (always `true`), `projects_reloaded` (count of projects whose config was re-read).
+
+### 11.5 Error envelope
 
 All method errors return the standard JSON-RPC 2.0 error object with a `data` field for machine-readable details:
 
@@ -290,7 +320,7 @@ Source of truth: `crates/vestige-daemon/src/ipc/status_file.rs`.
 | `started_at` | `String` | RFC3339 timestamp when this daemon process started. |
 | `uptime_secs` | `u64` | Whole-second uptime since `started_at`. |
 | `projects` | `Vec<ProjectStatus>` | One entry per discovered or registered project. |
-| `next_jobs` | `Vec<ScheduledJob>` | Next-scheduled jobs across all projects, ordered by `at` ascending. Empty in V0.5 Wave 1–4; populated in Wave 5+. |
+| `next_jobs` | `Vec<ScheduledJob>` | Next-scheduled jobs across all projects, ordered by `at` ascending. Populated via scheduler-tracked `TickState` (shipped in Wave 8). |
 
 ### `ProjectStatus`
 
@@ -406,7 +436,7 @@ The scheduler uses a biased `tokio::select!` with the cancellation check as the 
 
 ## 16. Implementation Plan
 
-The implementation was structured in seven waves to enable parallel agent work:
+The implementation was structured in eight waves to enable parallel agent work:
 
 | Wave | Tasks | Key files |
 |---|---|---|
@@ -417,6 +447,18 @@ The implementation was structured in seven waves to enable parallel agent work:
 | 5 | Trace-prune job and candidate-TTL job | `jobs/trace_prune.rs`, `jobs/candidate_ttl.rs` |
 | 6 | LaunchAgent plist, `install` and `uninstall` CLI subcommands, `log` subcommand | `plist.rs`, `commands/daemon/{install,uninstall,log}.rs` |
 | 7 | `stop` and `kick` CLI subcommands, `vestige status` daemon detection | `commands/daemon/{stop,kick}.rs`, `commands/status.rs` |
+| 8 | Polish and harden — `daemon restart` subcommand, `daemon doctor` 8-check diagnostic, `daemon.reload_config` IPC method, `next_jobs[]` population via `TickState`, `vestige init` live registration, per-project provider selection | `commands/daemon/{restart,doctor}.rs`, `ipc/methods.rs`, `scheduler.rs`, `registry.rs`, `embed/provider.rs` |
+
+**Wave 8 — Polish and harden** (Sonnet/Haiku tier; ~7 task units across 3 dependency-aware sub-waves). Closes the V0.6-candidate items the original PRD anticipated:
+
+- `vestige daemon restart` subcommand (`launchctl kickstart -k gui/$UID/com.vestige.daemon`)
+- `vestige daemon doctor` 8-check diagnostic subcommand
+- `daemon.reload_config` IPC method (fourth method, scoped to cadence reload only — provider changes still require restart)
+- `next_jobs[]` populated in the status file via scheduler-tracked `TickState`
+- `vestige init` fires `daemon.register_project` over the socket for live discovery (best-effort, 500 ms timeout, never fails init)
+- Per-project provider selection — each worker reads its project's `[embeddings]` config and builds via `vestige_embed::build_provider`, with `FakeEmbeddingProvider` fallback
+
+Verified live on `feat/v0.5-daemon` against 9 supervised projects.
 
 T17 (subprocess test harness) runs in parallel with Wave 7 and owns `crates/vestige-cli/tests/daemon_smoke.rs`.
 
@@ -467,7 +509,7 @@ V0.5 is complete when:
 
 3. **macOS menu-bar Swift app (`Vestige.app`).** Phase 2 stretch goal for V0.5.x. Reads `daemon.status.json` via `DispatchSource.makeFileSystemObjectSource`; sends mutations to `daemon.sock` via `Network.framework`. Estimated ~300 lines for the MVP. Lives in `app/Vestige-Mac/` (separate SwiftUI project, not built by Cargo). Deferred until the daemon core is stable.
 
-4. **Real provider selection in the daemon (V0.6).** In V0.5 the daemon unconditionally uses `FakeEmbeddingProvider`. This is correct for safety (no surprise model downloads on the user's machine) but means daemon-generated embeddings differ from CLI-generated embeddings when the CLI is configured with `fastembed` or `ollama`. V0.6 will wire the project's `[embeddings]` config section into each worker at startup.
+4. ~~Real provider selection in the daemon~~ — **closed in Wave 8** (per-project provider via `vestige_embed::build_provider` reading each project's `[embeddings]` config; `FakeEmbeddingProvider` fallback when config is absent or provider unavailable).
 
 ## 20. References
 
