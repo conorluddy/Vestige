@@ -79,18 +79,30 @@ const WORKER_BUSY_TIMEOUT_MS: u32 = 5_000;
 ///
 /// Wraps the shared registry plus the immutable start metadata needed by
 /// [`scheduler::build_status`] to assemble a [`DaemonStatus`] snapshot.
+///
+/// `tick_state_arc` is shared with the scheduler so that `daemon.status` IPC
+/// responses include a populated `next_jobs[]` array (T8.3).
 struct SchedulerStatusProvider {
     registry: Arc<Mutex<ProjectRegistry>>,
     started: Instant,
     started_at: String,
     config: ResolvedDaemonConfig,
+    tick_state_arc: Arc<Mutex<scheduler::TickState>>,
 }
 
 impl StatusProvider for SchedulerStatusProvider {
     fn current_status(&self) -> Pin<Box<dyn Future<Output = DaemonStatus> + Send + '_>> {
         Box::pin(async move {
             let reg = self.registry.lock().await;
-            scheduler::build_status(&reg, self.started, &self.started_at, &self.config).await
+            let state = self.tick_state_arc.lock().await;
+            scheduler::build_status(
+                &reg,
+                self.started,
+                &self.started_at,
+                &self.config,
+                Some(&state),
+            )
+            .await
         })
     }
 }
@@ -259,12 +271,30 @@ pub async fn run_with_cancel(
     let status_path = ipc::status_file::resolve_status_path(opts.status_file.as_deref());
     let socket_path = ipc::server::resolve_socket_path(opts.socket_path.as_deref());
 
+    // T8.4 — watch channel for live config reload.
+    // `config_tx` is forwarded to the IPC dispatcher so `daemon.reload_config`
+    // can push new cadences to the scheduler without a restart.
+    let (config_tx, config_rx) = watch::channel(config.clone());
+
+    // T8.3 — shared TickState allows the IPC `daemon.status` response to include
+    // a populated `next_jobs[]` array, not just the scheduler's own 5-second writes.
+    let initial_tick_state = scheduler::TickState::new(
+        time::OffsetDateTime::now_utc(),
+        started,
+        std::time::Duration::from_secs(config.embed_sweep_interval_secs),
+        std::time::Duration::from_secs(config.trace_prune_interval_secs),
+        std::time::Duration::from_secs(config.candidate_ttl_sweep_interval_secs),
+    );
+    let shared_tick_state: Arc<Mutex<scheduler::TickState>> =
+        Arc::new(Mutex::new(initial_tick_state));
+
     // Build the StatusProvider that the IPC server uses to answer daemon.status.
     let status_provider: Arc<dyn StatusProvider> = Arc::new(SchedulerStatusProvider {
         registry: registry_mutex.clone(),
         started,
         started_at: started_at.clone(),
         config: config.clone(),
+        tick_state_arc: Arc::clone(&shared_tick_state),
     });
 
     // Spawn the IPC server as a background tokio task.
@@ -274,8 +304,15 @@ pub async fn run_with_cancel(
         let cancel = cancel_rx.clone();
         let ttl_days = config.candidate_ttl_days;
         async move {
-            if let Err(e) =
-                ipc::server::run(socket_path, registry, status_provider, ttl_days, cancel).await
+            if let Err(e) = ipc::server::run(
+                socket_path,
+                registry,
+                status_provider,
+                ttl_days,
+                config_tx,
+                cancel,
+            )
+            .await
             {
                 tracing::error!(error = ?e, "ipc server exited with error");
             }
@@ -288,8 +325,17 @@ pub async fn run_with_cancel(
         let cancel = cancel_rx.clone();
         let status_path = status_path.clone();
         let started_at = started_at.clone();
+        let tick_state = Arc::clone(&shared_tick_state);
         async move {
-            scheduler::run(registry, config, status_path, started_at, cancel).await;
+            scheduler::run(
+                registry,
+                config_rx,
+                tick_state,
+                status_path,
+                started_at,
+                cancel,
+            )
+            .await;
         }
     });
 

@@ -67,7 +67,8 @@ fn print_status(path: &std::path::Path, json: bool) -> anyhow::Result<()> {
                 if !s.next_jobs.is_empty() {
                     println!("next jobs:");
                     for j in &s.next_jobs {
-                        println!("  {:?}  {}  at {}", j.kind, j.project_id, j.at);
+                        let pid = j.project_id.as_ref().map(|p| p.as_str()).unwrap_or("*");
+                        println!("  {:?}  {}  at {}", j.kind, pid, j.at);
                     }
                 }
             }

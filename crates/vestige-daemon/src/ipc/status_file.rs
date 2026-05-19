@@ -78,8 +78,16 @@ pub struct ProjectStatus {
 pub struct ScheduledJob {
     /// The class of background work to be done.
     pub kind: JobKind,
-    /// The project this job runs against.
-    pub project_id: ProjectId,
+    /// The project this job targets, or `None` when the job sweeps all projects.
+    ///
+    /// All three daemon sweep jobs (embed / prune / TTL) run across every registered
+    /// project in a single tick, so `project_id` is `None` here. The field is
+    /// `Option<ProjectId>` rather than a `"*"` sentinel because `ProjectId`
+    /// validates the `proj_` prefix and `"*"` would violate it. Additive serde
+    /// change: `skip_serializing_if` suppresses the field when absent so the Swift
+    /// app contract (which ignores unknown/absent fields) is not broken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<ProjectId>,
     /// RFC3339 timestamp of the next scheduled execution.
     pub at: String,
 }
@@ -320,17 +328,17 @@ mod tests {
             next_jobs: vec![
                 ScheduledJob {
                     kind: JobKind::Embed,
-                    project_id: ProjectId::from_slug("alpha"),
+                    project_id: Some(ProjectId::from_slug("alpha")),
                     at: "2026-05-19T10:10:00Z".to_string(),
                 },
                 ScheduledJob {
                     kind: JobKind::Prune,
-                    project_id: ProjectId::from_slug("alpha"),
+                    project_id: Some(ProjectId::from_slug("alpha")),
                     at: "2026-05-20T09:00:00Z".to_string(),
                 },
                 ScheduledJob {
                     kind: JobKind::CandidateTtl,
-                    project_id: ProjectId::from_slug("beta"),
+                    project_id: Some(ProjectId::from_slug("beta")),
                     at: "2026-05-19T11:00:00Z".to_string(),
                 },
             ],
@@ -369,9 +377,21 @@ mod tests {
 
         assert_eq!(restored.next_jobs.len(), 3);
         assert_eq!(restored.next_jobs[0].kind, JobKind::Embed);
-        assert_eq!(restored.next_jobs[0].project_id.as_str(), "proj_alpha");
+        assert_eq!(
+            restored.next_jobs[0]
+                .project_id
+                .as_ref()
+                .map(|p| p.as_str()),
+            Some("proj_alpha")
+        );
         assert_eq!(restored.next_jobs[1].kind, JobKind::Prune);
         assert_eq!(restored.next_jobs[2].kind, JobKind::CandidateTtl);
-        assert_eq!(restored.next_jobs[2].project_id.as_str(), "proj_beta");
+        assert_eq!(
+            restored.next_jobs[2]
+                .project_id
+                .as_ref()
+                .map(|p| p.as_str()),
+            Some("proj_beta")
+        );
     }
 }

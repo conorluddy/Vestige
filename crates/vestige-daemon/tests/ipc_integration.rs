@@ -209,6 +209,64 @@ async fn daemon_unknown_method_over_socket() {
     daemon.await.unwrap();
 }
 
+/// `daemon.reload_config` returns `reloaded: true` with cadence fields.
+///
+/// Verifies the end-to-end flow over the Unix socket: the daemon receives the
+/// request, re-reads config, pushes it to the scheduler via the watch channel,
+/// and returns a well-formed success response.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn daemon_reload_config_over_socket() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let (opts, socket) = opts_in(tmp.path());
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+
+    let daemon = tokio::spawn(async move {
+        run_with_cancel(opts, cancel_rx)
+            .await
+            .expect("daemon run failed")
+    });
+
+    wait_for_socket(&socket).await;
+
+    let resp = rpc(
+        &socket,
+        r#"{"jsonrpc":"2.0","id":10,"method":"daemon.reload_config","params":{}}"#,
+    )
+    .await;
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 10);
+    assert!(
+        resp["error"].is_null(),
+        "no error expected: {}",
+        resp["error"]
+    );
+
+    let result = &resp["result"];
+    assert_eq!(result["reloaded"], true, "reloaded must be true");
+    assert_eq!(result["applied_at"], "next-tick");
+    assert!(
+        result["embed_sweep_interval_secs"].is_u64(),
+        "embed_sweep_interval_secs must be present"
+    );
+    assert!(
+        result["trace_prune_interval_secs"].is_u64(),
+        "trace_prune_interval_secs must be present"
+    );
+    assert!(
+        result["candidate_ttl_sweep_interval_secs"].is_u64(),
+        "candidate_ttl_sweep_interval_secs must be present"
+    );
+    assert!(
+        result["candidate_ttl_days"].is_u64(),
+        "candidate_ttl_days must be present"
+    );
+    assert!(result["note"].is_string(), "note field must be present");
+
+    cancel_tx.send(true).ok();
+    daemon.await.unwrap();
+}
+
 /// Multiple sequential requests on separate connections all succeed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_multiple_requests() {

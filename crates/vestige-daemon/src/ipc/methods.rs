@@ -29,7 +29,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
+
+use vestige_config::ResolvedDaemonConfig;
 
 use crate::errors::{DaemonError, StructuredError};
 use crate::ipc::status_file::DaemonStatus;
@@ -146,11 +148,16 @@ pub trait StatusProvider: Send + Sync {
 /// passed in so the TTL kick can use the configured value without the dispatcher
 /// needing to own the full config struct. A `KickParams` may not override this
 /// in V0.5; the config value is authoritative.
+///
+/// `config_tx` is the watch sender for live config reload. `daemon.reload_config`
+/// re-reads the config from disk and pushes the new value to the scheduler via
+/// this sender. Provider changes are NOT applied live — they require daemon restart.
 pub async fn dispatch(
     registry: Arc<Mutex<ProjectRegistry>>,
     status_provider: &dyn StatusProvider,
     request: JsonRpcRequest,
     ttl_days_default: u32,
+    config_tx: &watch::Sender<ResolvedDaemonConfig>,
 ) -> JsonRpcResponse {
     if request.jsonrpc != "2.0" {
         return invalid_request_response(
@@ -167,6 +174,7 @@ pub async fn dispatch(
         "daemon.register_project" => {
             dispatch_register_project(registry, request.id, request.params).await
         }
+        "daemon.reload_config" => dispatch_reload_config(request.id, config_tx),
         _ => method_not_found_response(request.id, &request.method),
     }
 }
@@ -354,6 +362,62 @@ async fn dispatch_kick(
     )
 }
 
+/// Reload daemon configuration from disk and push the new cadences to the scheduler.
+///
+/// # What is reloaded
+///
+/// Only job cadences and the candidate TTL value are applied live:
+/// - `embed_sweep_interval_secs`
+/// - `trace_prune_interval_secs`
+/// - `candidate_ttl_sweep_interval_secs`
+/// - `candidate_ttl_days`
+///
+/// The scheduler picks up the new values on its next `'outer: loop` iteration
+/// (i.e. at the next interval rebuild, not mid-tick). The response field
+/// `applied_at: "next-tick"` reflects this honest semantics.
+///
+/// # What is NOT reloaded
+///
+/// Provider changes (e.g. switching from `fake` to `fastembed`) require a
+/// daemon restart — provider lifecycle includes model load which cannot be
+/// hot-swapped safely in V0.5.
+fn dispatch_reload_config(
+    id: serde_json::Value,
+    config_tx: &watch::Sender<ResolvedDaemonConfig>,
+) -> JsonRpcResponse {
+    // Re-read config from the project config file.
+    // `daemon_config_for(None)` walks the PRD §9.3 identity chain and resolves
+    // the global `~/.vestige/` daemon config, applying all defaults.
+    let new_config = vestige_config::daemon_config_for(None);
+
+    if config_tx.send(new_config.clone()).is_err() {
+        return internal_error_response(
+            id,
+            "scheduler dropped config receiver — daemon may be shutting down".into(),
+        );
+    }
+
+    tracing::info!(
+        embed_sweep_interval_secs = new_config.embed_sweep_interval_secs,
+        trace_prune_interval_secs = new_config.trace_prune_interval_secs,
+        candidate_ttl_sweep_interval_secs = new_config.candidate_ttl_sweep_interval_secs,
+        candidate_ttl_days = new_config.candidate_ttl_days,
+        "daemon.reload_config: new config sent to scheduler"
+    );
+
+    let result = serde_json::json!({
+        "reloaded": true,
+        "applied_at": "next-tick",
+        "embed_sweep_interval_secs": new_config.embed_sweep_interval_secs,
+        "trace_prune_interval_secs": new_config.trace_prune_interval_secs,
+        "candidate_ttl_sweep_interval_secs": new_config.candidate_ttl_sweep_interval_secs,
+        "candidate_ttl_days": new_config.candidate_ttl_days,
+        "note": "Provider changes require daemon restart — reload only updates job cadences and TTL config."
+    });
+
+    ok_response(id, result)
+}
+
 async fn dispatch_register_project(
     registry: Arc<Mutex<ProjectRegistry>>,
     id: serde_json::Value,
@@ -538,6 +602,12 @@ mod tests {
         Arc::new(Mutex::new(crate::registry::ProjectRegistry::new(5000)))
     }
 
+    /// Build a dummy config watch sender for tests that don't exercise reload.
+    fn dummy_config_tx() -> watch::Sender<ResolvedDaemonConfig> {
+        let (tx, _rx) = watch::channel(vestige_config::daemon_config_for(None));
+        tx
+    }
+
     // -----------------------------------------------------------------------
 
     /// `daemon.status` returns the snapshot supplied by the StatusProvider.
@@ -548,7 +618,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.status", serde_json::json!({}));
-        let resp = dispatch(registry, &provider, req, 0).await;
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.error.is_none(), "no error expected: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -567,7 +637,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.no_such_method", serde_json::json!({}));
-        let resp = dispatch(registry, &provider, req, 0).await;
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -582,7 +652,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "garbage"}));
-        let resp = dispatch(registry, &provider, req, 0).await;
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -631,7 +701,7 @@ mod tests {
             "repo_root": "/tmp"
         });
         let req1 = make_request("daemon.register_project", params.clone());
-        let resp1 = dispatch(registry.clone(), &provider, req1, 0).await;
+        let resp1 = dispatch(registry.clone(), &provider, req1, 0, &dummy_config_tx()).await;
         let result1 = resp1.result.expect("first call must succeed");
         let r1: RegisterProjectResult = serde_json::from_value(result1).unwrap();
         assert!(
@@ -641,7 +711,7 @@ mod tests {
 
         // Second call: still in registry → still registered=false.
         let req2 = make_request("daemon.register_project", params.clone());
-        let resp2 = dispatch(registry.clone(), &provider, req2, 0).await;
+        let resp2 = dispatch(registry.clone(), &provider, req2, 0, &dummy_config_tx()).await;
         let result2 = resp2.result.expect("second call must succeed");
         let r2: RegisterProjectResult = serde_json::from_value(result2).unwrap();
         assert!(!r2.registered, "second call must also return false");
@@ -663,7 +733,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "prune"}));
-        let resp = dispatch(registry, &provider, req, 0).await;
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -680,7 +750,7 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "embed"}));
-        let resp = dispatch(registry, &provider, req, 0).await;
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -701,7 +771,7 @@ mod tests {
             "daemon.kick",
             serde_json::json!({"job": "embed", "project_id": "proj_nonexistent"}),
         );
-        let resp = dispatch(registry, &provider, req, 0).await;
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -749,7 +819,7 @@ mod tests {
             "daemon.kick",
             serde_json::json!({"job": "embed", "project_id": project_id.as_str()}),
         );
-        let resp = dispatch(registry.clone(), &provider, req, 0).await;
+        let resp = dispatch(registry.clone(), &provider, req, 0, &dummy_config_tx()).await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -762,5 +832,55 @@ mod tests {
             .unwrap_or_else(|_| panic!("expected sole Arc owner"))
             .into_inner();
         reg.shutdown_all().await;
+    }
+
+    /// `daemon.reload_config` returns `reloaded: true` and the new cadences.
+    ///
+    /// Uses a real watch channel to confirm the new config value is pushed.
+    #[tokio::test]
+    async fn dispatch_reload_config_returns_success_and_updates_watch() {
+        let (config_tx, config_rx) = watch::channel(vestige_config::daemon_config_for(None));
+
+        let id = serde_json::json!(42);
+        let resp = dispatch_reload_config(id.clone(), &config_tx);
+
+        // Response shape.
+        assert!(resp.error.is_none(), "expected no error: {:?}", resp.error);
+        let result = resp.result.expect("result must be present");
+        assert_eq!(result["reloaded"], true, "reloaded must be true");
+        assert_eq!(
+            result["applied_at"], "next-tick",
+            "must be honest about timing"
+        );
+        assert!(
+            result["embed_sweep_interval_secs"].is_u64(),
+            "embed interval must be present"
+        );
+        assert!(
+            result["note"].is_string(),
+            "note about provider restart must be present"
+        );
+
+        // Watch channel must have received a new value.
+        assert!(
+            config_rx.has_changed().unwrap_or(false),
+            "watch receiver must see a new config after reload_config"
+        );
+    }
+
+    /// `daemon.reload_config` returns an internal error when the watch sender
+    /// is closed (i.e. the scheduler has exited).
+    #[tokio::test]
+    async fn dispatch_reload_config_with_dropped_receiver_returns_internal_error() {
+        let (config_tx, config_rx) = watch::channel(vestige_config::daemon_config_for(None));
+        // Drop the receiver to simulate a shutdown scheduler.
+        drop(config_rx);
+
+        let id = serde_json::json!(99);
+        let resp = dispatch_reload_config(id, &config_tx);
+
+        assert!(resp.result.is_none(), "must not have a result");
+        let err = resp.error.expect("must have an error");
+        assert_eq!(err.code, -32603, "must be internal error code");
     }
 }
