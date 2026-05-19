@@ -19,6 +19,7 @@ final class StatusFileWatcher {
         case decodeError(String)
     }
 
+    // Matches DaemonStatus::SCHEMA_VERSION in crates/vestige-daemon/src/ipc/status_file.rs.
     static let supportedSchemaVersion: UInt32 = 1
 
     // MARK: - Public state
@@ -97,10 +98,7 @@ final class StatusFileWatcher {
         timerSource = nil
     }
 
-    // No deinit: the watcher lives for the whole app lifetime (top-level @State
-    // on the App scene), so cleanup only happens at process exit — the kernel
-    // reclaims the fd then. A main-actor stop() can't be called from a
-    // nonisolated deinit under Swift 6.
+    // No deinit: watcher is @State on the App scene; Swift 6 nonisolated deinit can't call main-actor stop().
 
     // MARK: - Private helpers
 

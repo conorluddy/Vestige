@@ -3,13 +3,13 @@
 import Foundation
 
 struct DaemonStatus: Codable, Equatable, Hashable {
-    var schemaVersion: UInt32
-    var version: String
-    var pid: UInt32
-    var startedAt: Date
-    var uptimeSecs: UInt64
-    var projects: [ProjectStatus]
-    var nextJobs: [ScheduledJob]
+    let schemaVersion: UInt32
+    let version: String
+    let pid: UInt32
+    let startedAt: Date
+    let uptimeSecs: UInt64
+    let projects: [ProjectStatus]
+    let nextJobs: [ScheduledJob]
 
     static let recommendedDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -20,19 +20,19 @@ struct DaemonStatus: Codable, Equatable, Hashable {
 }
 
 struct ProjectStatus: Codable, Equatable, Hashable {
-    var projectId: String
-    var projectName: String
-    var repoRoot: String
-    var lastEmbedRun: Date?
-    var lastPruneRun: Date?
-    var lastTtlRun: Date?
-    var pendingEmbeds: UInt64
+    let projectId: String
+    let projectName: String
+    let repoRoot: String
+    let lastEmbedRun: Date?
+    let lastPruneRun: Date?
+    let lastTtlRun: Date?
+    let pendingEmbeds: UInt64
 }
 
 struct ScheduledJob: Codable, Equatable, Hashable {
-    var kind: JobKind
-    var projectId: String?
-    var at: Date
+    let kind: JobKind
+    let projectId: String?
+    let at: Date
 }
 
 enum JobKind: String, Codable, Equatable, Hashable, CaseIterable {

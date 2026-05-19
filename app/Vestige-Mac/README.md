@@ -47,6 +47,17 @@ app/Vestige-Mac/
 
 `xcuserdata/` and `*.xcuserstate` are gitignored.
 
+## Tests
+
+Sources live at `Vestige/VestigeTests/` with a fixture under `Fixtures/`. Wire them into Xcode once:
+
+1. **File → New → Target… → macOS → Unit Testing Bundle.** Name it `VestigeTests`, target to test = `Vestige`.
+2. Delete the template `VestigeTests.swift` Xcode generates.
+3. Right-click the `VestigeTests` group → **Add Files to "Vestige"…** → select everything under `Vestige/VestigeTests/` (the two `*Tests.swift` files + the `Fixtures` folder). For `Fixtures`, choose **"Create folder references"** (not groups) so the JSON ships in the test bundle.
+4. ⌘U to run.
+
+Covers: `RelativeTime.short` (nil / just-now / formatter branches), `DaemonStatus` decode against a v1 fixture, and additive-field tolerance (catches Rust schema drift).
+
 ## Status file schema
 
 Source of truth: `crates/vestige-daemon/src/ipc/status_file.rs` (`DaemonStatus`). Evolve additively only — Codable in Swift tolerates unknown fields, but removed/renamed fields break this app.
