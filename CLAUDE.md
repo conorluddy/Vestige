@@ -58,6 +58,11 @@ cargo run -p vestige -- trace replay <trace_id>           # re-run trace; diff a
 
 # V0.4 — interactive memory browser (TUI)
 cargo run -p vestige -- browse                            # full-screen browser; --tab memories|candidates|traces
+# Inside the browser: `:` opens a command palette (`:status active|deleted|all`,
+# `:caller cli|mcp|all`, `:search <text>`, `:mode lexical|semantic|hybrid`).
+# V0.4.x plumbed the configured `[embeddings]` provider into the browser so
+# `:mode semantic`/`hybrid` and trace replay use it; if it's unavailable, the
+# browser falls back to `lexical` and the status bar shows `mode:hybrid→lexical`.
 
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige -- status
@@ -104,7 +109,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, V0.3, and V0.4 are shipped.** V0.2 added the assimilation inbox (candidate review layer). V0.3 added the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. V0.4 adds the **Memory Browser (TUI)** — `vestige browse` opens a full-screen three-tab browser (Memories · Candidates · Traces) with vim navigation, provenance sub-views (`w`/`s`/`t`), mutations (`f`/`r`/`a`/`R`), trace replay (`p`), and a `:` command palette. Spec: `docs/prd/vestige_v_0_4_browser_prd.md`; walkthrough: `docs/v0.4.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5. **V0.5 (Daemon runtime) is the active next milestone.**
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, V0.3, and V0.4 are shipped.** V0.2 added the assimilation inbox (candidate review layer). V0.3 added the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. V0.4 adds the **Memory Browser (TUI)** — `vestige browse` opens a full-screen three-tab browser (Memories · Candidates · Traces) with vim navigation, provenance sub-views (`w`/`s`/`t`), mutations (`f`/`r`/`a`/`R`), trace replay (`p`), and a `:` command palette (`:status`, `:caller`, `:search`, `:mode`). V0.4.x plumbed the configured `[embeddings]` provider into the browser so `:mode semantic`/`hybrid` and trace replay run against the real provider, with `mode:hybrid→lexical` shown in the status bar on fallback. Spec: `docs/prd/vestige_v_0_4_browser_prd.md`; walkthrough: `docs/v0.4.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5. **V0.5 (Daemon runtime) is the active next milestone.**
 
 ## Hard rules (will reject in review)
 
