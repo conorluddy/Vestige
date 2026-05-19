@@ -41,8 +41,11 @@ vestige-config.workspace = true
 vestige-embed.workspace = true
 vestige-engine.workspace = true
 vestige-mcp.workspace = true
-tokio.workspace = true
+vestige-daemon = { path = "../vestige-daemon" }
+tokio = { workspace = true, features = ["net", "io-util"] }
 clap.workspace = true
+directories.workspace = true
+libc = "0.2"
 include_dir.workspace = true
 anyhow.workspace = true
 serde.workspace = true

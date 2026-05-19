@@ -4217,7 +4217,9 @@ version = "0.4.2"
 dependencies = [
  "anyhow",
  "clap",
+ "directories",
  "include_dir",
+ "libc",
  "ratatui",
  "serde",
  "serde_json",
@@ -4230,6 +4232,7 @@ dependencies = [
  "ulid",
  "vestige-config",
  "vestige-core",
+ "vestige-daemon",
  "vestige-embed",
  "vestige-engine",
  "vestige-mcp",

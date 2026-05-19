@@ -13,15 +13,17 @@
 //!
 //! # Ownership
 //!
-//! The scheduler borrows an `Arc<ProjectRegistry>` so that `lib::run` can also
-//! hold a reference for the IPC listener. `ProjectRegistry` is `Sync` (its inner
-//! state is accessed only via `&`-ref methods), so `Arc` is safe here.
+//! The scheduler takes an `Arc<tokio::sync::Mutex<ProjectRegistry>>` so that the
+//! IPC server (Wave 4) can also hold a reference and call `ensure_registered`.
+//! The registry lock is held only for the duration of each read/mutation — never
+//! across an `await` point in the embed tick, so contention with the IPC server
+//! is minimal.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, watch};
 use tokio::time;
 
 use vestige_config::ResolvedDaemonConfig;
@@ -46,19 +48,19 @@ use crate::registry::ProjectRegistry;
 ///
 /// # Arguments
 ///
-/// - `registry` — shared reference to the project registry; workers are owned
+/// - `registry` — shared, mutex-guarded project registry; workers are owned
 ///   here and remain alive for the entire scheduler lifetime.
 /// - `config` — resolved daemon configuration (used for `embed_sweep_interval_secs`).
 /// - `status_file_path` — path to write the JSON status file.
 /// - `started_at_rfc3339` — the daemon's start timestamp, embedded in every
 ///   status snapshot.
-/// - `cancel` — fired by the shutdown path to stop the scheduler loop.
+/// - `cancel` — watch receiver; the scheduler exits when its value becomes `true`.
 pub async fn run(
-    registry: Arc<ProjectRegistry>,
+    registry: Arc<Mutex<ProjectRegistry>>,
     config: ResolvedDaemonConfig,
     status_file_path: PathBuf,
     started_at_rfc3339: String,
-    cancel: Arc<Notify>,
+    mut cancel: watch::Receiver<bool>,
 ) {
     let started = Instant::now();
 
@@ -75,12 +77,20 @@ pub async fn run(
 
     loop {
         tokio::select! {
-            _ = cancel.notified() => {
-                tracing::info!("scheduler: cancellation received — stopping");
-                break;
+            // Biased so the cancel check runs first when multiple arms are ready,
+            // ensuring prompt exit on cancellation even if ticks are pending.
+            biased;
+            result = cancel.changed() => {
+                // Exit on cancellation (`true`) or sender drop (Err = orphaned).
+                if result.is_err() || *cancel.borrow() {
+                    tracing::info!("scheduler: cancellation received — stopping");
+                    break;
+                }
             }
             _ = embed_tick.tick() => {
-                let report = jobs::embed_sweep::run_once(&registry).await;
+                let reg = registry.lock().await;
+                let report = jobs::embed_sweep::run_once(&reg).await;
+                drop(reg);
                 tracing::info!(
                     projects_scanned = report.projects_scanned,
                     projects_succeeded = report.projects_succeeded,
@@ -91,12 +101,15 @@ pub async fn run(
                 );
             }
             _ = status_tick.tick() => {
-                let status = build_status(
-                    &registry,
-                    started,
-                    &started_at_rfc3339,
-                    &config,
-                ).await;
+                let status = {
+                    let reg = registry.lock().await;
+                    build_status(
+                        &reg,
+                        started,
+                        &started_at_rfc3339,
+                        &config,
+                    ).await
+                };
                 if let Err(e) = status_file::write_atomic(&status_file_path, &status) {
                     tracing::warn!(error = ?e, "status file write failed");
                 }
@@ -105,14 +118,17 @@ pub async fn run(
     }
 }
 
-// === PRIVATE HELPERS ===
+// === CRATE-INTERNAL HELPERS ===
 
 /// Assemble a [`DaemonStatus`] snapshot from the current registry state.
 ///
 /// Pings every worker for a [`crate::workers::ProjectStatusSnapshot`] and maps
 /// it to a [`ProjectStatus`]. Workers that fail to ping (e.g. thread panicked)
 /// are skipped with a `warn!` log rather than aborting the whole status build.
-async fn build_status(
+///
+/// `pub(crate)` so `lib.rs`'s [`crate::SchedulerStatusProvider`] can call it
+/// when building the IPC-facing status response.
+pub(crate) async fn build_status(
     registry: &ProjectRegistry,
     started: Instant,
     started_at: &str,

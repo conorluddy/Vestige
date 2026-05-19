@@ -24,6 +24,13 @@ pub struct DaemonOpts {
 
     /// Override `~/.vestige/daemon.log` for tests.
     pub log_file: Option<PathBuf>,
+
+    /// Override `~/.vestige/projects/` for tests.
+    ///
+    /// When `None`, the daemon discovers project DBs from the canonical location.
+    /// Tests should supply a `TempDir`-backed path so they don't inherit the
+    /// caller's real project workers, which could have locks or WAL contention.
+    pub projects_root: Option<PathBuf>,
 }
 
 impl Default for DaemonOpts {
@@ -34,6 +41,7 @@ impl Default for DaemonOpts {
             socket_path: None,
             status_file: None,
             log_file: None,
+            projects_root: None,
         }
     }
 }
