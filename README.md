@@ -23,7 +23,7 @@ A human can inspect and control them.
 
 ## What Vestige is (and isn't)
 
-**Vestige is** a small Rust binary (`vestige`) plus a SQLite memory store. Each repo gets its own scope. Memories disclose progressively — agents pull compact one-liners first, expand on demand. There's no daemon, no cloud, no automatic ingestion.
+**Vestige is** a small Rust binary (`vestige`) plus a SQLite memory store. Each repo gets its own scope. Memories disclose progressively — agents pull compact one-liners first, expand on demand. There's no cloud, no automatic ingestion. An optional opt-in daemon (`vestige daemon install`) runs scheduled maintenance jobs locally — embeddings, indexing, candidate sweeps — but everything still happens on your machine, scoped per-project.
 
 **Vestige isn't** a chatbot, a note-taking app, a vector database, or an agent framework. It's the memory layer you wire your agent into.
 
@@ -280,7 +280,7 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 - **Progressive disclosure.** Memory returns compact handles first, expands on demand. Same shape for the code: types → public API → helpers.
 - **Source-of-truth separation.** Durable journal (`memory_events`) ≠ derived interpretation (`memories`) ≠ disposable indexes (`memory_fts`).
 - **Soft delete only in V0.** `forget` flips status; `restore` flips it back.
-- **No daemon, no background threads.** Each CLI invocation opens SQLite, does its work, closes.
+- **No daemon in V0–V0.4; opt-in daemon from V0.5.** Each CLI invocation opens SQLite, does its work, closes. V0.5 adds an opt-in per-host LaunchAgent for scheduled maintenance jobs — it coexists with one-shot CLI/MCP via WAL.
 - **MCP exposes intent, not mechanics.** No raw SQL tools. No destructive defaults.
 
 ## What's shipped
@@ -289,7 +289,7 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 
 V0.4 adds an interactive terminal browser over the project's memory store. Three tabs, two-pane layout, full keyboard-driven navigation, and every V0–V0.3 read+mutate surface reachable from a single binary.
 
-- `vestige browse` — launches a full-screen browser. Bound to the project resolved from `.vestige/config.toml`. Single Store handle for the session; no daemon.
+- `vestige browse` — launches a full-screen browser. Bound to the project resolved from `.vestige/config.toml`. Single Store handle for the session; does not require the V0.5 daemon.
 - **Memories tab** — list/detail over `list_memories`; `/` opens a per-keystroke FTS5 filter; soft-deleted entries strike-through inline; `w` / `s` / `t` reveal provenance walk, typed source receipts, and the new trace forward-link.
 - **Candidates tab** — list/detail over `list_candidates`; `a` approves (with confirm); `R` (Shift+r) rejects with a reason prompt that parses `duplicate / wrong / not_durable / too_noisy / stale / <freeform>`.
 - **Traces tab** — list/detail over `query_events`; `p` replays the selected trace via `vestige_engine::replay_trace` and renders the added / removed / score-change diff inline. Provider-mismatch and mode-fallback surface as inline banners.
@@ -301,6 +301,21 @@ V0.4 adds an interactive terminal browser over the project's memory store. Three
 The browser is interactive-only — pipe-friendly inspection still lives in `list`, `show`, `search`, `why`, `sources`, `trace`. Running `vestige browse` without a TTY fails fast with a friendly message.
 
 See [`docs/v0.4.md`](docs/v0.4.md) for the full walkthrough. Full spec: [`docs/prd/vestige_v_0_4_browser_prd.md`](docs/prd/vestige_v_0_4_browser_prd.md).
+
+### V0.5 — Daemon Runtime (shipped)
+
+Opt-in per-host daemon for scheduled maintenance jobs. Coexists with one-shot CLI/MCP via WAL.
+
+- Periodic embed sweep, trace VACUUM, and optional candidate TTL across all known projects
+- LaunchAgent install on macOS (`vestige daemon install`)
+- Nine CLI subcommands: `daemon start / stop / restart / status / kick / log / install / uninstall / doctor`
+- Four IPC methods over `~/.vestige/daemon.sock` (status, kick, register_project, reload_config)
+- Populated `next_jobs[]` in `~/.vestige/daemon.status.json` for upcoming job timing
+- Per-project provider selection — daemon reads each project's `[embeddings]` config
+- `vestige init` registers new projects with the running daemon (no restart needed)
+- `vestige daemon doctor` — 8-check diagnostic command
+
+Spec: `docs/prd/vestige_v_0_5_daemon_prd.md`. Walkthrough: `docs/v0.5.md`.
 
 ### V0.3 — Provenance and Receipts
 
@@ -348,7 +363,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 (Daemon runtime) is the active next milestone. Full roadmap in `vestige_prd.md` §20 — note the landing-page order: V0.4 = browser (shipped), V0.5 = daemon, V0.6 = directives.
+V0.5 (Daemon Runtime) shipped on `feat/v0.5-daemon` (PR #87). V0.6 is the next milestone — likely MCP-talks-to-daemon RPC + Linux systemd `--user` service. See `docs/prd/vestige_v_0_5_daemon_prd.md` §19 for the V0.6 backlog. Full roadmap in `vestige_prd.md` §20.
 
 ## Contributing
 

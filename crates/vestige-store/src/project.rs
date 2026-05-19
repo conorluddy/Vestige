@@ -50,6 +50,28 @@ impl Store {
         })
     }
 
+    /// Return the single `(project_id, name, repo_root)` tuple from the `projects` table.
+    ///
+    /// Each per-project SQLite file holds exactly one project row (PRD §10).
+    /// Returns `None` if the table is empty (e.g. an uninitialised store).
+    /// Used by the daemon registry to identify a DB file without holding a
+    /// long-lived connection — the caller opens the store, calls this, then
+    /// drops the handle before spawning the worker.
+    pub fn project_info(&self) -> Result<Option<(String, String, Option<String>)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, root_path FROM projects LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let root_path: Option<String> = row.get(2)?;
+            Ok(Some((id, name, root_path)))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Fetch a project by ID. Returns `None` if not found.
     pub fn get_project(&self, id: &ProjectId) -> Result<Option<ProjectRecord>> {
         let mut stmt = self.conn.prepare(

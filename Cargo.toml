@@ -8,6 +8,7 @@ members = [
     "crates/vestige-mcp",
     "crates/vestige-embed",
     "crates/vestige-engine",
+    "crates/vestige-daemon",
 ]
 
 [workspace.package]
@@ -42,6 +43,7 @@ rusqlite_migration = "1"
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 sha2 = "0.10"
 hex = "0.4"
