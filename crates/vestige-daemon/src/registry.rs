@@ -24,10 +24,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use tracing::{info, warn};
 
 use vestige_core::ProjectId;
+use vestige_embed::EmbeddingProvider;
 use vestige_store::Store;
 
 use crate::errors::DaemonError;
@@ -43,6 +45,8 @@ use crate::workers::ProjectWorker;
 pub struct ProjectRegistry {
     workers: HashMap<ProjectId, ProjectWorker>,
     busy_timeout_ms: u32,
+    /// Shared embedding provider forwarded to each worker at spawn time.
+    provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
 }
 
 // === PUBLIC API ===
@@ -53,7 +57,16 @@ impl ProjectRegistry {
         Self {
             workers: HashMap::new(),
             busy_timeout_ms,
+            provider: None,
         }
+    }
+
+    /// Set the embedding provider forwarded to all subsequently spawned workers.
+    ///
+    /// Must be called before [`discover_and_spawn`][Self::discover_and_spawn] or
+    /// [`ensure_registered`][Self::ensure_registered] if embedding is desired.
+    pub fn set_provider(&mut self, provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>) {
+        self.provider = provider;
     }
 
     /// Scan `~/.vestige/projects/*/memory.sqlite` and spawn a worker for each.
@@ -225,6 +238,7 @@ impl ProjectRegistry {
             repo_root,
             storage_path,
             self.busy_timeout_ms,
+            self.provider.clone(),
         )?;
         self.workers.insert(project_id, worker);
         Ok(())
@@ -288,6 +302,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
+    use vestige_embed::FakeEmbeddingProvider;
     use vestige_store::Store;
 
     /// Create a minimal DB at `path` with a seeded project row.
@@ -296,6 +311,10 @@ mod tests {
         store
             .ensure_project(project_id, name, Some(repo_root), None)
             .expect("seed project row");
+    }
+
+    fn fake_provider() -> Option<Arc<dyn EmbeddingProvider + Send + Sync>> {
+        Some(Arc::new(FakeEmbeddingProvider::default()))
     }
 
     #[test]
@@ -337,6 +356,7 @@ mod tests {
         seed_db(&db_b, &id_b, "Project BBB", "/repos/bbb");
 
         let mut registry = ProjectRegistry::new(5000);
+        registry.set_provider(fake_provider());
         registry
             .discover_and_spawn_in(&projects_root)
             .expect("discover returns Ok");

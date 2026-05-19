@@ -17,6 +17,7 @@ vestige-core.workspace = true
 vestige-store.workspace = true
 vestige-config.workspace = true
 vestige-engine.workspace = true
+vestige-embed.workspace = true
 tokio = { workspace = true, features = ["signal", "net", "io-util", "time", "fs"] }
 tracing.workspace = true
 serde.workspace = true

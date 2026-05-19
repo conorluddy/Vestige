@@ -4283,6 +4283,7 @@ dependencies = [
  "tracing",
  "vestige-config",
  "vestige-core",
+ "vestige-embed",
  "vestige-engine",
  "vestige-store",
 ]

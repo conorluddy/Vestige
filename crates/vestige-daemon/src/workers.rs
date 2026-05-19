@@ -27,14 +27,24 @@
 //! ```
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 
-use vestige_core::ProjectId;
+use vestige_core::{ProjectId, RepresentationDepth};
+use vestige_embed::EmbeddingProvider;
 use vestige_store::Store;
 
 use crate::errors::DaemonError;
+
+/// Default representation depths the daemon embeds on each sweep.
+///
+/// Matches `vestige embed` CLI defaults: `summary` and `compressed`.
+const DEFAULT_EMBED_DEPTHS: &[RepresentationDepth] = &[
+    RepresentationDepth::Summary,
+    RepresentationDepth::Compressed,
+];
 
 // === TYPES ===
 
@@ -122,6 +132,7 @@ impl ProjectWorker {
         repo_root: PathBuf,
         storage_path: PathBuf,
         busy_timeout_ms: u32,
+        provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     ) -> Result<Self, DaemonError> {
         let (tx, rx) = mpsc::channel::<WorkerCommand>(32);
 
@@ -138,6 +149,7 @@ impl ProjectWorker {
                     thread_repo_root,
                     storage_path,
                     busy_timeout_ms,
+                    provider,
                     rx,
                 );
             })
@@ -171,13 +183,14 @@ impl ProjectWorker {
 
     /// Send a [`WorkerCommand::Embed`] and await the reply.
     ///
-    /// **T8 stub**: always returns `Err(JobFailed)` until Wave 3 (T10) fills in
-    /// the real implementation.
+    /// Calls `vestige_engine::embed::embed_all` on the worker's store using
+    /// the provider supplied at spawn time. Returns `Err(JobFailed)` with
+    /// reason `"no provider configured"` when no provider was supplied.
     ///
     /// # Errors
     ///
     /// - [`DaemonError::ProjectNotRegistered`] — channel closed.
-    /// - [`DaemonError::JobFailed`] — embed sweep failed (or stub, for T8).
+    /// - [`DaemonError::JobFailed`] — embed sweep failed or no provider configured.
     pub async fn embed(&self) -> Result<EmbedOutcomeSummary, DaemonError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send_command(WorkerCommand::Embed(reply_tx)).await?;
@@ -258,9 +271,10 @@ fn run_worker(
     repo_root: PathBuf,
     storage_path: PathBuf,
     busy_timeout_ms: u32,
+    provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     mut rx: mpsc::Receiver<WorkerCommand>,
 ) {
-    let store = match Store::open_with_busy_timeout(&storage_path, busy_timeout_ms) {
+    let mut store = match Store::open_with_busy_timeout(&storage_path, busy_timeout_ms) {
         Ok(s) => s,
         Err(e) => {
             error!(
@@ -284,8 +298,9 @@ fn run_worker(
 
     // Per-job last-run timestamps — updated in the handler when a job completes.
     let mut last_embed_run: Option<String> = None;
-    let mut last_prune_run: Option<String> = None;
-    let mut last_ttl_run: Option<String> = None;
+    // Wave 5 will update these when prune/TTL jobs land.
+    let last_prune_run: Option<String> = None;
+    let last_ttl_run: Option<String> = None;
 
     info!(project_id = project_id.as_str(), "worker thread ready");
 
@@ -304,18 +319,44 @@ fn run_worker(
                 let _ = reply.send(Ok(snapshot));
             }
             WorkerCommand::Embed(reply) => {
-                // Wave 3 (T10) stub — returns a descriptive error so callers
-                // know the feature is not yet implemented rather than silently
-                // failing or hanging.
-                let _ = reply.send(Err(DaemonError::JobFailed {
-                    job: "embed".into(),
-                    reason: "worker stub — implemented in Wave 3 (T10)".into(),
-                }));
-                // Do NOT update `last_embed_run` — a stub run is not a
-                // completed run.
-                let _ = &mut last_embed_run; // suppress unused-mut warning for now
-                let _ = &mut last_prune_run;
-                let _ = &mut last_ttl_run;
+                let Some(p) = provider.as_ref() else {
+                    let _ = reply.send(Err(DaemonError::JobFailed {
+                        job: "embed".into(),
+                        reason: "no provider configured".into(),
+                    }));
+                    continue;
+                };
+
+                match vestige_engine::embed::embed_all(
+                    &mut store,
+                    &project_id,
+                    p.as_ref(),
+                    DEFAULT_EMBED_DEPTHS,
+                    false,
+                ) {
+                    Ok(results) => {
+                        let representations_processed = results.len() as u64;
+                        let embeddings_added = results
+                            .iter()
+                            .filter(|r| r.outcome == vestige_engine::embed::EmbedOutcome::Embedded)
+                            .count() as u64;
+                        let finished_at = now_rfc3339();
+                        last_embed_run = Some(finished_at.clone());
+
+                        let summary = EmbedOutcomeSummary {
+                            representations_processed,
+                            embeddings_added,
+                            finished_at,
+                        };
+                        let _ = reply.send(Ok(summary));
+                    }
+                    Err(e) => {
+                        let _ = reply.send(Err(DaemonError::JobFailed {
+                            job: "embed".into(),
+                            reason: e.to_string(),
+                        }));
+                    }
+                }
             }
             WorkerCommand::Shutdown(reply) => {
                 let _ = reply.send(());
@@ -364,6 +405,17 @@ fn compute_snapshot(
     }
 }
 
+/// Return the current UTC time as an RFC-3339 string.
+///
+/// Used to stamp `last_embed_run` and similar fields inside the worker thread,
+/// which has no access to async primitives. Falls back to the Unix epoch string
+/// if the `time` crate returns an error (should never happen in practice).
+fn now_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
 /// Drain a single command with an error reply, consuming it.
 ///
 /// Called in the error-exit path when the store failed to open. Sends the
@@ -404,12 +456,17 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
+    use vestige_embed::FakeEmbeddingProvider;
 
     /// Seed the minimal project row needed to make `embedding_status` work.
     fn seed_project(store: &mut Store, project_id: &ProjectId) {
         store
             .ensure_project(project_id, "Test Project", Some("/tmp/test"), None)
             .expect("seed project row");
+    }
+
+    fn fake_provider() -> Option<Arc<dyn EmbeddingProvider + Send + Sync>> {
+        Some(Arc::new(FakeEmbeddingProvider::default()))
     }
 
     #[test]
@@ -433,6 +490,7 @@ mod tests {
             repo_root,
             db_path,
             5000,
+            fake_provider(),
         )
         .expect("worker spawns");
 
@@ -447,13 +505,13 @@ mod tests {
     }
 
     #[test]
-    fn embed_returns_stub_error() {
+    fn embed_no_provider_returns_job_failed() {
         let rt = Runtime::new().unwrap();
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("memory.sqlite");
 
-        let project_id = ProjectId::from_slug("test-embed");
-        let repo_root = PathBuf::from("/tmp/test-repo-embed");
+        let project_id = ProjectId::from_slug("test-embed-no-provider");
+        let repo_root = PathBuf::from("/tmp/test-repo-embed-no-provider");
 
         {
             let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
@@ -462,21 +520,66 @@ mod tests {
 
         let worker = ProjectWorker::spawn(
             project_id,
-            "Embed Test".to_string(),
+            "Embed No Provider".to_string(),
             repo_root,
             db_path,
             5000,
+            None, // no provider
         )
         .expect("worker spawns");
 
         rt.block_on(async move {
             let result = worker.embed().await;
-            assert!(result.is_err(), "embed stub must return an error for T8");
-            if let Err(DaemonError::JobFailed { job, reason: _ }) = &result {
-                assert_eq!(job, "embed", "job name must be 'embed'");
+            assert!(
+                result.is_err(),
+                "embed without provider must return an error"
+            );
+            if let Err(DaemonError::JobFailed { job, reason }) = &result {
+                assert_eq!(job, "embed");
+                assert!(
+                    reason.contains("no provider configured"),
+                    "unexpected reason: {reason}"
+                );
             } else {
                 panic!("expected JobFailed, got {:?}", result);
             }
+            worker.shutdown().await.expect("shutdown ok");
+        });
+    }
+
+    #[test]
+    fn embed_with_provider_succeeds_on_empty_project() {
+        let rt = Runtime::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("memory.sqlite");
+
+        let project_id = ProjectId::from_slug("test-embed-provider");
+        let repo_root = PathBuf::from("/tmp/test-repo-embed-provider");
+
+        {
+            let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            seed_project(&mut store, &project_id);
+            // No memories seeded — embed_all runs successfully but processes 0 items.
+        }
+
+        let worker = ProjectWorker::spawn(
+            project_id,
+            "Embed With Provider".to_string(),
+            repo_root,
+            db_path,
+            5000,
+            fake_provider(),
+        )
+        .expect("worker spawns");
+
+        rt.block_on(async move {
+            let result = worker
+                .embed()
+                .await
+                .expect("embed on empty project succeeds");
+            assert_eq!(result.representations_processed, 0);
+            assert_eq!(result.embeddings_added, 0);
+            assert!(!result.finished_at.is_empty(), "finished_at must be set");
             worker.shutdown().await.expect("shutdown ok");
         });
     }
@@ -501,6 +604,7 @@ mod tests {
             repo_root,
             db_path,
             5000,
+            fake_provider(),
         )
         .expect("worker spawns");
 
