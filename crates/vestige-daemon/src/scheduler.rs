@@ -363,6 +363,9 @@ pub(crate) async fn build_status(
                 last_prune_run: snap.last_prune_run,
                 last_ttl_run: snap.last_ttl_run,
                 pending_embeds: snap.pending_embeds,
+                memory_count: snap.memory_count,
+                candidate_count: snap.candidate_count,
+                last_memory_at: snap.last_memory_at,
             }),
             Err(e) => {
                 tracing::warn!(

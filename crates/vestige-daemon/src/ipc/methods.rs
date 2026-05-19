@@ -584,6 +584,9 @@ mod tests {
                 last_prune_run: None,
                 last_ttl_run: None,
                 pending_embeds: 0,
+                memory_count: 0,
+                candidate_count: 0,
+                last_memory_at: None,
             }],
             next_jobs: Vec::new(),
         }

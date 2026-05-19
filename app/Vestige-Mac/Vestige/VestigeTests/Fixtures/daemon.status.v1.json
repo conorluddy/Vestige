@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "version": "0.5.0",
+  "pid": 12345,
+  "started_at": "2026-05-19T10:00:00Z",
+  "uptime_secs": 3600,
+  "projects": [
+    {
+      "project_id": "proj_vestige",
+      "project_name": "Vestige",
+      "repo_root": "/Users/test/Development/Vestige",
+      "last_embed_run": "2026-05-19T10:30:00Z",
+      "last_prune_run": null,
+      "last_ttl_run": null,
+      "pending_embeds": 0,
+      "memory_count": 127,
+      "candidate_count": 3,
+      "last_memory_at": "2026-05-19T10:25:00Z"
+    },
+    {
+      "project_id": "proj_grapla",
+      "project_name": "Grapla",
+      "repo_root": "/Users/test/Development/Grapla",
+      "last_embed_run": null,
+      "last_prune_run": null,
+      "last_ttl_run": null,
+      "pending_embeds": 7,
+      "memory_count": 0,
+      "candidate_count": 0
+    }
+  ],
+  "next_jobs": [
+    { "kind": "embed", "at": "2026-05-19T11:00:00Z" },
+    { "kind": "candidate_ttl", "project_id": "proj_grapla", "at": "2026-05-19T12:00:00Z" }
+  ]
+}

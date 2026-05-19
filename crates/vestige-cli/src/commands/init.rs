@@ -314,6 +314,14 @@ fn register_with_daemon_best_effort(
     use tokio::io::AsyncWriteExt;
     use tokio::net::UnixStream;
 
+    if is_ephemeral_repo_root(repo_root) {
+        tracing::debug!(
+            repo_root = %repo_root.display(),
+            "ephemeral repo root; skipping daemon registration to avoid leaking test projects"
+        );
+        return;
+    }
+
     let socket = vestige_daemon::ipc::server::resolve_socket_path(None);
     if !socket.exists() {
         tracing::debug!(socket = %socket.display(), "daemon socket not present; skipping registration");
@@ -372,6 +380,43 @@ fn register_with_daemon_best_effort(
     }
 }
 
+/// Return `true` when `repo_root` looks like a throwaway test directory.
+///
+/// We've been leaking `~/.vestige/projects/proj_*` entries because integration
+/// tests `vestige init` inside a `tempfile::TempDir`, the daemon registers the
+/// project, then the TempDir is removed without telling the daemon — leaving
+/// orphan entries in the menu-bar app forever. Bail before the IPC ping when
+/// the repo root is obviously ephemeral.
+fn is_ephemeral_repo_root(repo_root: &std::path::Path) -> bool {
+    if std::env::var_os("VESTIGE_TEST").is_some() {
+        return true;
+    }
+
+    let canonical = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+
+    const EPHEMERAL_PREFIXES: &[&str] = &[
+        "/tmp",
+        "/private/tmp",
+        "/var/folders",
+        "/private/var/folders",
+    ];
+    for prefix in EPHEMERAL_PREFIXES {
+        if canonical.starts_with(prefix) {
+            return true;
+        }
+    }
+
+    if let Ok(system_tmp) = std::env::temp_dir().canonicalize() {
+        if canonical.starts_with(&system_tmp) {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Print the dry-run plan without writing any files.
 fn print_plan(
     repo_root: &Path,
@@ -423,5 +468,50 @@ mod tests {
             std::env::set_var("HOME", h);
         }
         // No assertion needed beyond "didn't panic".
+    }
+
+    #[test]
+    fn ephemeral_check_flags_tempdir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert!(
+            is_ephemeral_repo_root(tmp.path()),
+            "tempfile::TempDir paths must be classified as ephemeral; got {}",
+            tmp.path().display()
+        );
+    }
+
+    #[test]
+    fn ephemeral_check_flags_known_prefixes() {
+        for prefix in [
+            "/tmp/foo",
+            "/private/tmp/foo",
+            "/var/folders/x/y",
+            "/private/var/folders/x/y",
+        ] {
+            assert!(
+                is_ephemeral_repo_root(std::path::Path::new(prefix)),
+                "expected {prefix} to be ephemeral"
+            );
+        }
+    }
+
+    #[test]
+    fn ephemeral_check_skips_real_repo_paths() {
+        // A path that doesn't canonicalize and doesn't start with any temp
+        // prefix should be treated as a real repo.
+        let path = std::path::Path::new("/Users/someone/Development/MyProject");
+        std::env::remove_var("VESTIGE_TEST");
+        assert!(!is_ephemeral_repo_root(path));
+    }
+
+    #[test]
+    fn ephemeral_check_honours_env_override() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::env::set_var("VESTIGE_TEST", "1");
+        let real_looking = std::path::Path::new("/Users/x/y");
+        assert!(is_ephemeral_repo_root(real_looking));
+        std::env::remove_var("VESTIGE_TEST");
+        // Tempdir still ephemeral after env removal.
+        assert!(is_ephemeral_repo_root(tmp.path()));
     }
 }

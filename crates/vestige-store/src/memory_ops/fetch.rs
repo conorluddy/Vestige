@@ -37,6 +37,23 @@ impl Store {
         Ok(MemoryCounts { active, deleted })
     }
 
+    /// RFC-3339 timestamp of the most recently created active memory in this
+    /// project, or `None` if the project has no active memories. Used by the
+    /// daemon to surface a "last activity" signal in `daemon.status.json`.
+    pub fn latest_active_memory_at(&self, project_id: &ProjectId) -> Result<Option<String>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT MAX(created_at) FROM memories
+             WHERE project_id = ?1 AND status = 'active'",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![project_id.as_str()])?;
+        if let Some(row) = rows.next()? {
+            let ts: Option<String> = row.get(0)?;
+            Ok(ts)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Fetch a memory by ID, joining all representations and sources.
     ///
     /// Returns `None` if no row with that ID exists (any status). Callers that
