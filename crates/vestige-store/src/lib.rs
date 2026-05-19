@@ -145,6 +145,24 @@ impl Store {
         Ok(Self { conn, path })
     }
 
+    /// Open the store and set a `PRAGMA busy_timeout` so writers wait politely
+    /// under contention instead of returning `SQLITE_BUSY` immediately.
+    ///
+    /// Intended for the V0.5 daemon, which coexists with CLI/MCP processes via
+    /// WAL. Use [`Store::open`] for one-shot CLI invocations where failing fast
+    /// is preferable.
+    ///
+    /// `busy_timeout_ms` is passed to `rusqlite`'s `Connection::busy_timeout`;
+    /// SQLite will poll-wait for up to that many milliseconds before surfacing
+    /// a busy error to the caller.
+    pub fn open_with_busy_timeout(path: impl AsRef<Path>, busy_timeout_ms: u32) -> Result<Self> {
+        let store = Self::open(path)?;
+        store
+            .conn
+            .busy_timeout(std::time::Duration::from_millis(busy_timeout_ms.into()))?;
+        Ok(store)
+    }
+
     /// Filesystem path of the database file this `Store` was opened from.
     pub fn path(&self) -> &Path {
         &self.path
@@ -181,6 +199,56 @@ impl Store {
         self.conn
             .execute("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')", [])?;
         Ok(())
+    }
+
+    /// Run `VACUUM` on the database to reclaim free pages and defragment.
+    ///
+    /// SQLite WAL mode accumulates free pages over time as rows are deleted or
+    /// updated. `VACUUM` rebuilds the database file from scratch — it reclaims
+    /// space and rewrites the file into a compact form.
+    ///
+    /// This is a DDL operation; it briefly holds an exclusive lock on the file.
+    /// The daemon's `busy_timeout` ensures polite waiting under contention.
+    /// Safe to call at any time — it is a no-op if the database is already compact.
+    pub fn vacuum(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
+    /// List IDs of pending candidates whose `created_at` predates `cutoff_rfc3339`.
+    ///
+    /// Returns only `status = 'pending'` rows — approved, rejected, and
+    /// superseded candidates are excluded. Used by the daemon's candidate-TTL job
+    /// to find stale inbox entries for expiry.
+    ///
+    /// `cutoff_rfc3339` must be a valid RFC-3339 timestamp string. SQLite compares
+    /// it lexicographically against the stored `created_at` values (also RFC-3339),
+    /// which is correct because RFC-3339 timestamps sort lexicographically when
+    /// normalised to UTC (as stored by `rfc3339()`).
+    pub fn list_pending_candidates_older_than(
+        &self,
+        project_id: &vestige_core::ProjectId,
+        cutoff_rfc3339: &str,
+    ) -> Result<Vec<vestige_core::CandidateId>> {
+        use std::str::FromStr;
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM candidate_memories
+             WHERE project_id = ?1
+               AND status = 'pending'
+               AND created_at < ?2
+             ORDER BY created_at ASC",
+        )?;
+        let ids: Vec<vestige_core::CandidateId> = stmt
+            .query_map(
+                rusqlite::params![project_id.as_str(), cutoff_rfc3339],
+                |row| row.get::<_, String>(0),
+            )?
+            .filter_map(|r| {
+                r.ok()
+                    .and_then(|s| vestige_core::CandidateId::from_str(&s).ok())
+            })
+            .collect();
+        Ok(ids)
     }
 
     /// Hard-delete every embedding row (and cascading vector blob) for `project_id`.
@@ -251,6 +319,29 @@ impl Store {
     pub fn embedding_status(&self, project_id: &ProjectId) -> Result<EmbeddingStatus> {
         embeddings::embedding_status(&self.conn, project_id)
     }
+
+    /// Returns the most recent `updated_at` timestamp across all active embeddings
+    /// for the given project. Returns `None` if the project has no active embeddings yet.
+    ///
+    /// `updated_at` is stamped on every `INSERT OR REPLACE` into `memory_embeddings`
+    /// (both initial embed and re-embed), making it the best available proxy for
+    /// "last time this project's embeddings were written."
+    ///
+    /// Used by the V0.5 daemon to populate `last_embed_run` at worker spawn time
+    /// so that timestamps survive daemon restarts.
+    pub fn latest_embedded_at(&self, project_id: &ProjectId) -> Result<Option<String>> {
+        let ts: Option<String> = self.conn.query_row(
+            "SELECT MAX(e.updated_at)
+             FROM memory_embeddings e
+             JOIN memories m ON m.id = e.memory_id
+             WHERE m.project_id = ?1
+               AND m.status = 'active'
+               AND e.status = 'active'",
+            rusqlite::params![project_id.as_str()],
+            |row| row.get::<_, Option<String>>(0),
+        )?;
+        Ok(ts)
+    }
 }
 
 #[cfg(test)]
@@ -302,5 +393,192 @@ mod tests {
     fn migrations_check_valid() {
         // rusqlite_migration ships a self-check ensuring SQL parses cleanly.
         migrations().validate().unwrap();
+    }
+
+    #[test]
+    fn open_with_busy_timeout_sets_pragma() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("memory.sqlite");
+        let store = Store::open_with_busy_timeout(&path, 5000).unwrap();
+        // Verify SQLite honoured the request via the read-back pragma.
+        let timeout_ms: i64 = store
+            .connection()
+            .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            timeout_ms >= 5000,
+            "expected busy_timeout ≥5000 ms, got {timeout_ms}"
+        );
+    }
+
+    #[test]
+    fn vacuum_on_empty_store_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        store
+            .vacuum()
+            .expect("vacuum must succeed on an empty store");
+    }
+
+    #[test]
+    fn list_pending_candidates_older_than_returns_stale_ids() {
+        use vestige_core::{build_candidate_bundle, CandidateId, MemoryType, NewCandidate};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let project_id = ProjectId::from_slug("ttl-test");
+        store
+            .ensure_project(&project_id, "TTL Test", Some("/tmp"), None)
+            .unwrap();
+
+        // Insert two candidates normally.
+        let make = |body: &str| {
+            build_candidate_bundle(NewCandidate {
+                project_id: project_id.clone(),
+                proposed_type: MemoryType::Observation,
+                body: body.to_string(),
+                rationale: None,
+                title_override: None,
+                importance: 0.5,
+                confidence: 0.9,
+                source: None,
+                duplicate_of_memory_id: None,
+                duplicate_of_candidate_id: None,
+            })
+            .unwrap()
+        };
+
+        let bundle_old = make("Old candidate body that should be expired.");
+        let bundle_new = make("New candidate body that should survive.");
+        let old_id: CandidateId = bundle_old.id.clone();
+        let new_id: CandidateId = bundle_new.id.clone();
+        store.record_candidate(&bundle_old).unwrap();
+        store.record_candidate(&bundle_new).unwrap();
+
+        // Backdate one candidate to 2 days ago using the test helper.
+        seed_backdate_candidate(&store, &old_id, "2024-01-01T00:00:00Z");
+
+        // A cutoff of "2024-06-01" should find the backdated candidate.
+        let stale = store
+            .list_pending_candidates_older_than(&project_id, "2024-06-01T00:00:00Z")
+            .unwrap();
+        assert_eq!(stale.len(), 1, "only the backdated candidate should appear");
+        assert_eq!(stale[0], old_id);
+
+        // The new candidate should not be in the result.
+        assert!(!stale.contains(&new_id), "new candidate must not be stale");
+    }
+
+    #[test]
+    fn latest_embedded_at_returns_none_for_empty_project() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let project_id = ProjectId::from_slug("no-embeds");
+        let result = store
+            .latest_embedded_at(&project_id)
+            .expect("query must not fail on empty project");
+        assert_eq!(result, None, "no embeddings yet — must return None");
+    }
+
+    #[test]
+    fn latest_embedded_at_returns_max_when_multiple() {
+        use vestige_core::{build_bundle, MemoryType, NewMemory, RepresentationDepth};
+
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let project_id = ProjectId::from_slug("embed-max-test");
+        store
+            .ensure_project(&project_id, "Embed Max Test", Some("/tmp"), None)
+            .unwrap();
+
+        // Record two memories so we can resolve their representation IDs.
+        let bundle_a = build_bundle(
+            &project_id,
+            NewMemory {
+                r#type: MemoryType::Observation,
+                body: "First memory for embedding max test.",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+        let bundle_b = build_bundle(
+            &project_id,
+            NewMemory {
+                r#type: MemoryType::Observation,
+                body: "Second memory for embedding max test.",
+                importance: 0.5,
+                source: None,
+            },
+        )
+        .unwrap();
+
+        store.record_memory(&bundle_a).unwrap();
+        store.record_memory(&bundle_b).unwrap();
+
+        // Look up the representation IDs persisted by record_memory.
+        let rep_id_a = store
+            .repr_id_for_depth(&bundle_a.memory.id, RepresentationDepth::Summary)
+            .unwrap()
+            .expect("summary rep for memory_a must exist");
+        let rep_id_b = store
+            .repr_id_for_depth(&bundle_b.memory.id, RepresentationDepth::Summary)
+            .unwrap()
+            .expect("summary rep for memory_b must exist");
+
+        // Directly insert two embedding rows with known, distinct updated_at values.
+        // The earlier timestamp is 2024-01-01; the later is 2025-06-15.
+        let earlier = "2024-01-01T00:00:00Z";
+        let later = "2025-06-15T12:00:00Z";
+
+        store
+            .connection()
+            .execute(
+                "INSERT INTO memory_embeddings
+                    (id, memory_id, representation_id, representation_type,
+                     provider, model, dimensions, vector_hash,
+                     status, created_at, updated_at, stale_at)
+                 VALUES ('emb_AAAA', ?1, ?2, 'summary', 'fake', 'fake-v1', 4,
+                         'hash_a', 'active', ?3, ?3, NULL)",
+                rusqlite::params![bundle_a.memory.id.as_str(), rep_id_a, earlier],
+            )
+            .unwrap();
+
+        store
+            .connection()
+            .execute(
+                "INSERT INTO memory_embeddings
+                    (id, memory_id, representation_id, representation_type,
+                     provider, model, dimensions, vector_hash,
+                     status, created_at, updated_at, stale_at)
+                 VALUES ('emb_BBBB', ?1, ?2, 'summary', 'fake', 'fake-v1', 4,
+                         'hash_b', 'active', ?3, ?3, NULL)",
+                rusqlite::params![bundle_b.memory.id.as_str(), rep_id_b, later],
+            )
+            .unwrap();
+
+        let result = store
+            .latest_embedded_at(&project_id)
+            .expect("query must succeed");
+        assert_eq!(
+            result,
+            Some(later.to_string()),
+            "must return the maximum updated_at across active embeddings"
+        );
+    }
+
+    /// Test helper: backdate a candidate's `created_at` column directly.
+    ///
+    /// This bypasses the normal write path to simulate an old candidate for TTL tests.
+    /// Only available in tests; there is no public API for timestamp overrides.
+    #[cfg(test)]
+    fn seed_backdate_candidate(store: &Store, id: &vestige_core::CandidateId, rfc3339: &str) {
+        store
+            .connection()
+            .execute(
+                "UPDATE candidate_memories SET created_at = ?1 WHERE id = ?2",
+                rusqlite::params![rfc3339, id.as_str()],
+            )
+            .expect("backdate candidate created_at");
     }
 }

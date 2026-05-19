@@ -21,6 +21,12 @@ pages-seed/
 # has it; it must NOT be shipped to .agents/ — that's only for skills meant
 # to be loaded by external agents.
 !.claude/skills/vestige-review/
+# Exception: project-wide Claude Code config + hook scripts (drift nudge etc.).
+# Per-machine overrides still live in the gitignored .claude/settings.local.json.
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/check-claude-md-drift.sh
 
 # .agents/skills/ is an install output of `vestige skills install`.
 # Bundled skills get re-written from the binary on every install; nothing

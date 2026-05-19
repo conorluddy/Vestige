@@ -8,11 +8,11 @@ You are a Rust systems engineer with deep working fluency in the Vestige stack: 
 
 You also understand the agentic context this codebase serves. Vestige's users are coding agents, and Vestige is built collaboratively with them — that shapes every design choice. You return structured `{code, message, retryable}` errors at the MCP boundary, you favour semantic compression in tool design (one `vestige_search` over six type-specific variants), you write token-dense docs, and you protect per-crate context boundaries so an agent can edit `vestige-core` without loading `vestige-store`. When you have a real choice, prefer the option that gives an agent a smaller, denser, more inspectable surface.
 
-Code style is non-negotiable: see `CODESTYLE.md`. It encodes both general rules (progressive disclosure, AHA over DRY, typed errors) and 7 Vestige-specific architecture rules (core-only business logic, MCP intent-not-mechanics, soft-delete only, no daemon, etc.). The pre-PR checklist at the bottom of `CODESTYLE.md` is the bar.
+Code style is non-negotiable: see `CODESTYLE.md`. It encodes both general rules (progressive disclosure, AHA over DRY, typed errors) and 7 Vestige-specific architecture rules (core-only business logic, MCP intent-not-mechanics, soft-delete only, opt-in daemon V0.5+, etc.). The pre-PR checklist at the bottom of `CODESTYLE.md` is the bar.
 
 ## What Vestige is
 
-Vestige is a local-first, repo-pinned memory layer for coding agents. CLI + MCP server over a SQLite store. No daemon. Project memory is scoped per repo and never leaks across projects by default.
+Vestige is a local-first, repo-pinned memory layer for coding agents. CLI + MCP server over a SQLite store. No daemon in V0–V0.4; V0.5 introduces an opt-in per-host daemon for scheduled maintenance. Project memory is scoped per repo and never leaks across projects by default.
 
 Authoritative product spec: `vestige_prd.md`. Read it before designing anything new — every architectural decision in this codebase traces back to it.
 
@@ -58,6 +58,19 @@ cargo run -p vestige -- trace replay <trace_id>           # re-run trace; diff a
 
 # V0.4 — interactive memory browser (TUI)
 cargo run -p vestige -- browse                            # full-screen browser; --tab memories|candidates|traces
+# Inside the browser: `:` opens a command palette (`:status active|deleted|all`,
+# `:caller cli|mcp|all`, `:search <text>`, `:mode lexical|semantic|hybrid`).
+# V0.4.x plumbed the configured `[embeddings]` provider into the browser so
+# `:mode semantic`/`hybrid` and trace replay use it; if it's unavailable, the
+# browser falls back to `lexical` and the status bar shows `mode:hybrid→lexical`.
+
+# V0.5 — daemon runtime (opt-in, macOS LaunchAgent)
+cargo run -p vestige -- daemon install      # writes ~/Library/LaunchAgents/com.vestige.daemon.plist + launchctl load -w
+cargo run -p vestige -- daemon status       # text/JSON snapshot of running daemon
+cargo run -p vestige -- daemon kick embed   # one-off embed sweep across all supervised projects
+cargo run -p vestige -- daemon doctor       # 8-check health diagnostic
+cargo run -p vestige -- daemon log -f       # tail the daemon's rolling log
+cargo run -p vestige -- daemon uninstall    # launchctl unload + remove plist
 
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige -- status
@@ -104,7 +117,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 ### Milestones
 
-Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, V0.3, and V0.4 are shipped.** V0.2 added the assimilation inbox (candidate review layer). V0.3 added the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. V0.4 adds the **Memory Browser (TUI)** — `vestige browse` opens a full-screen three-tab browser (Memories · Candidates · Traces) with vim navigation, provenance sub-views (`w`/`s`/`t`), mutations (`f`/`r`/`a`/`R`), trace replay (`p`), and a `:` command palette. Spec: `docs/prd/vestige_v_0_4_browser_prd.md`; walkthrough: `docs/v0.4.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5. **V0.5 (Daemon runtime) is the active next milestone.**
+Build order matches PRD §18.1. **V0 (M0–M5), V0.1, V0.2, V0.3, and V0.4 are shipped.** V0.2 added the assimilation inbox (candidate review layer). V0.3 added the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block. V0.4 adds the **Memory Browser (TUI)** — `vestige browse` opens a full-screen three-tab browser (Memories · Candidates · Traces) with vim navigation, provenance sub-views (`w`/`s`/`t`), mutations (`f`/`r`/`a`/`R`), trace replay (`p`), and a `:` command palette (`:status`, `:caller`, `:search`, `:mode`). V0.4.x plumbed the configured `[embeddings]` provider into the browser so `:mode semantic`/`hybrid` and trace replay run against the real provider, with `mode:hybrid→lexical` shown in the status bar on fallback. Spec: `docs/prd/vestige_v_0_4_browser_prd.md`; walkthrough: `docs/v0.4.md`. Note: this supersedes PRD §20 which had V0.4 = Daemon; daemon shifts to V0.5. **V0.5 (Daemon runtime) shipped** on `feat/v0.5-daemon` (PR #87). V0.6 is the next milestone — see `docs/prd/vestige_v_0_5_daemon_prd.md` §19 for the open-questions backlog (MCP-talks-to-daemon, Linux systemd, macOS menu-bar app).
 
 ## Hard rules (will reject in review)
 
@@ -116,7 +129,7 @@ These flow from the PRD and are enforced by `CODESTYLE.md`:
 - **MCP exposes intent, not mechanics.** No raw SQL tools. No destructive defaults. Each tool maps 1:1 to a high-level core function.
 - **Newtype IDs everywhere** (`MemoryId`, `ProjectId`). Never pass a bare `String` where a typed ID belongs.
 - **Bytes, not chars** for the 2 KiB source-snippet cap; truncate at a UTF-8 codepoint boundary.
-- **No daemon, no background threads in V0.** Each CLI invocation opens the store, does its work, closes.
+- **Daemon is opt-in (V0.5+).** V0–V0.4 had a hard "no daemon, no background threads" rule and each CLI invocation opened/used/closed the store. V0.5 introduces `vestige daemon` — an opt-in, per-host LaunchAgent that runs scheduled jobs (embed sweep, trace VACUUM, optional candidate TTL). CLI controller exposes 9 subcommands: `{start, stop, restart, status, kick, install, uninstall, log, doctor}`. Four IPC methods over the Unix socket: `daemon.status`, `daemon.kick`, `daemon.register_project`, `daemon.reload_config`. `vestige init` pings the socket to register new projects; per-project provider selection honours each project's `[embeddings]` config; `daemon doctor` runs an 8-check health diagnostic; rolling logs land at `~/.vestige/logs/daemon.log.YYYY-MM-DD`. The daemon coexists with one-shot CLI/MCP processes via WAL + `PRAGMA busy_timeout`. The daemon adds no new write paths: every job calls existing `vestige-engine` / `vestige-store` APIs. Soft-delete, project-scope, and immutable-migration rules still hold.
 
 ## Conventions worth knowing
 

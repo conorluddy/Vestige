@@ -53,7 +53,7 @@ These rules are non-negotiable for this codebase. They flow from the PRD.
 
 5. **Soft delete only in V0** (PRD §17.1). Never write `DELETE FROM memories`. `vestige forget` flips status; `vestige restore` flips it back.
 
-6. **No daemon, no background threads in V0** (PRD §8). Every CLI invocation opens the SQLite store, does its work, closes. MCP runs for the lifetime of the agent session, but is still single-process and synchronous.
+6. **Opt-in daemon, scheduled jobs only (V0.5+).** V0–V0.4 forbade daemons and background threads entirely. V0.5 introduces a narrow exception: an opt-in `vestige daemon` (LaunchAgent on macOS) running a small set of scheduled jobs that go through the existing `vestige-engine` / `vestige-store` APIs. The daemon adds no raw-SQL surface, no new write paths, and no new error semantics. Outside the daemon's scheduled jobs and its control socket, the one-shot model still applies — CLI commands and MCP servers open the store, do their work, and close. Soft-delete, project-scope, and immutable migrations are unchanged.
 
 7. **Bytes-not-chars for size limits.** The 2 KiB source-snippet cap (PRD §8 source storage decision) is bytes, truncated at a UTF-8 codepoint boundary. Always.
 
@@ -137,7 +137,7 @@ Match documentation depth to the reader's likely intent.
 ```text
 Level 1 — README.md / CLAUDE.md (5 seconds)
   "Local-first repo-pinned memory for coding agents.
-   Entry: `vestige` binary. CLI + MCP over SQLite. No daemon."
+   Entry: `vestige` binary. CLI + MCP over SQLite. Opt-in daemon V0.5+."
 
 Level 2 — Crate-level rustdoc (30 seconds)
   //! `vestige-store`: SQLite-backed persistence. Owns connections,
@@ -653,7 +653,7 @@ Keep it under 200 lines. Cover entry points, common tasks, and the build/test co
 ```markdown
 # Vestige
 
-Local-first repo-pinned memory layer for coding agents. CLI + MCP over SQLite. No daemon.
+Local-first repo-pinned memory layer for coding agents. CLI + MCP over SQLite. Opt-in daemon V0.5+.
 
 ## Entry points
 - Binary: `vestige` (crates/vestige-cli)
@@ -720,7 +720,7 @@ SQLite-backed persistence. Owns connections, migrations, and the FTS5 sync trigg
 - **Editing a shipped migration** — always add a new one. Old DBs in `~/.vestige/projects/*/` won't re-run a mutated migration.
 - **Hard delete** — V0 forbids it. `forget` is soft.
 - **Cross-project queries** — V0 forbids them. Federation lives in V0.7.
-- **Synchronous I/O during MCP request handling that blocks for seconds** — keep operations bounded; large work belongs to a future daemon (V0.4), not V0 MCP.
+- **Synchronous I/O during MCP request handling that blocks for seconds** — keep operations bounded; large background work belongs to the opt-in daemon (V0.5+), not MCP request handlers.
 
 ## Checklist
 

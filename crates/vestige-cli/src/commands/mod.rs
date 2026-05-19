@@ -6,6 +6,7 @@ pub mod browse;
 pub mod candidate;
 pub mod capture;
 pub mod context;
+pub mod daemon;
 pub mod decision;
 pub mod embed;
 pub mod embeddings;

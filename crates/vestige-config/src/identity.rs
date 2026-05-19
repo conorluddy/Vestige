@@ -48,6 +48,7 @@ pub fn build_init_config(
         search: None,
         assimilation: None,
         traces: None,
+        daemon: None,
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "vestige"
-description = "Local-first, repo-pinned memory layer for coding agents. CLI + MCP server over a SQLite store. No daemon."
+description = "Vestige CLI — repo-pinned memory layer for coding agents. Local-first SQLite store + MCP server + optional opt-in daemon for scheduled embedding sweeps, trace VACUUM, and per-project candidate TTL."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -41,8 +41,11 @@ vestige-config.workspace = true
 vestige-embed.workspace = true
 vestige-engine.workspace = true
 vestige-mcp.workspace = true
-tokio.workspace = true
+vestige-daemon = { path = "../vestige-daemon" }
+tokio = { workspace = true, features = ["net", "io-util"] }
 clap.workspace = true
+directories.workspace = true
+libc = "0.2"
 include_dir.workspace = true
 anyhow.workspace = true
 serde.workspace = true

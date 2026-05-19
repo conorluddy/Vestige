@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vestige.daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{VESTIGE_BIN}}</string>
+        <string>daemon</string>
+        <string>start</string>
+        <string>--foreground</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>Nice</key>
+    <integer>10</integer>
+
+    <key>WorkingDirectory</key>
+    <string>{{HOME}}</string>
+
+    <key>StandardOutPath</key>
+    <string>{{HOME}}/.vestige/daemon-stderr.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{HOME}}/.vestige/daemon-stderr.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VESTIGE_LOG</key>
+        <string>info</string>
+    </dict>
+</dict>
+</plist>

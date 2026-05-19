@@ -32,7 +32,7 @@ enum Command {
     /// Initialise Vestige memory in the current repo.
     Init(commands::init::InitArgs),
     /// Show current Vestige project state.
-    Status,
+    Status(commands::status::StatusArgs),
     /// Capture a free-form memory (default type: note).
     Remember(commands::remember::RememberArgs),
     /// Capture a note.
@@ -83,20 +83,34 @@ enum Command {
     Trace(commands::trace::TraceArgs),
     /// Open the interactive memory browser (TUI).
     Browse(commands::browse::BrowseArgs),
+    /// Manage the V0.5 background daemon (start, stop, status, kick, log).
+    Daemon(commands::daemon::DaemonArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
 fn main() -> Result<()> {
-    let filter = EnvFilter::try_from_env("VESTIGE_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
+
+    // `daemon start` installs its own rolling-file tracing subscriber inside
+    // vestige-daemon::run. Skip the CLI's stderr subscriber for that path so
+    // set_global_default doesn't fail silently and drop the daemon's writer.
+    let is_daemon_start = matches!(
+        &cli.command,
+        Command::Daemon(args)
+            if matches!(args.command, commands::daemon::DaemonCommand::Start(_))
+    );
+    if !is_daemon_start {
+        let filter =
+            EnvFilter::try_from_env("VESTIGE_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .init();
+    }
+
     match cli.command {
         Command::Init(args) => commands::init::run(args),
-        Command::Status => commands::status::run(),
+        Command::Status(args) => commands::status::run(args),
         Command::Remember(args) => commands::remember::run(args),
         Command::Note(args) => commands::note::run(args),
         Command::Decision(args) => commands::decision::run(args),
@@ -122,5 +136,6 @@ fn main() -> Result<()> {
         Command::Sources(args) => commands::sources::run(args),
         Command::Trace(args) => commands::trace::run(args),
         Command::Browse(args) => commands::browse::run(args),
+        Command::Daemon(args) => commands::daemon::run(args),
     }
 }

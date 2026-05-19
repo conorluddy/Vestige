@@ -128,6 +128,14 @@ pub struct VestigeConfig {
     /// per-surface toggles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub traces: Option<TracesConfig>,
+
+    /// Optional daemon runtime config (TOML `[daemon]`). V0.5+.
+    ///
+    /// `None` when the section is absent — all defaults apply and the daemon
+    /// remains disabled. Presence opts the project into the background daemon
+    /// runtime and allows tuning sweep cadences, TTLs, and socket paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon: Option<DaemonConfig>,
 }
 
 // === SECTION STRUCTS ===
@@ -380,6 +388,134 @@ fn default_assimilation_enabled() -> bool {
 
 fn default_capture_mode() -> CaptureMode {
     CaptureMode::Candidate
+}
+
+// === DAEMON CONFIG ===
+
+/// Default master-switch for the daemon: opt-in, disabled by default.
+pub const DAEMON_DEFAULT_ENABLED: bool = false;
+
+/// Default embed-sweep cadence: 10 minutes.
+pub const DAEMON_DEFAULT_EMBED_SWEEP_INTERVAL_SECS: u64 = 600;
+
+/// Default trace-VACUUM cadence: 24 hours.
+pub const DAEMON_DEFAULT_TRACE_PRUNE_INTERVAL_SECS: u64 = 86_400;
+
+/// Default candidate stale-TTL: disabled (0 = off).
+pub const DAEMON_DEFAULT_CANDIDATE_TTL_DAYS: u32 = 0;
+
+/// Default cadence for checking candidate TTLs: 1 hour.
+pub const DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS: u64 = 3_600;
+
+/// Default log level passed to `tracing`.
+pub const DAEMON_DEFAULT_LOG_LEVEL: &str = "info";
+
+/// Daemon runtime behaviour (`[daemon]` in `.vestige/config.toml`). V0.5+.
+///
+/// All fields are `Option` so absence in TOML is unambiguous and
+/// `daemon_config_for` can layer defaults without guessing "was this
+/// explicitly set or did serde fill it in?".
+///
+/// Omitting the section entirely is the same as writing it with all defaults.
+/// The daemon is **opt-in** — `enabled` defaults to `false`.
+///
+/// # Wire format
+///
+/// ```toml
+/// [daemon]
+/// enabled                            = false
+/// embed_sweep_interval_secs          = 600
+/// trace_prune_interval_secs          = 86400
+/// candidate_ttl_days                 = 0
+/// candidate_ttl_sweep_interval_secs  = 3600
+/// log_level                          = "info"
+/// # socket_path      = "~/.vestige/daemon.sock"      # optional override
+/// # status_file_path = "~/.vestige/daemon.status.json" # optional override
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DaemonConfig {
+    /// Master switch. Default `false` — daemon is opt-in.
+    pub enabled: Option<bool>,
+
+    /// Embed sweep cadence in seconds. Default: `600` (10 minutes).
+    pub embed_sweep_interval_secs: Option<u64>,
+
+    /// Trace VACUUM cadence in seconds. Default: `86400` (24 hours).
+    pub trace_prune_interval_secs: Option<u64>,
+
+    /// Candidate stale-TTL in days; `0` = disabled. Default: `0`.
+    pub candidate_ttl_days: Option<u32>,
+
+    /// How often to check candidate TTLs, in seconds. Default: `3600` (1 hour).
+    pub candidate_ttl_sweep_interval_secs: Option<u64>,
+
+    /// Log level passed to `tracing` (`error`, `warn`, `info`, `debug`, `trace`).
+    /// Default: `"info"`.
+    pub log_level: Option<String>,
+
+    /// Override `~/.vestige/daemon.sock` (mainly for tests).
+    pub socket_path: Option<String>,
+
+    /// Override `~/.vestige/daemon.status.json`.
+    pub status_file_path: Option<String>,
+}
+
+/// Fully-resolved daemon configuration with all `Option`s collapsed to concrete values.
+///
+/// Produced by [`daemon_config_for`]; used by daemon implementation code so it
+/// never needs to call `.unwrap_or` on individual fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDaemonConfig {
+    /// Whether the daemon is enabled.
+    pub enabled: bool,
+    /// Embed sweep cadence in seconds.
+    pub embed_sweep_interval_secs: u64,
+    /// Trace VACUUM cadence in seconds.
+    pub trace_prune_interval_secs: u64,
+    /// Candidate stale-TTL in days; `0` = disabled.
+    pub candidate_ttl_days: u32,
+    /// How often to check candidate TTLs, in seconds.
+    pub candidate_ttl_sweep_interval_secs: u64,
+    /// Log level passed to `tracing`.
+    pub log_level: String,
+    /// Path to the daemon Unix socket. `None` means use the default.
+    pub socket_path: Option<String>,
+    /// Path to the daemon status JSON file. `None` means use the default.
+    pub status_file_path: Option<String>,
+}
+
+/// Resolve a [`ResolvedDaemonConfig`] from an optional `[daemon]` section,
+/// applying all documented defaults when the section is absent or a field is
+/// `None`.
+///
+/// Provided as a free function (mirroring `traces_config_for` and
+/// `embeddings_config_for`) rather than a `From<Option<_>>` impl to avoid
+/// orphan-rule conflicts and to keep the call site readable.
+pub fn daemon_config_for(section: Option<&DaemonConfig>) -> ResolvedDaemonConfig {
+    let default = DaemonConfig::default();
+    let s = section.unwrap_or(&default);
+    ResolvedDaemonConfig {
+        enabled: s.enabled.unwrap_or(DAEMON_DEFAULT_ENABLED),
+        embed_sweep_interval_secs: s
+            .embed_sweep_interval_secs
+            .unwrap_or(DAEMON_DEFAULT_EMBED_SWEEP_INTERVAL_SECS),
+        trace_prune_interval_secs: s
+            .trace_prune_interval_secs
+            .unwrap_or(DAEMON_DEFAULT_TRACE_PRUNE_INTERVAL_SECS),
+        candidate_ttl_days: s
+            .candidate_ttl_days
+            .unwrap_or(DAEMON_DEFAULT_CANDIDATE_TTL_DAYS),
+        candidate_ttl_sweep_interval_secs: s
+            .candidate_ttl_sweep_interval_secs
+            .unwrap_or(DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS),
+        log_level: s
+            .log_level
+            .clone()
+            .unwrap_or_else(|| DAEMON_DEFAULT_LOG_LEVEL.to_owned()),
+        socket_path: s.socket_path.clone(),
+        status_file_path: s.status_file_path.clone(),
+    }
 }
 
 // === TRACES CONFIG ===
@@ -680,5 +816,130 @@ allow_forget             = false
             !serialised.contains("[traces]"),
             "skip_serializing_if must suppress absent [traces] section"
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // [daemon] config block tests (V0.5)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// When the `[daemon]` block is absent, `config.daemon` is `None` and
+    /// `daemon_config_for(None)` returns the documented defaults.
+    #[test]
+    fn daemon_config_defaults_when_absent() {
+        let config: VestigeConfig = toml::from_str(V0_TOML).expect("V0 TOML must parse");
+        assert!(
+            config.daemon.is_none(),
+            "absent [daemon] must deserialise as None"
+        );
+        // V0 TOML must not gain a [daemon] section on re-serialisation.
+        let serialised = toml::to_string_pretty(&config).expect("must serialise");
+        assert!(
+            !serialised.contains("[daemon]"),
+            "skip_serializing_if must suppress absent [daemon] section"
+        );
+        // daemon_config_for(None) must return all documented defaults.
+        let resolved = daemon_config_for(None);
+        assert!(
+            !resolved.enabled,
+            "daemon must be opt-in (enabled defaults to false)"
+        );
+        assert_eq!(
+            resolved.embed_sweep_interval_secs,
+            DAEMON_DEFAULT_EMBED_SWEEP_INTERVAL_SECS
+        );
+        assert_eq!(
+            resolved.trace_prune_interval_secs,
+            DAEMON_DEFAULT_TRACE_PRUNE_INTERVAL_SECS
+        );
+        assert_eq!(
+            resolved.candidate_ttl_days,
+            DAEMON_DEFAULT_CANDIDATE_TTL_DAYS
+        );
+        assert_eq!(
+            resolved.candidate_ttl_sweep_interval_secs,
+            DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS
+        );
+        assert_eq!(resolved.log_level, DAEMON_DEFAULT_LOG_LEVEL);
+        assert!(resolved.socket_path.is_none());
+        assert!(resolved.status_file_path.is_none());
+    }
+
+    /// A partial `[daemon]` section — only `enabled` and
+    /// `embed_sweep_interval_secs` set — preserves those values and fills the
+    /// rest from defaults.
+    #[test]
+    fn daemon_config_partial_overrides() {
+        let toml_str = format!(
+            "{}\n[daemon]\nenabled = true\nembed_sweep_interval_secs = 120\n",
+            V0_TOML
+        );
+        let config: VestigeConfig = toml::from_str(&toml_str).expect("must parse partial [daemon]");
+        let daemon = config
+            .daemon
+            .as_ref()
+            .expect("[daemon] must be Some when block present");
+
+        // Explicitly set fields survive the round-trip.
+        assert_eq!(daemon.enabled, Some(true));
+        assert_eq!(daemon.embed_sweep_interval_secs, Some(120));
+
+        // Unset fields are None (unambiguously absent).
+        assert!(daemon.trace_prune_interval_secs.is_none());
+        assert!(daemon.candidate_ttl_days.is_none());
+        assert!(daemon.log_level.is_none());
+
+        // Resolver fills the gaps with defaults.
+        let resolved = daemon_config_for(Some(daemon));
+        assert!(resolved.enabled, "explicit true must be honoured");
+        assert_eq!(
+            resolved.embed_sweep_interval_secs, 120,
+            "explicit 120 must be honoured"
+        );
+        assert_eq!(
+            resolved.trace_prune_interval_secs, DAEMON_DEFAULT_TRACE_PRUNE_INTERVAL_SECS,
+            "unset field must use default"
+        );
+        assert_eq!(
+            resolved.candidate_ttl_days, DAEMON_DEFAULT_CANDIDATE_TTL_DAYS,
+            "unset field must use default"
+        );
+        assert_eq!(
+            resolved.log_level, DAEMON_DEFAULT_LOG_LEVEL,
+            "unset field must use default"
+        );
+    }
+
+    /// A fully-populated `DaemonConfig` round-trips through TOML write + read
+    /// without data loss.
+    #[test]
+    fn daemon_config_round_trip() {
+        let original = DaemonConfig {
+            enabled: Some(true),
+            embed_sweep_interval_secs: Some(300),
+            trace_prune_interval_secs: Some(43_200),
+            candidate_ttl_days: Some(7),
+            candidate_ttl_sweep_interval_secs: Some(1_800),
+            log_level: Some("debug".to_owned()),
+            socket_path: Some("/tmp/test-daemon.sock".to_owned()),
+            status_file_path: Some("/tmp/test-daemon.status.json".to_owned()),
+        };
+
+        // Embed into a full config so TOML serialisation uses the [daemon] section header.
+        let mut config: VestigeConfig = toml::from_str(V0_TOML).expect("V0 TOML must parse");
+        config.daemon = Some(original.clone());
+
+        let serialised = toml::to_string_pretty(&config).expect("must serialise");
+        assert!(
+            serialised.contains("[daemon]"),
+            "section header must appear"
+        );
+
+        let re_parsed: VestigeConfig =
+            toml::from_str(&serialised).expect("re-serialised TOML must parse");
+        let re_daemon = re_parsed
+            .daemon
+            .expect("[daemon] must survive re-serialisation");
+
+        assert_eq!(re_daemon, original, "round-trip must be lossless");
     }
 }
