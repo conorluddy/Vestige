@@ -89,13 +89,25 @@ enum Command {
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
 fn main() -> Result<()> {
-    let filter = EnvFilter::try_from_env("VESTIGE_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
+
+    // `daemon start` installs its own rolling-file tracing subscriber inside
+    // vestige-daemon::run. Skip the CLI's stderr subscriber for that path so
+    // set_global_default doesn't fail silently and drop the daemon's writer.
+    let is_daemon_start = matches!(
+        &cli.command,
+        Command::Daemon(args)
+            if matches!(args.command, commands::daemon::DaemonCommand::Start(_))
+    );
+    if !is_daemon_start {
+        let filter =
+            EnvFilter::try_from_env("VESTIGE_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .init();
+    }
+
     match cli.command {
         Command::Init(args) => commands::init::run(args),
         Command::Status(args) => commands::status::run(args),
