@@ -17,18 +17,15 @@ Reads `~/.vestige/daemon.status.json` (atomically rewritten by the daemon every 
 
 Override the path for local testing: `VESTIGE_STATUS_FILE=/tmp/fake.json open Vestige.app`.
 
-## First-time Xcode setup
+## Xcode setup
 
-The repo intentionally does not check in an `.xcodeproj` — pbxproj files are noisy and brittle to hand-edit. Create the project once locally:
+Open `Vestige/Vestige.xcodeproj` in Xcode. The Swift sources next to it on disk (`Vestige/Vestige/*.swift`) need to be added to the project target:
 
-1. Open Xcode → **File → New → Project…**
-2. Pick **macOS → App**. Name it `Vestige`, interface SwiftUI, language Swift, no tests, no Core Data.
-3. Save it inside this `app/Vestige-Mac/` directory. Xcode will create `Vestige.xcodeproj` here.
-4. In the new Xcode project, delete the auto-generated `ContentView.swift` and `VestigeApp.swift` (the template ones).
-5. Drag every file from this folder's `Vestige/` subdirectory into the Xcode project navigator. Choose "Create groups", target = Vestige.
-6. In the target's **Info** tab, set `LSUIElement = YES` (menu-bar-only, no Dock icon). Add it under "Custom macOS Application Target Properties" if Info.plist isn't visible.
-7. Deployment target: macOS 14.0+.
-8. Build & run (⌘R). The menu-bar icon should appear.
+1. In the Xcode project navigator, right-click the `Vestige` group → **Add Files to "Vestige"…**
+2. Select every `.swift` file under `Vestige/Vestige/` except `VestigeApp.swift` (already in the project), and the `Assets.xcassets/MenuBarIcon.symbolset` folder. Make sure "Copy items if needed" is **off** and "Add to targets: Vestige" is **on**.
+3. In the target's **Info** tab, set `Application is agent (UIElement)` = `YES` (menu-bar-only, no Dock icon).
+4. Deployment target: macOS 14.0+.
+5. Build & run (⌘R). The 🧠 menu-bar icon should appear.
 
 ## File layout
 
@@ -37,14 +34,18 @@ app/Vestige-Mac/
 ├── README.md
 ├── .gitignore
 └── Vestige/
-    ├── VestigeApp.swift          # @main MenuBarExtra
-    ├── DaemonStatus.swift        # Codable mirror of daemon JSON
-    ├── StatusFileWatcher.swift   # @Observable file-watch model
-    ├── MenuView.swift            # menu content
-    ├── ProjectRow.swift          # one row per project
-    ├── RelativeTime.swift        # "3m ago" formatter
-    └── Assets.xcassets/
+    ├── Vestige.xcodeproj/
+    └── Vestige/
+        ├── VestigeApp.swift          # @main MenuBarExtra
+        ├── DaemonStatus.swift        # Codable mirror of daemon JSON
+        ├── StatusFileWatcher.swift   # @Observable file-watch model
+        ├── MenuView.swift            # menu content
+        ├── ProjectRow.swift          # one row per project
+        ├── RelativeTime.swift        # "3m ago" formatter
+        └── Assets.xcassets/
 ```
+
+`xcuserdata/` and `*.xcuserstate` are gitignored.
 
 ## Status file schema
 
