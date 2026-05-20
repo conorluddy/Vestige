@@ -42,7 +42,7 @@ V0.5 should not include:
 - **Cross-project federation.** Each worker holds exactly one project's `Store`. Project A cannot see project B's data. Deferred to V0.7 (cross-project query milestone).
 - **File-system watcher on `memory.sqlite`.** Timer-driven cadence is sufficient and avoids `notify`/debounce complexity. Revisit in V0.6 if lag is reported.
 - **Linux/Windows.** macOS only; `vestige daemon install` emits a clear error on other platforms. Linux systemd user-service in V0.6; Windows in V0.8+.
-- **Dream/consolidation jobs.** Memory rewriting, clustering, and the "Dream-Lite" concept shifted to V0.7 after the PRD was reordered.
+- **REM consolidation jobs.** Memory rewriting, clustering, and the REM (Review · Evaluate · Merge) consolidation pass shifted to V0.7 after the PRD was reordered. Earlier drafts called this "Dream-Lite".
 - **iOS.** No Unix sockets accessible across iOS apps; no LaunchAgents equivalent; no on-device way to run a persistent Rust process against `~/.vestige/`. An iOS surface requires a server-hosted Vestige — V0.8+ and a different product shape.
 - **Real embedding provider selection in the daemon.** ~~The daemon defaults to `FakeEmbeddingProvider` in V0.5. Wiring the configured `[embeddings]` provider into the daemon (so workers use the same model as the CLI) lands in V0.6.~~ Delivered in Wave 8 — each worker reads its project's `[embeddings]` config and builds a provider via `vestige_embed::build_provider`, with `FakeEmbeddingProvider` as fallback.
 
