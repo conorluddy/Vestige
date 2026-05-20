@@ -124,7 +124,7 @@ const VESTIGE = {
     { v: 'V0.5.1', title: 'VestigeUI menu-bar', status: 'done', items: 'macOS Vestige.app · SwiftUI MenuBarExtra · per-project memory + candidate + pending-embed counts · expandable rows (Reveal in Finder) · daemon-not-running CTA · stale-daemon badge · 30-day inactive collapse · daemon snapshot adds memory_count / candidate_count / last_memory_at · PR #90' },
     { v: 'V0.5.2', title: 'Menu-bar controls', status: 'planned', items: 'kick + reload-config + pause controls from the menu · daemon.pause IPC method · persistent project workspace window · #88' },
     { v: 'V0.6', title: 'Directives',           status: 'planned', items: 'pluggable prompt blocks (.vestige/directives.md) · project-scoped allow/deny rules · injected into auto-memorise + heartbeat ingestion' },
-    { v: 'V0.7', title: 'Dream-lite',           status: 'planned', items: 'project summary refresh · clustering · review-first consolidation' },
+    { v: 'V0.7', title: 'REM consolidation',    status: 'planned', items: 'Review · Evaluate · Merge — project summary refresh · clustering · review-first consolidation' },
     { v: 'V0.8', title: 'Global preferences',   status: 'planned', items: '~/.vestige/global.sqlite · explicit include · project wins' },
     { v: 'V0.9', title: 'Federation',           status: 'planned', items: 'project registry · cross-project search · related memories' },
     { v: 'V0.10',title: 'Memory dashboard (GUI)', status: 'planned', items: 'graphical browser over the daemon\'s local API · web-served default · Swift / Electron variants TBD' },

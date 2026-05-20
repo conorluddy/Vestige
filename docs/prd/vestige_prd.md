@@ -151,7 +151,7 @@ V0 is successful when a local coding agent can start a new session in a repo, ca
 V0 should not include:
 
 - Cross-project federation.
-- Dream jobs.
+- REM jobs.
 - Decay scoring.
 - Automatic conversation ingestion.
 - Global super-index.
@@ -654,7 +654,7 @@ Deferred:
 vestige_forget
 vestige_check_contradictions
 vestige_record_preference
-vestige_dream
+vestige_rem
 vestige_search_federated
 ```
 
@@ -1040,7 +1040,7 @@ Bad implementation tasks:
 
 ```txt
 - Build complete lifecycle system.
-- Build cross-project dream engine.
+- Build cross-project REM engine.
 - Add full vector DB abstraction before basic recall works.
 - Implement GUI.
 - Add cloud sync.
@@ -1143,7 +1143,7 @@ Acceptance criteria:
 
 ## 20. Roadmap Stub
 
-> **Note on ordering** — V0.4 was reordered during V0.3 from "Daemon Runtime" to "Memory Browser (TUI)." The browser shipped first because it provides immediate human leverage over the V0.3 provenance data without infrastructure risk. The daemon moves to V0.5, Dream-Lite to V0.7, and everything below shifts by one. The landing-page roadmap (`docs/src/data.js`) is the canonical current ordering; the per-version sections below are preserved verbatim as historical record. V0.4-as-shipped is specified in `docs/prd/vestige_v_0_4_browser_prd.md`.
+> **Note on ordering** — V0.4 was reordered during V0.3 from "Daemon Runtime" to "Memory Browser (TUI)." The browser shipped first because it provides immediate human leverage over the V0.3 provenance data without infrastructure risk. The daemon moves to V0.5, REM (Dream-Lite) to V0.7, and everything below shifts by one. The landing-page roadmap (`docs/src/data.js`) is the canonical current ordering; the per-version sections below are preserved verbatim as historical record. V0.4-as-shipped is specified in `docs/prd/vestige_v_0_4_browser_prd.md`.
 
 ### V0: Skeleton Project Memory
 
@@ -1230,7 +1230,9 @@ vestige service start
 vestige service stop
 ```
 
-### V0.5: Dream-Lite Consolidation
+### V0.5: REM Consolidation
+
+REM stands for **Review · Evaluate · Merge** — the three jobs the consolidation pass runs across the local memory store. The sleep-cycle analogy is intentional: just as biological REM sleep is when memory consolidation happens, Vestige's REM pass is when accumulated memories are reviewed, scored, and merged into a tighter, denser set. (Formerly "Dream-Lite" in earlier drafts.)
 
 Add:
 
@@ -1242,7 +1244,7 @@ Add:
 Command:
 
 ```bash
-vestige dream
+vestige rem
 ```
 
 ### V0.6: Global Preferences
@@ -1290,7 +1292,7 @@ V1 should include:
 - Source-linked memories.
 - Hybrid search.
 - Review inbox.
-- Basic dream/consolidation.
+- Basic REM consolidation.
 - Forget/archive.
 - Explicit cross-project federation.
 

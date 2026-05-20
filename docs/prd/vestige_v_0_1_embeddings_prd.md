@@ -14,7 +14,7 @@ Progressive disclosure remains the default.
 Project scope remains the default boundary.
 ```
 
-V0.1 should not expand Vestige into a dream engine, daemon, global memory system, or cross-project federation layer. It should only add a reliable semantic retrieval substrate.
+V0.1 should not expand Vestige into a REM engine, daemon, global memory system, or cross-project federation layer. It should only add a reliable semantic retrieval substrate.
 
 ## 2. V0.1 Thesis
 
@@ -66,7 +66,7 @@ V0.1 should provide:
 V0.1 should not include:
 
 ```txt
-- Dream jobs.
+- REM jobs.
 - Decay scoring.
 - Assimilation inbox.
 - Automatic conversation ingestion.
@@ -881,7 +881,7 @@ Acceptance criteria:
 
 ### 18.1 Keep the Slice Narrow
 
-Do not combine V0.1 with dream, federation, daemon, global memory, or automatic ingestion work.
+Do not combine V0.1 with REM, federation, daemon, global memory, or automatic ingestion work.
 
 ### 18.2 Preserve Backwards Compatibility
 

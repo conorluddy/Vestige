@@ -42,7 +42,7 @@ function Hero() {
           <div className="vt-kicker">┌─ ABSTRACT ─────────────────────────</div>
           <h1>
             Agents take notes,<br />
-            dream them into shape,<br />
+            shape them in REM,<br />
             <em>and recall them when it counts.</em>
           </h1>
           <p>
