@@ -313,7 +313,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
+pub(super) fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
     let kind = short_kind(card.r#type);
     let title = card.title.as_str();
     let mut style = Style::default();
@@ -331,7 +331,7 @@ fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
     ListItem::new(line)
 }
 
-fn short_kind(t: MemoryType) -> &'static str {
+pub(super) fn short_kind(t: MemoryType) -> &'static str {
     match t {
         MemoryType::Decision => "dec",
         MemoryType::Note => "note",
@@ -342,7 +342,7 @@ fn short_kind(t: MemoryType) -> &'static str {
     }
 }
 
-fn kind_style(t: MemoryType, status: MemoryStatus) -> Style {
+pub(super) fn kind_style(t: MemoryType, status: MemoryStatus) -> Style {
     let base = match t {
         MemoryType::Decision => Style::default().fg(Color::Yellow),
         MemoryType::Note => Style::default().fg(Color::Gray),

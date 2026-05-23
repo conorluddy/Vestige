@@ -51,7 +51,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 fn draw_tab_bar(frame: &mut Frame, area: Rect, app: &App) {
     let no_color = std::env::var_os("NO_COLOR").is_some();
     let mut spans: Vec<Span> = Vec::new();
-    for (i, tab) in [Tab::Memories, Tab::Candidates, Tab::Traces]
+    for (i, tab) in [Tab::Memories, Tab::Candidates, Tab::Traces, Tab::Tail]
         .iter()
         .enumerate()
     {
@@ -62,6 +62,7 @@ fn draw_tab_bar(frame: &mut Frame, area: Rect, app: &App) {
             Tab::Memories => app.counts.memories_active,
             Tab::Candidates => app.counts.candidates_pending,
             Tab::Traces => app.counts.traces,
+            Tab::Tail => app.tail.items.len() as i64,
         };
         let label = format!("[{}({})]", tab.label(), count);
         let style = if *tab == app.tab {
@@ -80,6 +81,7 @@ fn draw_body(frame: &mut Frame, area: Rect, app: &App) {
         Tab::Memories => super::tabs::memories::draw(frame, area, app),
         Tab::Candidates => super::tabs::candidates::draw(frame, area, app),
         Tab::Traces => super::tabs::traces::draw(frame, area, app),
+        Tab::Tail => super::tabs::tail::render(frame, area, &app.tail),
     }
 }
 
@@ -127,9 +129,31 @@ fn draw_status(frame: &mut Frame, area: Rect, app: &App) {
         None => Style::default(),
     };
     let left = Paragraph::new(Span::styled(left_text, left_style)).alignment(Alignment::Left);
-    let right = Paragraph::new("Tab switch · ? help · q quit").alignment(Alignment::Right);
+    let right_text = if app.tab == Tab::Tail {
+        tail_status_hint(app)
+    } else {
+        "Tab switch · ? help · q quit".to_string()
+    };
+    let right = Paragraph::new(right_text).alignment(Alignment::Right);
     frame.render_widget(left, chunks[0]);
     frame.render_widget(right, chunks[1]);
+}
+
+fn tail_status_hint(app: &App) -> String {
+    let interval_secs = app.tail.interval.as_secs();
+    let last_poll_str = match app.tail.last_poll {
+        Some(instant) => format!("{}s ago", instant.elapsed().as_secs()),
+        None => "never".to_string(),
+    };
+    let mut hint = format!("polling {interval_secs}s · last poll {last_poll_str}");
+    if !app.tail.auto_scroll {
+        hint.push_str(" · paused");
+    }
+    if let Some(err) = &app.tail.load_error {
+        let short = err.chars().take(40).collect::<String>();
+        hint.push_str(&format!(" · err: {short}"));
+    }
+    hint
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
