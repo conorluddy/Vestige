@@ -1,4 +1,4 @@
-//! Bulk reads — `list_memories` and FTS5 `search_memories`.
+//! Bulk reads — `list_memories`, `recent_memories_by_created_at`, and FTS5 `search_memories`.
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -53,6 +53,43 @@ impl Store {
                 .query_map(rusqlite::params![project_id.as_str()], row_to_memory)?
                 .collect::<std::result::Result<_, _>>()?,
         };
+
+        let mut out = Vec::with_capacity(memories.len());
+        for memory in memories {
+            let representations = self.fetch_representations(&memory.id)?;
+            let sources = self.fetch_sources(&memory.id)?;
+            out.push(FetchedMemory {
+                memory,
+                representations,
+                sources,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Active memories for a project, newest first, capped at `limit` rows.
+    ///
+    /// Excludes soft-deleted memories. Loads representations and sources for
+    /// each memory via N+1 queries — appropriate for tab-sized list views.
+    pub fn recent_memories_by_created_at(
+        &self,
+        project_id: &ProjectId,
+        limit: u32,
+    ) -> Result<Vec<FetchedMemory>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id, project_id, type, status, confidence, importance,
+                    created_at, updated_at, deleted_at
+             FROM memories
+             WHERE project_id = ?1 AND status = 'active'
+             ORDER BY datetime(created_at) DESC
+             LIMIT ?2",
+        )?;
+        let memories: Vec<Memory> = stmt
+            .query_map(
+                rusqlite::params![project_id.as_str(), limit as i64],
+                row_to_memory,
+            )?
+            .collect::<std::result::Result<_, _>>()?;
 
         let mut out = Vec::with_capacity(memories.len());
         for memory in memories {

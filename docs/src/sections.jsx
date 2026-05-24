@@ -324,8 +324,8 @@ trace_caller_mcp          = true`}</pre>
 // ── Memory browser (TUI) ─────────────────────────────────
 function Browser() {
   return (
-    <Section id="browser" n="10" title="Memory browser." lede="V0.4 wraps every V0–V0.3 surface in an interactive terminal browser. Three tabs, two-pane layout, keyboard-driven.">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 20 }}>
+    <Section id="browser" n="10" title="Memory browser." lede="V0.4 wraps every V0–V0.3 surface in an interactive terminal browser. Four tabs, two-pane layout, keyboard-driven. V0.4.1 adds Tail — a live-monitoring stream for memory observability.">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 24, marginBottom: 20 }}>
         <div>
           <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Browse</div>
           <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
@@ -376,6 +376,21 @@ corpus size: 47`}</pre>
 :caller mcp
 :search hybrid
 :help        ·   :quit`}</pre>
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Tail · v0.4.1</div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+            Fourth tab. A merged, time-ordered stream of recent memories + candidates for the current project. Polls every 60s (<code>:interval N</code>), caps at 200 rows (<code>:tail N</code>). Auto-scroll pauses when the cursor leaves row 0. Press <code>d</code> to cycle disclosure depth (one-liner / summary / compressed). Read-only by design — <code>tail -f</code> for project memory.
+          </p>
+          <pre className="vt-pre">{`vestige browse --tab tail
+
+[Tail(16)]
+> obs   cand 0.50 second tail candidate
+  note  mem  short note one-liner
+  note  cand 0.50 tail tab test candidate
+  dec   mem  SQLite stores durable memory…
+  q     mem  Should we add a Linux unit?
+polling 60s · last poll 12s ago · depth:oneliner`}</pre>
         </div>
       </div>
     </Section>

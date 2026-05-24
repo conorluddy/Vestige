@@ -68,15 +68,15 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
     if app.tab == super::app::Tab::Candidates && app.candidates.filter_focused {
         return map_filter_key(key);
     }
+    if app.tab == super::app::Tab::Tail {
+        return map_tail_key(key);
+    }
     match key.code {
         KeyCode::Char('q') => Action::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
         KeyCode::Char('?') => Action::ToggleHelp,
         KeyCode::Tab => Action::NextTab,
         KeyCode::BackTab => Action::PrevTab,
-        // Memories-tab navigation. Surfaced unconditionally for M2; the
-        // dispatcher in `mod.rs` only acts on these when the active tab is
-        // Memories. M5/M6 will route by `app.tab`.
         KeyCode::Char('j') | KeyCode::Down => Action::MoveDown,
         KeyCode::Char('k') | KeyCode::Up => Action::MoveUp,
         KeyCode::Char('g') => Action::MoveTop,
@@ -106,6 +106,28 @@ fn map_key(key: &KeyEvent, app: &App) -> Action {
         KeyCode::Char('a') => Action::RequestApprove,
         // Replay — only meaningful on Traces tab; dispatcher gates it.
         KeyCode::Char('p') => Action::RequestReplay,
+        KeyCode::Esc => Action::CloseOverlay,
+        _ => Action::None,
+    }
+}
+
+/// Tail tab is read-only: navigation and global keys work, mutation keys are inert.
+fn map_tail_key(key: &KeyEvent) -> Action {
+    match key.code {
+        KeyCode::Char('q') => Action::Quit,
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
+        KeyCode::Tab => Action::NextTab,
+        KeyCode::BackTab => Action::PrevTab,
+        KeyCode::Char(':') => Action::OpenPalette,
+        KeyCode::Char('j') | KeyCode::Down => Action::MoveDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::MoveUp,
+        KeyCode::Char('g') => Action::MoveTop,
+        KeyCode::Char('G') => Action::MoveBottom,
+        KeyCode::Char('d') => Action::TailCycleDepth,
+        // Mutation keys are inert on Tail (read-only tab).
+        KeyCode::Char('f') | KeyCode::Char('r') | KeyCode::Char('a') | KeyCode::Char('R') => {
+            Action::None
+        }
         KeyCode::Esc => Action::CloseOverlay,
         _ => Action::None,
     }
@@ -443,6 +465,98 @@ mod tests {
             map_event(&press(KeyCode::Char('t'), KeyModifiers::NONE), &a),
             Action::ShowTracesOf
         );
+    }
+
+    fn tail_app() -> App {
+        App::new(Tab::Tail, Counts::default(), "p".into())
+    }
+
+    #[test]
+    fn tail_j_moves_down() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char('j'), KeyModifiers::NONE), &a),
+            Action::MoveDown
+        );
+    }
+
+    #[test]
+    fn tail_k_moves_up() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char('k'), KeyModifiers::NONE), &a),
+            Action::MoveUp
+        );
+    }
+
+    #[test]
+    fn tail_g_and_shift_g_jump_top_and_bottom() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char('g'), KeyModifiers::NONE), &a),
+            Action::MoveTop
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::Char('G'), KeyModifiers::SHIFT), &a),
+            Action::MoveBottom
+        );
+    }
+
+    #[test]
+    fn tail_tab_cycles_tabs() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Tab, KeyModifiers::NONE), &a),
+            Action::NextTab
+        );
+        assert_eq!(
+            map_event(&press(KeyCode::BackTab, KeyModifiers::NONE), &a),
+            Action::PrevTab
+        );
+    }
+
+    #[test]
+    fn tail_q_quits() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char('q'), KeyModifiers::NONE), &a),
+            Action::Quit
+        );
+    }
+
+    #[test]
+    fn tail_colon_opens_palette() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char(':'), KeyModifiers::NONE), &a),
+            Action::OpenPalette
+        );
+    }
+
+    #[test]
+    fn tail_d_cycles_depth() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char('d'), KeyModifiers::NONE), &a),
+            Action::TailCycleDepth
+        );
+    }
+
+    #[test]
+    fn tail_mutation_keys_are_inert() {
+        let a = tail_app();
+        for (code, mods) in [
+            (KeyCode::Char('f'), KeyModifiers::NONE),
+            (KeyCode::Char('r'), KeyModifiers::NONE),
+            (KeyCode::Char('a'), KeyModifiers::NONE),
+            (KeyCode::Char('R'), KeyModifiers::SHIFT),
+        ] {
+            assert_eq!(
+                map_event(&press(code, mods), &a),
+                Action::None,
+                "{code:?} must be inert on Tail tab"
+            );
+        }
     }
 
     #[test]

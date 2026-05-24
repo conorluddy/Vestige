@@ -4,6 +4,8 @@
 //! drive it. The event loop calls `App::handle(action)` after `event` maps a
 //! `crossterm::event::Event` to an [`Action`].
 
+use std::time::{Duration, Instant};
+
 use vestige_core::SearchMode;
 
 // === TYPES ===
@@ -15,6 +17,7 @@ pub enum Tab {
     Memories,
     Candidates,
     Traces,
+    Tail,
 }
 
 impl Tab {
@@ -23,6 +26,7 @@ impl Tab {
             Tab::Memories => "Memories",
             Tab::Candidates => "Candidates",
             Tab::Traces => "Traces",
+            Tab::Tail => "Tail",
         }
     }
 
@@ -30,15 +34,17 @@ impl Tab {
         match self {
             Tab::Memories => Tab::Candidates,
             Tab::Candidates => Tab::Traces,
-            Tab::Traces => Tab::Memories,
+            Tab::Traces => Tab::Tail,
+            Tab::Tail => Tab::Memories,
         }
     }
 
     pub fn prev(self) -> Self {
         match self {
-            Tab::Memories => Tab::Traces,
+            Tab::Memories => Tab::Tail,
             Tab::Candidates => Tab::Memories,
             Tab::Traces => Tab::Candidates,
+            Tab::Tail => Tab::Traces,
         }
     }
 }
@@ -52,6 +58,35 @@ pub struct Counts {
     pub memories_active: i64,
     pub candidates_pending: i64,
     pub traces: i64,
+}
+
+/// Display depth for Memory rows in the Tail tab.
+///
+/// Cycles `d` → `OneLiner → Summary → Compressed → OneLiner …`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TailDepth {
+    #[default]
+    OneLiner,
+    Summary,
+    Compressed,
+}
+
+impl TailDepth {
+    pub fn next(self) -> Self {
+        match self {
+            TailDepth::OneLiner => TailDepth::Summary,
+            TailDepth::Summary => TailDepth::Compressed,
+            TailDepth::Compressed => TailDepth::OneLiner,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TailDepth::OneLiner => "oneliner",
+            TailDepth::Summary => "summary",
+            TailDepth::Compressed => "compressed",
+        }
+    }
 }
 
 /// Action produced by the event mapper. Consumed by [`App::handle`].
@@ -100,6 +135,10 @@ pub enum Action {
     PaletteChar(char),
     PaletteBackspace,
     PaletteSubmit,
+    // Tail tab time-driven reload.
+    Tick,
+    // Tail tab depth cycle.
+    TailCycleDepth,
     None,
 }
 
@@ -288,6 +327,82 @@ impl CandidatesTabState {
     }
 }
 
+/// Per-tab state for the Tail tab. Merged stream of memories + candidates,
+/// time-ordered newest-first. Auto-scrolls to the top when new items arrive,
+/// unless the cursor is not at row 0.
+pub struct TailTabState {
+    pub items: Vec<super::tabs::tail::TailRow>,
+    pub selected: usize,
+    /// Reserved for manual scroll-window control if needed in future.
+    #[allow(dead_code)]
+    pub scroll_offset: usize,
+    /// `true` when the cursor is at row 0 — new items keep `selected = 0`.
+    pub auto_scroll: bool,
+    pub last_poll: Option<Instant>,
+    /// How often to re-query. Default: 60s. Range: [5s, 3600s].
+    pub interval: Duration,
+    /// Maximum merged rows to retain. Default: 200.
+    pub cap: usize,
+    pub load_error: Option<String>,
+    /// Display depth for Memory rows. Cycled with `d`. Default: `OneLiner`.
+    pub depth: TailDepth,
+}
+
+impl TailTabState {
+    pub fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            selected: 0,
+            scroll_offset: 0,
+            auto_scroll: true,
+            last_poll: None,
+            interval: Duration::from_secs(60),
+            cap: 200,
+            load_error: None,
+            depth: TailDepth::OneLiner,
+        }
+    }
+
+    /// `true` when the tab has never polled or the interval has elapsed.
+    pub fn is_due(&self) -> bool {
+        self.last_poll
+            .map_or(true, |t| t.elapsed() >= self.interval)
+    }
+
+    pub fn move_cursor(&mut self, delta: i64) -> bool {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return false;
+        }
+        let last = self.items.len().saturating_sub(1) as i64;
+        let new = (self.selected as i64 + delta).clamp(0, last) as usize;
+        if new == self.selected {
+            return false;
+        }
+        self.selected = new;
+        true
+    }
+
+    pub fn move_to(&mut self, target: usize) -> bool {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return false;
+        }
+        let new = target.min(self.items.len() - 1);
+        if new == self.selected {
+            return false;
+        }
+        self.selected = new;
+        true
+    }
+}
+
+impl Default for TailTabState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Per-tab state for the Traces tab. Row type is `TraceCard`; detail loads
 /// the full `TraceDetail`. Mutations are not supported (traces are
 /// append-only audit) — only `p` replay, which surfaces a diff in a
@@ -344,6 +459,7 @@ pub struct App {
     pub memories: MemoriesTabState,
     pub candidates: CandidatesTabState,
     pub traces: TracesTabState,
+    pub tail: TailTabState,
     pub modal: Option<Modal>,
     pub status_flash: Option<StatusFlash>,
     pub palette: Option<CommandPalette>,
@@ -381,6 +497,7 @@ impl App {
             memories: MemoriesTabState::default(),
             candidates: CandidatesTabState::default(),
             traces: TracesTabState::default(),
+            tail: TailTabState::new(),
             modal: None,
             status_flash: None,
             palette: None,
@@ -437,6 +554,9 @@ impl App {
                     buffer.pop();
                 }
             }
+            Action::TailCycleDepth => {
+                self.tail.depth = self.tail.depth.next();
+            }
             Action::None => {}
             // Handled inline in the dispatcher because they need a `&Store`.
             Action::MoveDown
@@ -461,7 +581,8 @@ impl App {
             | Action::OpenPalette
             | Action::PaletteChar(_)
             | Action::PaletteBackspace
-            | Action::PaletteSubmit => {}
+            | Action::PaletteSubmit
+            | Action::Tick => {}
         }
     }
 }
@@ -484,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn next_tab_cycles_memories_candidates_traces_memories() {
+    fn next_tab_cycles_memories_candidates_traces_tail_memories() {
         let mut a = app();
         assert_eq!(a.tab, Tab::Memories);
         a.handle(Action::NextTab);
@@ -492,14 +613,16 @@ mod tests {
         a.handle(Action::NextTab);
         assert_eq!(a.tab, Tab::Traces);
         a.handle(Action::NextTab);
+        assert_eq!(a.tab, Tab::Tail);
+        a.handle(Action::NextTab);
         assert_eq!(a.tab, Tab::Memories);
     }
 
     #[test]
-    fn prev_tab_wraps_from_memories_to_traces() {
+    fn prev_tab_wraps_from_memories_to_tail() {
         let mut a = app();
         a.handle(Action::PrevTab);
-        assert_eq!(a.tab, Tab::Traces);
+        assert_eq!(a.tab, Tab::Tail);
     }
 
     #[test]

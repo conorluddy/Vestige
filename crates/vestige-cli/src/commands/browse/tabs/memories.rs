@@ -23,14 +23,14 @@ use anyhow::Result;
 use vestige_config::traces_config_for;
 use vestige_core::{
     project_card, FetchedMemory, ListFilter, MemoryCard, MemoryStatus, MemoryType, ProjectId,
-    RepresentationDepth, SearchFilter, SearchMode,
+    RepresentationDepth, RepresentationRow, SearchFilter, SearchMode,
 };
 use vestige_embed::EmbeddingProvider;
 use vestige_engine::search::{search_hybrid, search_semantic};
 use vestige_engine::Caller;
 use vestige_store::Store;
 
-use crate::commands::browse::app::{App, DetailView};
+use crate::commands::browse::app::{App, DetailView, TailDepth};
 
 const TRACES_OF_LIMIT: u32 = 50;
 
@@ -313,7 +313,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
+pub(super) fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
     let kind = short_kind(card.r#type);
     let title = card.title.as_str();
     let mut style = Style::default();
@@ -331,7 +331,74 @@ fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
     ListItem::new(line)
 }
 
-fn short_kind(t: MemoryType) -> &'static str {
+/// Render a `MemoryCard` at the requested depth for the Tail tab.
+///
+/// Pass `representations` to enable `Summary` / `Compressed` text; the Tail
+/// tab supplies `Some(&fetched.representations)`, other callers pass `None`.
+/// Falls back through shallower depths until `one_liner` if the requested kind
+/// is absent.
+pub(super) fn row_for_card_at_depth(
+    card: &MemoryCard,
+    depth: TailDepth,
+    representations: Option<&[RepresentationRow]>,
+) -> ListItem<'static> {
+    let kind = short_kind(card.r#type);
+    let mut text_style = Style::default();
+    if card.status == MemoryStatus::Deleted {
+        text_style = text_style
+            .add_modifier(Modifier::CROSSED_OUT)
+            .add_modifier(Modifier::DIM);
+    }
+    let kind_style_value = kind_style(card.r#type, card.status);
+
+    // Resolve the body text for the requested depth, falling back to shallower
+    // depths and finally to the card's own one_liner. Clone to owned so the
+    // returned ListItem<'static> doesn't borrow from the card.
+    let body: String = representations
+        .and_then(|reps| {
+            let fallback_chain: &[RepresentationDepth] = match depth {
+                TailDepth::OneLiner => &[RepresentationDepth::OneLiner],
+                TailDepth::Summary => {
+                    &[RepresentationDepth::Summary, RepresentationDepth::OneLiner]
+                }
+                TailDepth::Compressed => &[
+                    RepresentationDepth::Compressed,
+                    RepresentationDepth::Summary,
+                    RepresentationDepth::OneLiner,
+                ],
+            };
+            fallback_chain.iter().find_map(|d| {
+                reps.iter()
+                    .find(|r| r.depth == *d)
+                    .map(|r| r.content.clone())
+            })
+        })
+        .unwrap_or_else(|| card.one_liner.clone());
+
+    // Multi-line for summary / compressed — split on newlines, prefix kind tag on line 1.
+    let lines: Vec<Line<'static>> = body
+        .split('\n')
+        .enumerate()
+        .map(|(index, part)| {
+            if index == 0 {
+                Line::from(vec![
+                    Span::styled(format!("{kind:<5}"), kind_style_value),
+                    Span::raw(" "),
+                    Span::styled(part.to_string(), text_style),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::raw("      "), // indent continuation lines under the body text
+                    Span::styled(part.to_string(), text_style),
+                ])
+            }
+        })
+        .collect();
+
+    ListItem::new(ratatui::text::Text::from(lines))
+}
+
+pub(super) fn short_kind(t: MemoryType) -> &'static str {
     match t {
         MemoryType::Decision => "dec",
         MemoryType::Note => "note",
@@ -342,7 +409,7 @@ fn short_kind(t: MemoryType) -> &'static str {
     }
 }
 
-fn kind_style(t: MemoryType, status: MemoryStatus) -> Style {
+pub(super) fn kind_style(t: MemoryType, status: MemoryStatus) -> Style {
     let base = match t {
         MemoryType::Decision => Style::default().fg(Color::Yellow),
         MemoryType::Note => Style::default().fg(Color::Gray),

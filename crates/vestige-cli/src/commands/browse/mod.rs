@@ -7,7 +7,7 @@
 //! trace replay with inline diff. No daemon, no schema changes, no MCP changes.
 
 use std::io::IsTerminal;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, ValueEnum};
@@ -42,6 +42,7 @@ pub enum TabArg {
     Memories,
     Candidates,
     Traces,
+    Tail,
 }
 
 impl From<TabArg> for Tab {
@@ -50,6 +51,7 @@ impl From<TabArg> for Tab {
             TabArg::Memories => Tab::Memories,
             TabArg::Candidates => Tab::Candidates,
             TabArg::Traces => Tab::Traces,
+            TabArg::Tail => Tab::Tail,
         }
     }
 }
@@ -139,6 +141,16 @@ fn run_loop(
             let action = input::map_event(&evt, app);
             apply_action(app, store, project_id, session_provider, embed_cfg, action)?;
         }
+        if app.tab == Tab::Tail && app.tail.is_due() {
+            apply_action(
+                app,
+                store,
+                project_id,
+                session_provider,
+                embed_cfg,
+                Action::Tick,
+            )?;
+        }
     }
     Ok(())
 }
@@ -168,7 +180,8 @@ fn apply_action(
         | Action::PrevTab
         | Action::ToggleHelp
         | Action::CloseOverlay
-        | Action::ConfirmNo => {
+        | Action::ConfirmNo
+        | Action::TailCycleDepth => {
             app.handle(action);
         }
         Action::MoveDown => move_active_tab(app, store, project_id, 1, false)?,
@@ -184,7 +197,7 @@ fn apply_action(
             Tab::Candidates => {
                 tabs::candidates::ensure_provenance(app, store, DetailView::Why)?;
             }
-            Tab::Traces => {}
+            Tab::Traces | Tab::Tail => {}
         },
         Action::ShowSources => match app.tab {
             Tab::Memories => {
@@ -193,7 +206,7 @@ fn apply_action(
             Tab::Candidates => {
                 tabs::candidates::ensure_provenance(app, store, DetailView::Sources)?;
             }
-            Tab::Traces => {}
+            Tab::Traces | Tab::Tail => {}
         },
         Action::ShowTracesOf => {
             if app.tab == Tab::Memories {
@@ -203,7 +216,7 @@ fn apply_action(
         Action::OpenFilter => match app.tab {
             Tab::Memories => app.memories.filter_focused = true,
             Tab::Candidates => app.candidates.filter_focused = true,
-            Tab::Traces => {}
+            Tab::Traces | Tab::Tail => {}
         },
         Action::FilterChar(c) => match app.tab {
             Tab::Memories => {
@@ -215,7 +228,7 @@ fn apply_action(
                 app.candidates.filter_text.push(c);
                 tabs::candidates::reload_list(app, store, project_id)?;
             }
-            Tab::Traces => {}
+            Tab::Traces | Tab::Tail => {}
         },
         Action::FilterBackspace => match app.tab {
             Tab::Memories => {
@@ -238,7 +251,7 @@ fn apply_action(
                     app.candidates.filter_focused = false;
                 }
             }
-            Tab::Traces => {}
+            Tab::Traces | Tab::Tail => {}
         },
         Action::RequestForget => {
             if app.tab == Tab::Memories {
@@ -301,6 +314,9 @@ fn apply_action(
         }
         Action::PaletteSubmit => {
             execute_palette(app, store, project_id, session_provider, embed_cfg)?;
+        }
+        Action::Tick => {
+            apply_tail_tick(app, store, project_id)?;
         }
         Action::RequestReplay => {
             if app.tab == Tab::Traces {
@@ -555,6 +571,8 @@ fn execute_palette(
         "caller" => execute_caller(app, store, project_id, &rest),
         "search" => execute_search_cmd(app, store, project_id, session_provider.as_deref(), &rest),
         "mode" => execute_mode(app, store, project_id, session_provider, embed_cfg, &rest),
+        "interval" => execute_interval(app, &rest),
+        "tail" => execute_tail_cap(app, store, project_id, &rest),
         other => Err(format!("unknown command: {other}")),
     };
     match result {
@@ -774,8 +792,41 @@ fn execute_search_cmd(
             tabs::candidates::reload_list(app, store, project_id).map_err(|e| e.to_string())?;
         }
         Tab::Traces => return Err(":search not supported on Traces yet".into()),
+        Tab::Tail => return Err(":search not supported on Tail tab".into()),
     }
     Ok(Some(format!("search: {text}")))
+}
+
+fn execute_interval(app: &mut App, arg: &str) -> std::result::Result<Option<String>, String> {
+    let n: u64 = arg
+        .trim()
+        .parse()
+        .map_err(|_| format!(":interval requires a number in [5, 3600]; got {arg}"))?;
+    if !(5..=3600).contains(&n) {
+        return Err(format!(":interval must be in [5, 3600]; got {n}"));
+    }
+    app.tail.interval = Duration::from_secs(n);
+    Ok(Some(format!("tail interval set to {n}s")))
+}
+
+fn execute_tail_cap(
+    app: &mut App,
+    store: &Store,
+    project_id: &ProjectId,
+    arg: &str,
+) -> std::result::Result<Option<String>, String> {
+    let n: usize = arg
+        .trim()
+        .parse()
+        .map_err(|_| format!(":tail requires a positive number; got {arg}"))?;
+    if n == 0 {
+        return Err(":tail cap must be > 0".into());
+    }
+    app.tail.cap = n;
+    // Force immediate reload by clearing last_poll.
+    app.tail.last_poll = None;
+    apply_tail_tick(app, store, project_id).map_err(|e| e.to_string())?;
+    Ok(Some(format!("tail cap set to {n}")))
 }
 
 fn past_tense(modal: &app::Modal) -> &'static str {
@@ -867,7 +918,63 @@ fn move_active_tab(
                 m
             }
         }
+        Tab::Tail => {
+            let m = if absolute {
+                let target = if delta == i64::MAX {
+                    app.tail.items.len().saturating_sub(1)
+                } else {
+                    delta.max(0) as usize
+                };
+                app.tail.move_to(target)
+            } else {
+                app.tail.move_cursor(delta)
+            };
+            if m {
+                app.tail.auto_scroll = app.tail.selected == 0;
+            }
+            m
+        }
     };
     let _ = moved;
+    Ok(())
+}
+
+/// Reload the Tail tab from the store, diff by id to preserve cursor position
+/// when `auto_scroll` is false.
+fn apply_tail_tick(app: &mut App, store: &Store, project_id: &ProjectId) -> Result<()> {
+    match tabs::tail::reload(store, project_id, app.tail.cap) {
+        Err(e) => {
+            app.tail.load_error = Some(format!("tail reload failed: {e}"));
+        }
+        Ok(new_items) => {
+            app.tail.load_error = None;
+            app.tail.last_poll = Some(Instant::now());
+            if app.tail.auto_scroll {
+                app.tail.items = new_items;
+                app.tail.selected = 0;
+            } else {
+                // Preserve the currently selected row's id, shifting the index
+                // to account for any new rows that were prepended.
+                let selected_id = app
+                    .tail
+                    .items
+                    .get(app.tail.selected)
+                    .map(|r| r.id().to_string());
+                app.tail.items = new_items;
+                if let Some(id) = selected_id {
+                    let new_pos = app.tail.items.iter().position(|r| r.id() == id);
+                    app.tail.selected = new_pos.unwrap_or_else(|| {
+                        app.tail
+                            .items
+                            .len()
+                            .saturating_sub(1)
+                            .min(app.tail.selected)
+                    });
+                } else {
+                    app.tail.selected = 0;
+                }
+            }
+        }
+    }
     Ok(())
 }
