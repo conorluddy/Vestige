@@ -14,7 +14,7 @@ use ratatui::{
 use time::OffsetDateTime;
 
 use anyhow::Result;
-use vestige_core::{project_card, Candidate, MemoryCard, ProjectId};
+use vestige_core::{project_card, Candidate, FetchedMemory, ProjectId};
 use vestige_store::{CandidateFilter, Store};
 
 use crate::commands::browse::app::{TailDepth, TailTabState};
@@ -24,10 +24,11 @@ use crate::commands::browse::app::{TailDepth, TailTabState};
 /// A single row in the merged tail stream — either a promoted memory or a
 /// pending candidate. The variant determines which row renderer is used.
 ///
-/// `Candidate` is boxed because it is significantly larger than `MemoryCard`.
+/// Both variants are boxed because they are large; `FetchedMemory` carries
+/// representations needed for depth-aware rendering.
 #[derive(Debug, Clone)]
 pub enum TailRow {
-    Memory(MemoryCard),
+    Memory(Box<FetchedMemory>),
     Candidate(Box<Candidate>),
 }
 
@@ -35,7 +36,7 @@ impl TailRow {
     /// `created_at` as an `OffsetDateTime` for merge ordering.
     pub fn created_at(&self) -> OffsetDateTime {
         match self {
-            TailRow::Memory(m) => m.created_at,
+            TailRow::Memory(f) => f.memory.created_at,
             TailRow::Candidate(c) => c.created_at,
         }
     }
@@ -43,7 +44,7 @@ impl TailRow {
     /// The row's string id — `mem_…` or `cand_…`.
     pub fn id(&self) -> &str {
         match self {
-            TailRow::Memory(m) => m.id.as_str(),
+            TailRow::Memory(f) => f.memory.id.as_str(),
             TailRow::Candidate(c) => c.id.as_str(),
         }
     }
@@ -53,10 +54,10 @@ impl TailRow {
 
 /// Merge two slices into a single DESC-ordered `Vec<TailRow>`, truncated to
 /// `cap`. Ties broken by id string DESC for stable, deterministic ordering.
-pub fn merge(memories: Vec<MemoryCard>, candidates: Vec<Candidate>, cap: usize) -> Vec<TailRow> {
+pub fn merge(memories: Vec<FetchedMemory>, candidates: Vec<Candidate>, cap: usize) -> Vec<TailRow> {
     let mut rows: Vec<TailRow> = memories
         .into_iter()
-        .map(TailRow::Memory)
+        .map(|f| TailRow::Memory(Box::new(f)))
         .chain(
             candidates
                 .into_iter()
@@ -76,8 +77,7 @@ pub fn merge(memories: Vec<MemoryCard>, candidates: Vec<Candidate>, cap: usize) 
 
 /// Query the store for recent memories and pending candidates, then merge them.
 pub fn reload(store: &Store, project: &ProjectId, cap: usize) -> Result<Vec<TailRow>> {
-    let fetched = store.recent_memories_by_created_at(project, cap as u32)?;
-    let memories: Vec<MemoryCard> = fetched.iter().map(project_card).collect();
+    let memories = store.recent_memories_by_created_at(project, cap as u32)?;
     let candidates = store.list_candidates(
         project,
         &CandidateFilter {
@@ -129,7 +129,10 @@ pub fn render(frame: &mut Frame, area: Rect, state: &TailTabState) {
 
 fn row_for_tail_row(row: &TailRow, depth: TailDepth) -> ListItem<'_> {
     match row {
-        TailRow::Memory(card) => super::memories::row_for_card_at_depth(card, depth),
+        TailRow::Memory(fetched) => {
+            let card = project_card(fetched);
+            super::memories::row_for_card_at_depth(&card, depth, Some(&fetched.representations))
+        }
         TailRow::Candidate(candidate) => {
             let kind = super::candidates::short_kind(candidate.proposed_type);
             let kind_style = super::candidates::kind_style(candidate.proposed_type);
@@ -163,21 +166,31 @@ fn confidence_style(confidence: f32) -> Style {
 mod tests {
     use super::*;
     use vestige_core::{
-        CandidateId, CandidateStatus, MemoryId, MemoryStatus, MemoryType, ProjectId,
-        RepresentationDepth,
+        CandidateId, CandidateStatus, Memory, MemoryId, MemoryStatus, MemoryType, ProjectId,
+        RepresentationDepth, RepresentationRow,
     };
 
-    fn make_memory(created_at: OffsetDateTime) -> MemoryCard {
-        MemoryCard {
-            id: MemoryId::new(),
-            r#type: MemoryType::Note,
-            status: MemoryStatus::Active,
-            title: "test memory".into(),
-            one_liner: "test memory one-liner".into(),
-            importance: 0.5,
-            created_at,
-            updated_at: created_at,
-            available_depths: vec![RepresentationDepth::OneLiner],
+    fn make_memory(created_at: OffsetDateTime) -> FetchedMemory {
+        let id = MemoryId::new();
+        FetchedMemory {
+            memory: Memory {
+                id: id.clone(),
+                project_id: ProjectId::from_slug("test"),
+                r#type: MemoryType::Note,
+                status: MemoryStatus::Active,
+                confidence: 1.0,
+                importance: 0.5,
+                created_at,
+                updated_at: created_at,
+                deleted_at: None,
+            },
+            representations: vec![RepresentationRow {
+                memory_id: id,
+                depth: RepresentationDepth::OneLiner,
+                content: "test memory one-liner".into(),
+                content_hash: "abc".into(),
+            }],
+            sources: vec![],
         }
     }
 
@@ -236,8 +249,8 @@ mod tests {
         let mut m1 = make_memory(now);
         let mut m2 = make_memory(now);
         // Force known ids so the tie-break is deterministic.
-        m1.id = "mem_01JVZZZZZZZZZZZZZZZZZZZZZZ".parse().unwrap();
-        m2.id = "mem_01JVAAAAAAAAAAAAAAAAAAAAA0".parse().unwrap();
+        m1.memory.id = "mem_01JVZZZZZZZZZZZZZZZZZZZZZZ".parse().unwrap();
+        m2.memory.id = "mem_01JVAAAAAAAAAAAAAAAAAAAAA0".parse().unwrap();
 
         let merged = merge(vec![m1, m2], vec![], 10);
         assert_eq!(merged.len(), 2);
@@ -255,16 +268,23 @@ mod tests {
         let t = |secs: i64| now - time::Duration::seconds(secs);
 
         // 5 initial rows; cursor at index 3.
-        let initial: Vec<MemoryCard> = (0..5).map(|i| make_memory(t(i * 10))).collect();
-        let initial_rows: Vec<TailRow> = initial.iter().cloned().map(TailRow::Memory).collect();
+        let initial: Vec<FetchedMemory> = (0..5).map(|i| make_memory(t(i * 10))).collect();
+        let initial_rows: Vec<TailRow> = initial
+            .iter()
+            .cloned()
+            .map(|f| TailRow::Memory(Box::new(f)))
+            .collect();
         let selected_id = initial_rows[3].id().to_string();
 
         // 2 new rows prepend (newer timestamps), 5 original follow.
         let newer1 = make_memory(now + time::Duration::seconds(20));
         let newer2 = make_memory(now + time::Duration::seconds(10));
-        let mut reloaded: Vec<MemoryCard> = vec![newer1, newer2];
+        let mut reloaded: Vec<FetchedMemory> = vec![newer1, newer2];
         reloaded.extend(initial.clone());
-        let new_rows: Vec<TailRow> = reloaded.into_iter().map(TailRow::Memory).collect();
+        let new_rows: Vec<TailRow> = reloaded
+            .into_iter()
+            .map(|f| TailRow::Memory(Box::new(f)))
+            .collect();
 
         // auto_scroll=false: find the same id → new index should be 5.
         let new_selected = new_rows
@@ -283,6 +303,100 @@ mod tests {
         assert!(
             new_rows[0].created_at() >= new_rows[1].created_at(),
             "items[0] should be newest"
+        );
+    }
+
+    #[test]
+    fn depth_toggle_renders_correct_representation_text() {
+        use crate::commands::browse::app::{TailDepth, TailTabState};
+        use ratatui::{backend::TestBackend, Terminal};
+
+        let now = OffsetDateTime::now_utc();
+        let id = MemoryId::new();
+        let fetched = FetchedMemory {
+            memory: Memory {
+                id: id.clone(),
+                project_id: ProjectId::from_slug("test"),
+                r#type: MemoryType::Note,
+                status: MemoryStatus::Active,
+                confidence: 1.0,
+                importance: 0.5,
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+            },
+            representations: vec![
+                RepresentationRow {
+                    memory_id: id.clone(),
+                    depth: RepresentationDepth::OneLiner,
+                    content: "one-liner text".into(),
+                    content_hash: "h1".into(),
+                },
+                RepresentationRow {
+                    memory_id: id.clone(),
+                    depth: RepresentationDepth::Summary,
+                    content: "summary text longer than one-liner".into(),
+                    content_hash: "h2".into(),
+                },
+                RepresentationRow {
+                    memory_id: id.clone(),
+                    depth: RepresentationDepth::Compressed,
+                    content: "compressed text".into(),
+                    content_hash: "h3".into(),
+                },
+            ],
+            sources: vec![],
+        };
+
+        let render_at_depth = |depth: TailDepth| -> String {
+            let state = TailTabState {
+                items: vec![TailRow::Memory(Box::new(fetched.clone()))],
+                depth,
+                selected: 0,
+                ..TailTabState::default()
+            };
+            let backend = TestBackend::new(80, 5);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|f| {
+                    render(
+                        f,
+                        ratatui::layout::Rect {
+                            x: 0,
+                            y: 0,
+                            width: 80,
+                            height: 5,
+                        },
+                        &state,
+                    )
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let mut out = String::new();
+            for y in 0..buffer.area.height {
+                for x in 0..buffer.area.width {
+                    out.push_str(buffer[(x, y)].symbol());
+                }
+                out.push('\n');
+            }
+            out
+        };
+
+        let one_liner_out = render_at_depth(TailDepth::OneLiner);
+        let summary_out = render_at_depth(TailDepth::Summary);
+        let compressed_out = render_at_depth(TailDepth::Compressed);
+
+        assert!(
+            one_liner_out.contains("one-liner text"),
+            "one-liner depth: got {one_liner_out}"
+        );
+        assert!(
+            summary_out.contains("summary text"),
+            "summary depth: got {summary_out}"
+        );
+        assert!(
+            compressed_out.contains("compressed text"),
+            "compressed depth: got {compressed_out}"
         );
     }
 }
