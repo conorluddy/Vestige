@@ -62,9 +62,9 @@ fn returns_memories_in_created_at_desc_order() {
     let results = store.recent_memories_by_created_at(&project, 10).unwrap();
 
     assert_eq!(results.len(), 3);
-    assert_eq!(results[0].id, id_c, "newest must be first");
-    assert_eq!(results[1].id, id_b, "middle must be second");
-    assert_eq!(results[2].id, id_a, "oldest must be last");
+    assert_eq!(results[0].memory.id, id_c, "newest must be first");
+    assert_eq!(results[1].memory.id, id_b, "middle must be second");
+    assert_eq!(results[2].memory.id, id_a, "oldest must be last");
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn excludes_soft_deleted_memories() {
     let results = store.recent_memories_by_created_at(&project, 10).unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].id, id_active);
+    assert_eq!(results[0].memory.id, id_active);
 }
 
 #[test]
@@ -113,9 +113,9 @@ fn scopes_to_project() {
     let results_a = store.recent_memories_by_created_at(&project_a, 10).unwrap();
 
     assert_eq!(results_a.len(), 1, "only project A's memory must appear");
-    assert_eq!(results_a[0].id, id_a);
+    assert_eq!(results_a[0].memory.id, id_a);
     assert_eq!(
-        results_a[0].project_id, project_a,
+        results_a[0].memory.project_id, project_a,
         "returned memory must belong to project A"
     );
 
@@ -123,7 +123,7 @@ fn scopes_to_project() {
 
     assert_eq!(results_b.len(), 1, "only project B's memory must appear");
     assert_ne!(
-        results_b[0].id, id_a,
+        results_b[0].memory.id, id_a,
         "project A's memory must not leak into project B results"
     );
 }

@@ -14,7 +14,7 @@ use ratatui::{
 use time::OffsetDateTime;
 
 use anyhow::Result;
-use vestige_core::{Candidate, Memory, ProjectId};
+use vestige_core::{project_card, Candidate, MemoryCard, ProjectId};
 use vestige_store::{CandidateFilter, Store};
 
 use crate::commands::browse::app::TailTabState;
@@ -24,10 +24,10 @@ use crate::commands::browse::app::TailTabState;
 /// A single row in the merged tail stream — either a promoted memory or a
 /// pending candidate. The variant determines which row renderer is used.
 ///
-/// `Candidate` is boxed because it is significantly larger than `Memory`.
+/// `Candidate` is boxed because it is significantly larger than `MemoryCard`.
 #[derive(Debug, Clone)]
 pub enum TailRow {
-    Memory(Memory),
+    Memory(MemoryCard),
     Candidate(Box<Candidate>),
 }
 
@@ -53,7 +53,7 @@ impl TailRow {
 
 /// Merge two slices into a single DESC-ordered `Vec<TailRow>`, truncated to
 /// `cap`. Ties broken by id string DESC for stable, deterministic ordering.
-pub fn merge(memories: Vec<Memory>, candidates: Vec<Candidate>, cap: usize) -> Vec<TailRow> {
+pub fn merge(memories: Vec<MemoryCard>, candidates: Vec<Candidate>, cap: usize) -> Vec<TailRow> {
     let mut rows: Vec<TailRow> = memories
         .into_iter()
         .map(TailRow::Memory)
@@ -76,7 +76,8 @@ pub fn merge(memories: Vec<Memory>, candidates: Vec<Candidate>, cap: usize) -> V
 
 /// Query the store for recent memories and pending candidates, then merge them.
 pub fn reload(store: &Store, project: &ProjectId, cap: usize) -> Result<Vec<TailRow>> {
-    let memories = store.recent_memories_by_created_at(project, cap as u32)?;
+    let fetched = store.recent_memories_by_created_at(project, cap as u32)?;
+    let memories: Vec<MemoryCard> = fetched.iter().map(project_card).collect();
     let candidates = store.list_candidates(
         project,
         &CandidateFilter {
@@ -124,17 +125,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &TailTabState) {
 
 fn row_for_tail_row(row: &TailRow) -> ListItem<'_> {
     match row {
-        TailRow::Memory(memory) => {
-            let kind = super::memories::short_kind(memory.r#type);
-            let kind_style = super::memories::kind_style(memory.r#type, memory.status);
-            let line = Line::from(vec![
-                Span::styled(format!("{kind:<5}"), kind_style),
-                Span::raw(" "),
-                Span::styled("mem  ", Style::default().fg(Color::DarkGray)),
-                Span::raw(memory.id.as_str().to_string()),
-            ]);
-            ListItem::new(line)
-        }
+        TailRow::Memory(card) => super::memories::row_for_card(card),
         TailRow::Candidate(candidate) => {
             let kind = super::candidates::short_kind(candidate.proposed_type);
             let kind_style = super::candidates::kind_style(candidate.proposed_type);
@@ -169,19 +160,20 @@ mod tests {
     use super::*;
     use vestige_core::{
         CandidateId, CandidateStatus, MemoryId, MemoryStatus, MemoryType, ProjectId,
+        RepresentationDepth,
     };
 
-    fn make_memory(created_at: OffsetDateTime) -> Memory {
-        Memory {
+    fn make_memory(created_at: OffsetDateTime) -> MemoryCard {
+        MemoryCard {
             id: MemoryId::new(),
-            project_id: ProjectId::from_slug("test"),
             r#type: MemoryType::Note,
             status: MemoryStatus::Active,
-            confidence: 1.0,
+            title: "test memory".into(),
+            one_liner: "test memory one-liner".into(),
             importance: 0.5,
             created_at,
             updated_at: created_at,
-            deleted_at: None,
+            available_depths: vec![RepresentationDepth::OneLiner],
         }
     }
 
@@ -259,14 +251,14 @@ mod tests {
         let t = |secs: i64| now - time::Duration::seconds(secs);
 
         // 5 initial rows; cursor at index 3.
-        let initial: Vec<Memory> = (0..5).map(|i| make_memory(t(i * 10))).collect();
+        let initial: Vec<MemoryCard> = (0..5).map(|i| make_memory(t(i * 10))).collect();
         let initial_rows: Vec<TailRow> = initial.iter().cloned().map(TailRow::Memory).collect();
         let selected_id = initial_rows[3].id().to_string();
 
         // 2 new rows prepend (newer timestamps), 5 original follow.
         let newer1 = make_memory(now + time::Duration::seconds(20));
         let newer2 = make_memory(now + time::Duration::seconds(10));
-        let mut reloaded: Vec<Memory> = vec![newer1, newer2];
+        let mut reloaded: Vec<MemoryCard> = vec![newer1, newer2];
         reloaded.extend(initial.clone());
         let new_rows: Vec<TailRow> = reloaded.into_iter().map(TailRow::Memory).collect();
 

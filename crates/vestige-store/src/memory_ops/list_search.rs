@@ -69,14 +69,13 @@ impl Store {
 
     /// Active memories for a project, newest first, capped at `limit` rows.
     ///
-    /// Excludes soft-deleted memories. Does not load representations or sources —
-    /// callers that need full `MemoryCard` projections should follow up with
-    /// `get_memory` on demand.
+    /// Excludes soft-deleted memories. Loads representations and sources for
+    /// each memory via N+1 queries — appropriate for tab-sized list views.
     pub fn recent_memories_by_created_at(
         &self,
         project_id: &ProjectId,
         limit: u32,
-    ) -> Result<Vec<Memory>> {
+    ) -> Result<Vec<FetchedMemory>> {
         let mut stmt = self.connection().prepare(
             "SELECT id, project_id, type, status, confidence, importance,
                     created_at, updated_at, deleted_at
@@ -91,7 +90,18 @@ impl Store {
                 row_to_memory,
             )?
             .collect::<std::result::Result<_, _>>()?;
-        Ok(memories)
+
+        let mut out = Vec::with_capacity(memories.len());
+        for memory in memories {
+            let representations = self.fetch_representations(&memory.id)?;
+            let sources = self.fetch_sources(&memory.id)?;
+            out.push(FetchedMemory {
+                memory,
+                representations,
+                sources,
+            });
+        }
+        Ok(out)
     }
 
     /// FTS5-backed search over the project's active memories. Returns the
