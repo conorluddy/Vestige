@@ -60,6 +60,35 @@ pub struct Counts {
     pub traces: i64,
 }
 
+/// Display depth for Memory rows in the Tail tab.
+///
+/// Cycles `d` → `OneLiner → Summary → Compressed → OneLiner …`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TailDepth {
+    #[default]
+    OneLiner,
+    Summary,
+    Compressed,
+}
+
+impl TailDepth {
+    pub fn next(self) -> Self {
+        match self {
+            TailDepth::OneLiner => TailDepth::Summary,
+            TailDepth::Summary => TailDepth::Compressed,
+            TailDepth::Compressed => TailDepth::OneLiner,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TailDepth::OneLiner => "oneliner",
+            TailDepth::Summary => "summary",
+            TailDepth::Compressed => "compressed",
+        }
+    }
+}
+
 /// Action produced by the event mapper. Consumed by [`App::handle`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -108,6 +137,8 @@ pub enum Action {
     PaletteSubmit,
     // Tail tab time-driven reload.
     Tick,
+    // Tail tab depth cycle.
+    TailCycleDepth,
     None,
 }
 
@@ -313,6 +344,8 @@ pub struct TailTabState {
     /// Maximum merged rows to retain. Default: 200.
     pub cap: usize,
     pub load_error: Option<String>,
+    /// Display depth for Memory rows. Cycled with `d`. Default: `OneLiner`.
+    pub depth: TailDepth,
 }
 
 impl TailTabState {
@@ -326,6 +359,7 @@ impl TailTabState {
             interval: Duration::from_secs(60),
             cap: 200,
             load_error: None,
+            depth: TailDepth::OneLiner,
         }
     }
 
@@ -519,6 +553,9 @@ impl App {
                 if let Some(Modal::PromptRejectReason { buffer, .. }) = &mut self.modal {
                     buffer.pop();
                 }
+            }
+            Action::TailCycleDepth => {
+                self.tail.depth = self.tail.depth.next();
             }
             Action::None => {}
             // Handled inline in the dispatcher because they need a `&Store`.

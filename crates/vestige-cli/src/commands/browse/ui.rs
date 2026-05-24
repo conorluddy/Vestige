@@ -149,6 +149,7 @@ fn tail_status_hint(app: &App) -> String {
     if !app.tail.auto_scroll {
         hint.push_str(" · paused");
     }
+    hint.push_str(&format!(" · depth:{}", app.tail.depth.label()));
     if let Some(err) = &app.tail.load_error {
         let short = err.chars().take(40).collect::<String>();
         hint.push_str(&format!(" · err: {short}"));
@@ -177,6 +178,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("  a                 approve candidate (with confirm)"),
         Line::from("  R                 reject candidate (with reason prompt)"),
         Line::from("  p                 replay trace — diff against current store"),
+        Line::from("  d                 cycle Tail depth (oneliner / summary / compressed)"),
         Line::from("  Esc               close overlay / clear filter / back"),
         Line::from("  ?                 toggle this help"),
         Line::from("  q / Ctrl-c        quit"),

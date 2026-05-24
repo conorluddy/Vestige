@@ -180,7 +180,8 @@ fn apply_action(
         | Action::PrevTab
         | Action::ToggleHelp
         | Action::CloseOverlay
-        | Action::ConfirmNo => {
+        | Action::ConfirmNo
+        | Action::TailCycleDepth => {
             app.handle(action);
         }
         Action::MoveDown => move_active_tab(app, store, project_id, 1, false)?,

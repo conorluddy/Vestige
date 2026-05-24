@@ -123,6 +123,7 @@ fn map_tail_key(key: &KeyEvent) -> Action {
         KeyCode::Char('k') | KeyCode::Up => Action::MoveUp,
         KeyCode::Char('g') => Action::MoveTop,
         KeyCode::Char('G') => Action::MoveBottom,
+        KeyCode::Char('d') => Action::TailCycleDepth,
         // Mutation keys are inert on Tail (read-only tab).
         KeyCode::Char('f') | KeyCode::Char('r') | KeyCode::Char('a') | KeyCode::Char('R') => {
             Action::None
@@ -529,6 +530,15 @@ mod tests {
         assert_eq!(
             map_event(&press(KeyCode::Char(':'), KeyModifiers::NONE), &a),
             Action::OpenPalette
+        );
+    }
+
+    #[test]
+    fn tail_d_cycles_depth() {
+        let a = tail_app();
+        assert_eq!(
+            map_event(&press(KeyCode::Char('d'), KeyModifiers::NONE), &a),
+            Action::TailCycleDepth
         );
     }
 

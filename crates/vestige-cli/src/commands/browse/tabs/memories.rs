@@ -30,7 +30,7 @@ use vestige_engine::search::{search_hybrid, search_semantic};
 use vestige_engine::Caller;
 use vestige_store::Store;
 
-use crate::commands::browse::app::{App, DetailView};
+use crate::commands::browse::app::{App, DetailView, TailDepth};
 
 const TRACES_OF_LIMIT: u32 = 50;
 
@@ -327,6 +327,29 @@ pub(super) fn row_for_card(card: &MemoryCard) -> ListItem<'_> {
         Span::styled(format!("{kind:<5}"), kind_style),
         Span::raw(" "),
         Span::styled(title.to_string(), style),
+    ]);
+    ListItem::new(line)
+}
+
+/// Render a `MemoryCard` at the requested depth for the Tail tab.
+///
+/// `MemoryCard` carries only `one_liner`; `Summary` and `Compressed` fall back
+/// to it because the full representation text lives in `FetchedMemory`, which
+/// the Tail tab does not load. The depth label in the status bar still
+/// communicates the active setting.
+pub(super) fn row_for_card_at_depth(card: &MemoryCard, _depth: TailDepth) -> ListItem<'_> {
+    let kind = short_kind(card.r#type);
+    let mut text_style = Style::default();
+    if card.status == MemoryStatus::Deleted {
+        text_style = text_style
+            .add_modifier(Modifier::CROSSED_OUT)
+            .add_modifier(Modifier::DIM);
+    }
+    let kind_style = kind_style(card.r#type, card.status);
+    let line = Line::from(vec![
+        Span::styled(format!("{kind:<5}"), kind_style),
+        Span::raw(" "),
+        Span::styled(card.one_liner.clone(), text_style),
     ]);
     ListItem::new(line)
 }

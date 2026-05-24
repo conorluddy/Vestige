@@ -17,7 +17,7 @@ use anyhow::Result;
 use vestige_core::{project_card, Candidate, MemoryCard, ProjectId};
 use vestige_store::{CandidateFilter, Store};
 
-use crate::commands::browse::app::TailTabState;
+use crate::commands::browse::app::{TailDepth, TailTabState};
 
 // === TYPES ===
 
@@ -108,7 +108,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &TailTabState) {
         return;
     }
 
-    let items: Vec<ListItem> = state.items.iter().map(row_for_tail_row).collect();
+    let items: Vec<ListItem> = state
+        .items
+        .iter()
+        .map(|r| row_for_tail_row(r, state.depth))
+        .collect();
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!("Tail ({})", state.items.len()));
@@ -123,9 +127,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &TailTabState) {
 
 // === PRIVATE ===
 
-fn row_for_tail_row(row: &TailRow) -> ListItem<'_> {
+fn row_for_tail_row(row: &TailRow, depth: TailDepth) -> ListItem<'_> {
     match row {
-        TailRow::Memory(card) => super::memories::row_for_card(card),
+        TailRow::Memory(card) => super::memories::row_for_card_at_depth(card, depth),
         TailRow::Candidate(candidate) => {
             let kind = super::candidates::short_kind(candidate.proposed_type);
             let kind_style = super::candidates::kind_style(candidate.proposed_type);
