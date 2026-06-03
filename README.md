@@ -363,7 +363,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 (Daemon Runtime) shipped on `feat/v0.5-daemon` (PR #87). V0.6 is the next milestone — likely MCP-talks-to-daemon RPC + Linux systemd `--user` service. See `docs/prd/vestige_v_0_5_daemon_prd.md` §19 for the V0.6 backlog. Full roadmap in `vestige_prd.md` §20.
+V0.5 (Daemon Runtime, PRs #87/#89) and V0.5.1 (macOS menu-bar app, PR #90) have shipped. Next up: **V0.5.2** menu-bar controls (issue #88), then **V0.6 Directives** (pluggable prompt blocks injected into auto-memorise), then **V0.7 REM consolidation**. The canonical, current roadmap ordering lives in `docs/src/data.js` (the landing-page timeline); `vestige_prd.md` §20 holds the original, since-reordered version sections. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) are unscheduled backlog in `docs/prd/vestige_v_0_5_daemon_prd.md` §19.
 
 ## Contributing
 

@@ -15,7 +15,7 @@ V0.1–V0.4 deferred any work that "needs to happen between commands." That defe
 1. Semantic search is only as fresh as the last `vestige embed --all` run. Agents know this and work around it; developers forget and get stale recall.
 2. Trace eviction and candidate TTL are applied inline, adding latency to unrelated commands.
 
-PRD §8 ("Storage layout") names background indexing, lifecycle scheduling, and concurrency control as canonical daemon duties. V0.5 addresses the first two; the third (concurrency control via daemon-as-single-writer) is deferred to V0.6 pending evidence that WAL contention is actually a problem in practice.
+PRD §8 ("Storage layout") names background indexing, lifecycle scheduling, and concurrency control as canonical daemon duties. V0.5 addresses the first two; the third (concurrency control via daemon-as-single-writer) is deferred to a later milestone pending evidence that WAL contention is actually a problem in practice.
 
 The daemon is explicitly opt-in. Users who prefer the fully one-shot model lose nothing. Users who install the LaunchAgent gain fresh embeddings and bounded trace tables with zero ongoing effort.
 
@@ -38,10 +38,10 @@ V0.5 should enable Vestige to:
 
 V0.5 should not include:
 
-- **MCP-talks-to-daemon RPC.** Agents communicate with the MCP server over stdio as before; the daemon has no MCP surface. Deferred to V0.6.
+- **MCP-talks-to-daemon RPC.** Agents communicate with the MCP server over stdio as before; the daemon has no MCP surface. Unscheduled backlog (the roadmap was reordered so V0.6 is Directives — see `docs/src/data.js`).
 - **Cross-project federation.** Each worker holds exactly one project's `Store`. Project A cannot see project B's data. Deferred to V0.7 (cross-project query milestone).
-- **File-system watcher on `memory.sqlite`.** Timer-driven cadence is sufficient and avoids `notify`/debounce complexity. Revisit in V0.6 if lag is reported.
-- **Linux/Windows.** macOS only; `vestige daemon install` emits a clear error on other platforms. Linux systemd user-service in V0.6; Windows in V0.8+.
+- **File-system watcher on `memory.sqlite`.** Timer-driven cadence is sufficient and avoids `notify`/debounce complexity. Revisit later if lag is reported.
+- **Linux/Windows.** macOS only; `vestige daemon install` emits a clear error on other platforms. Linux systemd user-service and Windows support are unscheduled backlog.
 - **REM consolidation jobs.** Memory rewriting, clustering, and the REM (Review · Evaluate · Merge) consolidation pass shifted to V0.7 after the PRD was reordered. Earlier drafts called this "Dream-Lite".
 - **iOS.** No Unix sockets accessible across iOS apps; no LaunchAgents equivalent; no on-device way to run a persistent Rust process against `~/.vestige/`. An iOS surface requires a server-hosted Vestige — V0.8+ and a different product shape.
 - **Real embedding provider selection in the daemon.** ~~The daemon defaults to `FakeEmbeddingProvider` in V0.5. Wiring the configured `[embeddings]` provider into the daemon (so workers use the same model as the CLI) lands in V0.6.~~ Delivered in Wave 8 — each worker reads its project's `[embeddings]` config and builds a provider via `vestige_embed::build_provider`, with `FakeEmbeddingProvider` as fallback.
@@ -244,7 +244,7 @@ Params:
 - `project_id` (optional): restrict to one project. Must parse as a valid `ProjectId` (`proj_` prefix). If present and not in the registry, returns error code `-32000` with `code: "PROJECT_NOT_REGISTERED"`.
 
 Result:
-- `queued`: always `true` in V0.5 (field reserved for async-queue semantics in V0.6).
+- `queued`: always `true` in V0.5 (field reserved for async-queue semantics in a later version).
 - `queued_at`: RFC3339 timestamp when the kick was processed.
 - `projects_queued`: number of projects that ran (or attempted) the job.
 
@@ -503,11 +503,11 @@ V0.5 is complete when:
 
 ## 19. Open Questions / Future Work
 
-1. **MCP-talks-to-daemon protocol design (V0.6).** PRD §20 named this but the design was deferred pending V0.5 operational experience. The most likely shape: a new `vestige_daemon_status` MCP tool that reads the status file, and a `vestige_kick` tool that calls `daemon.kick` over the socket.
+1. **MCP-talks-to-daemon protocol design (unscheduled backlog).** PRD §20 named this but the design was deferred pending V0.5 operational experience, and the roadmap reorder put V0.6 on Directives rather than daemon integration. The most likely shape: a new `vestige_daemon_status` MCP tool that reads the status file, and a `vestige_kick` tool that calls `daemon.kick` over the socket.
 
-2. **Linux systemd user service (V0.6).** `vestige daemon install` exits with a clear error on Linux. The systemd unit file can reuse the same plist rendering pattern (`include_str!` template), with a different renderer in `plist.rs`. The `--user` flag in the plan reserves this path.
+2. **Linux systemd user service (unscheduled backlog).** `vestige daemon install` exits with a clear error on Linux. The systemd unit file can reuse the same plist rendering pattern (`include_str!` template), with a different renderer in `plist.rs`. The `--user` flag in the plan reserves this path.
 
-3. **macOS menu-bar Swift app (`Vestige.app`).** Phase 2 stretch goal for V0.5.x. Reads `daemon.status.json` via `DispatchSource.makeFileSystemObjectSource`; sends mutations to `daemon.sock` via `Network.framework`. Estimated ~300 lines for the MVP. Lives in `app/Vestige-Mac/` (separate SwiftUI project, not built by Cargo). Deferred until the daemon core is stable.
+3. **macOS menu-bar Swift app (`Vestige.app`)** — **delivered in V0.5.1 (PR #90).** Read-only MVP: reads `daemon.status.json` via `DispatchSource.makeFileSystemObjectSource` and renders a `MenuBarExtra` with per-project rows. Lives in the separate SwiftUI project (not built by Cargo). Interactive controls — sending mutations to `daemon.sock` via `Network.framework` — are scoped to V0.5.2 (see `docs/src/data.js`).
 
 4. ~~Real provider selection in the daemon~~ — **closed in Wave 8** (per-project provider via `vestige_embed::build_provider` reading each project's `[embeddings]` config; `FakeEmbeddingProvider` fallback when config is absent or provider unavailable).
 
