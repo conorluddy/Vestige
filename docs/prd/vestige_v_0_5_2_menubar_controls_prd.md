@@ -9,9 +9,12 @@ requires a `vestige daemon …` CLI invocation.
 
 V0.5.2 makes the menu-bar app a **control surface**. It adds one new daemon IPC method
 (`daemon.pause`, with a `daemon.resume` companion), wires the existing `daemon.kick` /
-`daemon.reload_config` methods into menu actions, and promotes the transient menu popover
-to a **persistent project workspace window**. It is the second and final phase of issue
-**#88** (VestigeUI) — the mutations explicitly deferred from the V0.5.1 read-only MVP.
+`daemon.reload_config` methods into menu actions, promotes the transient menu popover
+to a **persistent project workspace window**, and makes the app **easy to boot** — a
+`vestige ui` launcher, a self-registering Login Item, and an opt-in boot prompt on
+`vestige init` so it stops being a stranded `.app` you hunt for in Finder. It is the
+second and final phase of issue **#88** (VestigeUI) — the mutations explicitly deferred
+from the V0.5.1 read-only MVP.
 
 ## 2. Product Thesis
 
@@ -35,6 +38,11 @@ and one additive status field. The daemon stays the source of truth; the app sta
    `Daemon: enabled/disabled` toggle that shells out to `daemon install` / `uninstall`.
 5. **Persistent project workspace window** — a real window (not just the `MenuBarExtra`
    popover) that keeps per-project detail open while you work.
+6. **Easy boot + autostart** — a `vestige ui` command to open the app on demand, a
+   self-registering Login Item (`SMAppService`, macOS 13+) so it boots at every login,
+   and an **opt-in prompt** on `vestige init` / `vestige daemon install` (interactive
+   macOS only — silently skipped in agent / CI / non-TTY runs) to launch it and enable
+   start-at-login. "Boot once, always there" for humans; invisible to agents.
 
 ## 4. Non-Goals
 
@@ -45,6 +53,10 @@ and one additive status field. The daemon stays the source of truth; the app sta
   immutable-migration rules are untouched.
 - **Pause does not persist across daemon restarts** (V0.5.2). Pause state is in-memory;
   a launchd `KeepAlive` restart clears it. Persisting pause is an open question (§14).
+- **No auto-launch in headless / agent / CI contexts.** The init-time boot prompt is gated
+  on an interactive macOS TTY and suppressed by `CI` / `VESTIGE_NONINTERACTIVE` / `--no-ui` /
+  any non-TTY. `vestige init` run by a coding agent never spawns a GUI or registers a Login
+  Item. Autostart is a human convenience, never a side effect of project setup.
 - **No Linux/Windows GUI.** macOS-only by design; the IPC + CLI half works anywhere the
   daemon runs, but the app is `MenuBarExtra` SwiftUI.
 - **No App Store / notarized auto-update pipeline.** Continue the V0.5.1 distribution model
@@ -103,6 +115,18 @@ A `Open Vestige Window` menu item (and ⌘-shortcut) opens a standard window lis
 with their detail rows, kept open independent of the popover. Closing it returns to
 menu-bar-only operation; the daemon is unaffected.
 
+### 7.5 First-run boot — the "stop hunting for the .app" goal
+Today the app is a stranded bundle you open from Finder. V0.5.2 makes boot effortless along
+three paths:
+- **On demand**: `vestige ui` launches it from the terminal.
+- **At setup**: after `vestige init` (or `vestige daemon install`) in an *interactive macOS
+  terminal*, Vestige asks once — `Launch the Vestige menu-bar app and start it at login?
+  [y/N]` (default **No**). On yes it opens the app and registers the Login Item, so from the
+  next login the app is always present. The prompt never fires in agent / CI / non-TTY runs.
+- **At every login**: once enabled, the Login Item (`SMAppService`) boots the app
+  automatically. The menu's `Start at login` toggle is the durable control and mirrors the
+  current registration status, so the user can flip it any time without re-running setup.
+
 ## 8. IPC Surface
 
 Adds two methods to the existing four (`daemon.status`, `daemon.kick`,
@@ -158,6 +182,31 @@ The Swift `Codable` mirror tolerates the new field and renders pause state when 
 Both are thin adapters in `crates/vestige-cli/src/commands/daemon/` — parse → socket RPC →
 format. No business logic in the CLI (matches the `kick` controller pattern).
 
+### 10.3 `vestige ui`
+macOS-only launcher for the menu-bar app.
+- Resolves the bundle in order: `open -a Vestige` (LaunchServices by name) → `~/Applications/
+  Vestige.app` → `/Applications/Vestige.app`. On success the app appears in the menu bar.
+- `--login`: also request start-at-login (launches the app with `--args --enable-login-item`,
+  which the app handles in §11 to register its `SMAppService` Login Item).
+- Bundle not found → actionable error pointing at `app/Vestige-Mac/scripts/build-app.sh` /
+  the release artifact. Non-macOS → clear unsupported-platform error (matches `daemon install`).
+- Thin adapter: resolve path → `Command::new("open")`. No app logic in the CLI.
+
+### 10.4 Boot prompt on `init` / `daemon install`
+After a successful `vestige init` or `vestige daemon install`, offer to boot the app — but
+only when **all** of:
+- `cfg!(target_os = "macos")`,
+- stdin **and** stdout are TTYs (`IsTerminal`),
+- `CI` is unset **and** `VESTIGE_NONINTERACTIVE` is unset,
+- `--no-ui` was not passed,
+- the app is not already a registered Login Item (don't nag).
+
+Prompt text: `Launch the Vestige menu-bar app and start it at login? [y/N]` (default **No** — a
+bare Enter does nothing). On accept: `open -a Vestige --args --enable-login-item`. `--yes`
+accepts non-interactively for scripted *human* setup; the prompt is otherwise fully
+suppressed in headless / agent contexts. This is the one place project setup touches the GUI,
+and it is strictly opt-in and guard-railed (see §4 Non-Goals).
+
 ## 11. App Requirements (Swift, `app/Vestige-Mac/`)
 
 1. **Socket client** — a minimal `Network.framework` Unix-domain client
@@ -169,7 +218,13 @@ format. No business logic in the CLI (matches the `kick` controller pattern).
    in the `@Observable` status model.
 4. **Persistent workspace window** — add a `Window`/`WindowGroup` scene alongside the
    existing `MenuBarExtra`; reuse `ProjectRow` for the list.
-5. **Accessibility** — `accessibilityIdentifier` on every actionable control (project
+5. **Login Item (`SMAppService.mainApp`)** — a `Start at login` menu toggle backed by
+   `register()` / `unregister()`, reflecting `.status`. macOS 13+. Registration is
+   idempotent.
+6. **Launch-argument handling** — parse `--enable-login-item` at startup (passed by
+   `vestige ui --login` and the init/daemon-install boot prompt) and register the Login Item
+   on first launch, then continue to the normal menu-bar UI.
+7. **Accessibility** — `accessibilityIdentifier` on every actionable control (project
    convention), light/dark review, keyboard shortcuts.
 
 ## 12. Architecture
@@ -184,8 +239,11 @@ format. No business logic in the CLI (matches the `kick` controller pattern).
     and writes `paused_until` into the snapshot.
   - `crates/vestige-daemon/src/ipc/status_file.rs` — the additive field.
   - `crates/vestige-cli/src/commands/daemon/` — `pause` + `resume` subcommands.
+  - `crates/vestige-cli/src/commands/ui.rs` — the `vestige ui` launcher; plus the guarded
+    boot-prompt helper invoked from the tail of `init` and `daemon install` (shared so the
+    TTY/CI/macOS gate lives in exactly one place).
 - **Swift (outside Cargo)**: `app/Vestige-Mac/Vestige/Vestige/` — socket client, action
-  wiring, window scene.
+  wiring, window scene, `SMAppService` Login Item + launch-arg handling.
 
 ### 12.2 Invariants carried forward
 - **No new write path.** Pause suppresses scheduling only; no memory mutation.
@@ -206,6 +264,10 @@ format. No business logic in the CLI (matches the `kick` controller pattern).
 6. Past/ malformed `until` → `INVALID_PARAMS`.
 7. CLI smoke: `daemon pause --for` and `--until` are mutually exclusive and one is required;
    `--json` output shape.
+8. Boot-prompt gate (pure-logic unit test): the "should prompt?" decision returns `false`
+   when not a TTY, when `CI` / `VESTIGE_NONINTERACTIVE` is set, when `--no-ui` is passed, or
+   on non-macOS — and `true` only when every condition holds. This is the agent-safety
+   invariant; it gets a dedicated test.
 
 ### Swift
 Light unit coverage on the JSON-RPC client encode/decode and the pause-state view mapping;
@@ -218,8 +280,14 @@ manual matrix (macOS 13/14/15, light/dark) for the icon transitions and window.
    to a small state file and reload it on boot. Deferred until there's evidence it matters.
 2. **Per-project pause.** V0.5.2 pause is daemon-global (all projects, all jobs). Pausing a
    single project or a single job class is plausible later but unscheduled.
-3. **Login Item autostart** (`SMAppService`) for the app itself — noted in #88; can ride
-   along here or in a follow-up.
+3. **Gatekeeper on autostart for unsigned builds.** `SMAppService` registration works for
+   the unsigned dev `.app`, but macOS may warn on the first autostart launch of an unsigned,
+   un-notarized bundle. Acceptable for V0.5.2's dev-distribution model; revisit when signing
+   + notarization land (v1.0). The boot prompt should not over-promise a seamless first login.
+4. **App-bundle discovery when never launched.** `open -a Vestige` relies on LaunchServices
+   having seen the bundle. The `~/Applications` / `/Applications` fallback covers the common
+   case; a freshly-built bundle in an arbitrary path may need one manual open first. A future
+   `vestige ui --register <path>` could seed LaunchServices, but is out of scope here.
 
 ## 15. Acceptance Criteria
 
@@ -232,6 +300,13 @@ manual matrix (macOS 13/14/15, light/dark) for the icon transitions and window.
 - `Vestige.app` performs kick, pause, resume, reload, and the daemon enable/disable toggle
   via the socket / shell-outs; quitting the app does not stop the daemon.
 - The persistent workspace window opens, lists projects, and is independent of the popover.
+- `vestige ui` launches the app on macOS, errors clearly on the missing-bundle and
+  non-macOS paths, and `--login` registers the Login Item.
+- The init / daemon-install boot prompt appears **only** in an interactive macOS TTY, is
+  suppressed by `CI` / `VESTIGE_NONINTERACTIVE` / `--no-ui` / any non-TTY (verified by the
+  §13.8 gate test), and on accept launches the app and registers the Login Item.
+- The `Start at login` menu toggle registers / unregisters via `SMAppService` and the app
+  re-appears after a logout/login cycle once enabled.
 - `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` green for the
   Rust changes; `docs/v0.5.md` (or a `docs/v0.5.2.md` walkthrough) documents the controls.
 
