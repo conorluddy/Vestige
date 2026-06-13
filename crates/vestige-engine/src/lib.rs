@@ -26,6 +26,7 @@ pub mod candidate;
 pub mod context;
 pub mod embed;
 pub mod error;
+pub mod ingest;
 pub mod provenance;
 pub mod replay;
 pub mod search;
@@ -57,3 +58,7 @@ pub use trace_read::{get_trace, list_traces, ListFilters, TraceCard, TraceDetail
 
 // Re-export replay surface so CLI and MCP don't need the module path.
 pub use replay::{replay_trace, ReplayDiff, ReplayResult, ReplayResultSet, ScoreChange};
+
+// Re-export ingest surface so downstream crates can drive session ingestion
+// without knowing the module path.
+pub use ingest::{ClaudeCodeSource, DiscoveredSession, IngestError, NormalizedTurn, SessionSource};
