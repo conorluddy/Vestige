@@ -10,6 +10,7 @@ pub mod context;
 pub mod error;
 pub mod ids;
 pub mod memory;
+pub mod redaction;
 pub mod representations;
 pub mod types;
 
@@ -60,3 +61,8 @@ pub use context::{
     build_pack, ContextOptions, ContextPack, ContextSections, ContextSources,
     APPROX_CHARS_PER_TOKEN,
 };
+
+// ========================================
+// === REDACTION ===
+// ========================================
+pub use redaction::redact_secrets;
