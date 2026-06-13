@@ -34,11 +34,13 @@ mod helpers;
 mod memory_ops;
 mod project;
 mod provenance;
+mod scan_ops;
 mod trace_ops;
 
 pub use candidate_ops::{CandidateFilter, CandidateHit};
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
 pub use provenance::{ProvenanceEvent, SourceReceiptRow};
+pub use scan_ops::ScanCursorRow;
 pub use trace_ops::{NewQueryEvent, QueryEventRow, TraceFilter};
 pub use vestige_core::MemoryCounts;
 
@@ -89,6 +91,7 @@ const MIGRATION_FTS: &str = include_str!("migrations/0002_fts.sql");
 const MIGRATION_EMBEDDINGS: &str = include_str!("migrations/0003_embeddings.sql");
 const MIGRATION_CANDIDATES: &str = include_str!("migrations/0004_candidates.sql");
 const MIGRATION_PROVENANCE: &str = include_str!("migrations/0005_provenance.sql");
+const MIGRATION_SCAN_CURSORS: &str = include_str!("migrations/0006_session_scan_cursors.sql");
 
 /// Build the ordered migration set from the embedded SQL files.
 ///
@@ -101,6 +104,7 @@ fn migrations() -> Migrations<'static> {
         M::up(MIGRATION_EMBEDDINGS),
         M::up(MIGRATION_CANDIDATES),
         M::up(MIGRATION_PROVENANCE),
+        M::up(MIGRATION_SCAN_CURSORS),
     ])
 }
 
