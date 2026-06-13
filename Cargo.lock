@@ -4342,6 +4342,7 @@ dependencies = [
 name = "vestige-engine"
 version = "0.4.2"
 dependencies = [
+ "directories",
  "rusqlite",
  "serde",
  "serde_json",
