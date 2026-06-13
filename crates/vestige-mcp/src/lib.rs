@@ -36,6 +36,7 @@ pub use tools::expand::ExpandParams;
 pub use tools::get_candidate::GetCandidateParams;
 pub use tools::list_candidates::ListCandidatesParams;
 pub use tools::propose_candidate::{ProposeCandidateParams, ProposeSource};
+pub use tools::scan_sessions::ScanSessionsParams;
 pub use tools::search::SearchParams;
 pub use tools::trace::TraceParams;
 

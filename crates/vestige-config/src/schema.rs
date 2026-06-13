@@ -324,6 +324,14 @@ pub struct McpConfig {
     /// not shipped in V0.2 but the gate exists for forward-compatibility.
     #[serde(default)]
     pub allow_candidate_rejection: bool,
+
+    /// Permit the `vestige_scan_sessions` MCP tool (session-log ingestion). Default: `false`.
+    ///
+    /// Off by default — passive transcript scanning is an explicit opt-in. The tool only
+    /// reads redacted turns and advances scan cursors; candidates still require the agent
+    /// to call `vestige_propose_candidate`.
+    #[serde(default)]
+    pub allow_scan_sessions: bool,
 }
 
 impl Default for McpConfig {
@@ -335,6 +343,7 @@ impl Default for McpConfig {
             allow_propose_candidate: true,
             allow_candidate_approval: false,
             allow_candidate_rejection: false,
+            allow_scan_sessions: false,
         }
     }
 }
