@@ -35,6 +35,7 @@ use crate::ids::{MemoryId, ProjectId};
 /// - `manual` — recorded with `vestige *.add` and no `--source` flag.
 /// - `trace` — forward-link to a `query_events` row (`trace_<ULID>`);
 ///   reserved for memories captured during a recall session.
+/// - `session_log` — a structured coding-agent session transcript (e.g. Claude Code .jsonl).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
@@ -54,6 +55,8 @@ pub enum SourceKind {
     Manual,
     /// Forward-link to a `query_events` row; reserved for trace-captured memories.
     Trace,
+    /// A structured coding-agent session transcript (e.g. Claude Code .jsonl).
+    SessionLog,
 }
 
 impl SourceKind {
@@ -68,6 +71,7 @@ impl SourceKind {
             Self::Candidate => "candidate",
             Self::Manual => "manual",
             Self::Trace => "trace",
+            Self::SessionLog => "session_log",
         }
     }
 
@@ -86,6 +90,7 @@ impl SourceKind {
             "candidate" => Ok(Self::Candidate),
             "manual" => Ok(Self::Manual),
             "trace" => Ok(Self::Trace),
+            "session_log" => Ok(Self::SessionLog),
             other => Err(CoreError::InvalidSourceKind(other.to_string())),
         }
     }
@@ -513,6 +518,7 @@ mod tests {
             ("candidate", SourceKind::Candidate),
             ("manual", SourceKind::Manual),
             ("trace", SourceKind::Trace),
+            ("session_log", SourceKind::SessionLog),
         ];
         for (s, expected) in variants {
             let parsed = SourceKind::parse(s).unwrap();
