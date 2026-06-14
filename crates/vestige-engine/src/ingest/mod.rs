@@ -14,6 +14,7 @@
 //! Wave 2 parallel issues (#101 / #102). This PR is Wave 1: the trait surface + adapter.
 
 pub mod claude_code;
+pub mod codex;
 pub mod source;
 
 use thiserror::Error;
@@ -55,4 +56,5 @@ pub enum IngestError {
 // === RE-EXPORTS ===
 
 pub use claude_code::ClaudeCodeSource;
+pub use codex::CodexSource;
 pub use source::{DiscoveredSession, NormalizedTurn, SessionSource};
