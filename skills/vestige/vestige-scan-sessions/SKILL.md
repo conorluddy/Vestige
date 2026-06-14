@@ -1,6 +1,6 @@
 ---
 name: vestige-scan-sessions
-description: 'Mine recent local coding-agent transcripts for memories worth keeping, using the `vestige_scan_sessions` MCP tool. Fire at session start (to catch up on what happened in prior sessions), when the user says "scan my sessions", "what did we work on recently?", "catch up from my transcripts", "ingest recent sessions", "mine my history", or when picking up a project after a pause. The tool hands you redacted, cursor-advanced turns from this project''s Claude Code transcripts; you extract decisions/notes/preferences/questions inline and file each via `vestige_propose_candidate`. Opt-in — requires `[mcp] allow_scan_sessions = true` in `.vestige/config.toml`. Candidates land in the assimilation inbox for human review, never as durable memories directly.'
+description: 'Mine recent local coding-agent transcripts for memories worth keeping, using the `vestige_scan_sessions` MCP tool. Fire at session start (to catch up on what happened in prior sessions), when the user says "scan my sessions", "what did we work on recently?", "catch up from my transcripts", "ingest recent sessions", "mine my history", or when picking up a project after a pause. The tool hands you redacted, cursor-advanced turns from this project''s Claude Code and Codex transcripts; you extract decisions/notes/preferences/questions inline and file each via `vestige_propose_candidate`. Opt-in — requires `[mcp] allow_scan_sessions = true` in `.vestige/config.toml`. Candidates land in the assimilation inbox for human review, never as durable memories directly.'
 ---
 
 # Scan local sessions for memory candidates
@@ -29,6 +29,8 @@ Call the MCP tool `vestige_scan_sessions`:
 
 The read **advances per-file cursors**, so a repeat call surfaces only turns you
 haven't seen. It is project-scoped — only this project's sessions are returned.
+Each turn carries a `source` (`claude_code` or `codex`) so you can tell where it
+came from.
 
 ## Response shape
 
