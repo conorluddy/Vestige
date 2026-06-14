@@ -20,7 +20,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 
 use vestige_core::redact_secrets;
-use vestige_engine::{ClaudeCodeSource, IngestError, SessionSource};
+use vestige_engine::{ClaudeCodeSource, CodexSource, IngestError, SessionSource};
 use vestige_store::Store;
 
 use crate::server::{err, ok_json, VestigeServer};
@@ -75,7 +75,7 @@ struct ScanTurnJson {
 impl VestigeServer {
     #[tool(
         description = "Return a batch of redacted, normalised turns from this project's local \
-                       coding-agent transcripts (Claude Code) for the calling agent to mine. \
+                       coding-agent transcripts (Claude Code and Codex) for the calling agent to mine. \
                        Extract decisions/notes/preferences/questions inline, then file each via \
                        vestige_propose_candidate with source.type = \"session_log\" and \
                        source.ref = the turn's source_ref. The read advances per-file cursors, so \
@@ -213,16 +213,21 @@ fn collect_batch(
     })
 }
 
-/// Build the configured session sources. Honours `VESTIGE_CLAUDE_ROOT` as a test
-/// seam so the harness can point the Claude Code adapter at a tempdir.
+/// Build the configured session sources: Claude Code and Codex transcripts.
 ///
-/// Codex is added here once #105 lands (integration step C).
+/// Honours `VESTIGE_CLAUDE_ROOT` / `VESTIGE_CODEX_ROOT` as test seams so the harness
+/// can point each adapter at a tempdir. Per-turn `source` / `source_ref` carry which
+/// adapter produced each turn, so callers don't need a single top-level source.
 fn build_sources() -> Result<Vec<Box<dyn SessionSource>>, IngestError> {
     let claude = match std::env::var_os("VESTIGE_CLAUDE_ROOT") {
         Some(root) => ClaudeCodeSource::with_root(PathBuf::from(root)),
         None => ClaudeCodeSource::new()?,
     };
-    Ok(vec![Box::new(claude)])
+    let codex = match std::env::var_os("VESTIGE_CODEX_ROOT") {
+        Some(root) => CodexSource::with_root(PathBuf::from(root)),
+        None => CodexSource::new()?,
+    };
+    Ok(vec![Box::new(claude), Box::new(codex)])
 }
 
 /// Record the scan cursor for a session if the watermark moved forward.
