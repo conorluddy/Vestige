@@ -61,4 +61,6 @@ pub use replay::{replay_trace, ReplayDiff, ReplayResult, ReplayResultSet, ScoreC
 
 // Re-export ingest surface so downstream crates can drive session ingestion
 // without knowing the module path.
-pub use ingest::{ClaudeCodeSource, DiscoveredSession, IngestError, NormalizedTurn, SessionSource};
+pub use ingest::{
+    ClaudeCodeSource, CodexSource, DiscoveredSession, IngestError, NormalizedTurn, SessionSource,
+};
