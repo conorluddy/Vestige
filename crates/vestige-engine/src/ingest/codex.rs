@@ -213,7 +213,12 @@ fn read_cwd_from_meta(file_path: &Path) -> Option<PathBuf> {
     let reader = BufReader::new(file);
 
     for line in reader.lines().take(16) {
-        let line = line.ok()?;
+        // Tolerate a bad line (I/O / non-UTF-8) — keep scanning for the meta record
+        // rather than dropping the whole session, matching `read_turns`.
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
         let line = line.trim();
         if line.is_empty() {
             continue;
