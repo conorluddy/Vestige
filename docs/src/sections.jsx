@@ -16,15 +16,40 @@ function Bar() {
         <span className="vt-brand-meta">{meta.tag}</span>
       </div>
       <nav className="vt-bar-r">
-        <a href="#fig01">fig.01</a>
-        <a href="#fig02">fig.02</a>
-        <a href="#fig03">fig.03</a>
-        <a href="#fig04">fig.04</a>
+        <a href="#loop">loop</a>
+        <a href="#fig02">recall</a>
+        <a href="#provenance">proof</a>
+        <a href="#browser">browser</a>
         <a href="#cli">cli</a>
         <a href="#roadmap">roadmap</a>
         <a className="vt-cta-gh" href={meta.repo}>github →</a>
       </nav>
     </header>
+  );
+}
+
+function ReleasePulse() {
+  const { releasePulse } = window.VESTIGE;
+  return (
+    <div className="vt-pulse">
+      <div className="vt-pulse-head">
+        <span>release pulse</span>
+        <span>repo-backed roadmap</span>
+      </div>
+      {releasePulse.map((item) => (
+        <div className="vt-pulse-row" key={item.v}>
+          <div>
+            <span className="vt-pulse-version">{item.v}</span>
+            <span className={`vt-dot is-${item.status}`}></span>
+          </div>
+          <div>
+            <strong>{item.label}</strong>
+            <p>{item.body}</p>
+          </div>
+          <span className={`vt-pulse-state is-${item.status}`}>{item.status}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -41,12 +66,12 @@ function Hero() {
         <div>
           <div className="vt-kicker">┌─ ABSTRACT ─────────────────────────</div>
           <h1>
-            Agents take notes,<br />
-            shape them in REM,<br />
-            <em>and recall them when it counts.</em>
+            Local memory<br />
+            for agents that need<br />
+            <em>receipts.</em>
           </h1>
           <p>
-            Vestige is a local-first, repo-pinned memory layer for coding agents — built around a SQLite canonical store, a six-layer disclosure protocol, and a minimal MCP surface. No daemon, no cloud, no global vector soup.
+            Vestige is a repo-pinned memory layer for coding agents: SQLite is the source of truth, recall climbs from one-line handles to provenance, and optional daemon/UI layers stay local, inspectable, and opt-in.
           </p>
           <div className="vt-install">
             <div className="vt-install-cmd"><span className="vt-prompt">$</span> cargo install vestige</div>
@@ -62,15 +87,17 @@ function Hero() {
             <Stat k="scope"   v="project" />
             <Stat k="runtime" v="cli + mcp" />
             <Stat k="store"   v="sqlite" />
-            <Stat k="index"   v="fts5 / sqlite-vec" />
-            <Stat k="daemon"  v="none" />
-            <Stat k="cloud"   v="none" />
+            <Stat k="search"  v="fts5 + vector" />
+            <Stat k="review"  v="candidate inbox" />
+            <Stat k="ops"     v="opt-in daemon" />
           </div>
         </div>
 
         <div>
-          <div className="vt-fig-num">FIG. 01 — SYSTEM SCHEMATIC</div>
+          <div className="vt-fig-num">SYSTEM SCHEMATIC</div>
+          <img className="vt-hero-sigil" src="assets/vident.jpg" alt="" />
           <SystemSchematic />
+          <ReleasePulse />
         </div>
       </div>
     </section>
@@ -81,7 +108,7 @@ function Hero() {
 function Thesis() {
   return (
     <Section id="thesis" n="00" title="The problem.">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
+      <div className="vt-two-col">
         <div>
           <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-muted)', letterSpacing: 0.6, marginBottom: 10, textTransform: 'uppercase' }}>Status quo</div>
           <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.65, color: 'var(--vt-ink-soft)' }}>
@@ -95,7 +122,7 @@ function Thesis() {
               ['scope',      'project-pinned by default'],
               ['retrieval',  'compact handles, expanded on demand'],
               ['truth',      'SQLite canonical, indexes derived'],
-              ['surface',    'CLI + MCP, no daemon'],
+              ['surface',    'CLI + MCP first; daemon/UI optional'],
               ['inspection', 'human-readable, source-linked'],
             ].map(([k, v], i, arr) => (
               <li key={i} style={{
@@ -115,11 +142,28 @@ function Thesis() {
   );
 }
 
+function OperatingLoop() {
+  const { operatingLoop } = window.VESTIGE;
+  return (
+    <Section id="loop" n="01" title="The operating loop." lede="Capture can be ambient. Trust is never ambient. Everything moves through a reviewable, inspectable path before it becomes durable memory.">
+      <div className="vt-loop">
+        {operatingLoop.map((item, i) => (
+          <div className="vt-loop-card" key={item.k}>
+            <div className="vt-loop-step">{String(i + 1).padStart(2, '0')} · {item.k}</div>
+            <h3>{item.t}</h3>
+            <p>{item.b}</p>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 // ── Disclosure ───────────────────────────────────────────
 function Disclosure() {
   return (
     <Section id="fig02" n="02" title="Six-layer disclosure." lede="Recall returns the cheapest representation by default. Climb only when needed.">
-      <div style={{ display: 'grid', gridTemplateColumns: '1.05fr .95fr', gap: 24 }}>
+      <div className="vt-two-col is-balanced">
         <DisclosureLadder memoryId="mem_01" />
         <LayerCostBars />
       </div>
@@ -180,7 +224,7 @@ function Skills() {
 vestige skills install                  # writes to BOTH .claude/skills/ and .agents/skills/
 vestige skills install --target agents  # only .agents/skills/ (Codex)
 vestige skills install --target claude  # only .claude/skills/ (Claude Code)
-vestige skills list --json              # 10 skills + version
+vestige skills list --json              # 15 skills + version
 
 # init installs to both targets by default; opt out with:
 vestige init --no-install-skills`}</pre>
@@ -247,13 +291,9 @@ function Features() {
   const { features } = window.VESTIGE;
   return (
     <Section id="features" n="11" title="Defaults.">
-      <div className="vt-frame hard" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div className="vt-frame hard vt-feature-grid">
         {features.map((f, i) => (
-          <div key={i} style={{
-            padding: '20px 22px',
-            borderRight: i % 3 !== 2 ? '1px solid var(--vt-ink)' : 'none',
-            borderBottom: i < 3 ? '1px solid var(--vt-ink)' : 'none',
-          }}>
+          <div key={i} className="vt-feature-cell">
             <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6 }}>· {f.k}</div>
             <h3 style={{ margin: '8px 0 6px', fontSize: 15, fontWeight: 600, color: 'var(--vt-ink)' }}>{f.t}</h3>
             <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--vt-muted)' }}>{f.b}</p>
@@ -268,7 +308,7 @@ function Features() {
 function Provenance() {
   return (
     <Section id="provenance" n="09" title="Provenance." lede="V0.3 makes every memory answerable: where it came from, what evidence backs it, and what the agent asked.">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 20 }}>
+      <div className="vt-three-col">
         <div>
           <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Why</div>
           <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
@@ -325,7 +365,7 @@ trace_caller_mcp          = true`}</pre>
 function Browser() {
   return (
     <Section id="browser" n="10" title="Memory browser." lede="V0.4 wraps every V0–V0.3 surface in an interactive terminal browser. Four tabs, two-pane layout, keyboard-driven. V0.4.1 adds Tail — a live-monitoring stream for memory observability.">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 24, marginBottom: 20 }}>
+      <div className="vt-two-col is-balanced">
         <div>
           <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Browse</div>
           <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
@@ -368,7 +408,7 @@ corpus size: 47`}</pre>
         <div>
           <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, color: 'var(--vt-accent)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>Navigate</div>
           <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
-            The <code>:</code> command palette jumps across tabs by ID, filters by kind / status / caller, mirrors <code>/</code> search, and aliases <code>?</code> / <code>q</code>. No daemon, no schema change, no new MCP tool.
+            The <code>:</code> command palette jumps across tabs by ID, filters by kind / status / caller, mirrors <code>/</code> search, and aliases <code>?</code> / <code>q</code>. The browser itself needs no background process, schema change, or new MCP tool.
           </p>
           <pre className="vt-pre">{`:goto trace_01HX0000000000…
 :kind decision
@@ -410,9 +450,10 @@ function CLI() {
     { name: 'recall',     cmds: byGroup('recall') },
     { name: 'lifecycle',  cmds: byGroup('lifecycle') },
     { name: 'provenance', cmds: byGroup('provenance') },
+    { name: 'operate',    cmds: byGroup('operate') },
   ];
   return (
-    <Section id="cli" n="12" title="CLI reference." lede="Twenty-three commands. Pipe-friendly. Deterministic. (Plus `vestige browse` — interactive, not in the tabs.)">
+    <Section id="cli" n="12" title="CLI reference." lede="Pipe-friendly commands grouped by job. Core memory operations stay small; daemon, UI, and scan controls are explicit opt-ins.">
       <div className="vt-frame hard">
         <div style={{ display: 'flex', borderBottom: '1px solid var(--vt-ink)' }}>
           {groups.map((g, i) => (
@@ -429,7 +470,7 @@ function CLI() {
         </div>
         <div>
           {groups[tab].cmds.map((c, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, padding: '12px 18px', borderTop: i > 0 ? '1px solid var(--vt-rule)' : 'none', alignItems: 'baseline' }}>
+            <div key={i} className="vt-command-row" style={{ borderTop: i > 0 ? '1px solid var(--vt-rule)' : 'none' }}>
               <div style={{ fontFamily: 'var(--vt-font-mono)', fontSize: 13, color: 'var(--vt-ink)' }}>
                 <span style={{ color: 'var(--vt-accent)' }}>$ </span>{c.cmd}
               </div>
@@ -447,7 +488,7 @@ function Roadmap() {
   const { roadmap } = window.VESTIGE;
   return (
     <Section id="roadmap" n="13" title="Roadmap." lede="V0 proves the loop. Everything after earns its weight.">
-      <div className="vt-frame hard">
+      <div className="vt-frame hard vt-scroll-x">
         <div style={{ display: 'grid', gridTemplateColumns: '60px 180px 1fr 80px', padding: '10px 14px', background: 'var(--vt-ink)', color: 'var(--vt-bg)', fontFamily: 'var(--vt-font-mono)', fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' }}>
           <span>ver</span><span>title</span><span>scope</span><span style={{ textAlign: 'right' }}>state</span>
         </div>
@@ -489,4 +530,4 @@ function Footer() {
   );
 }
 
-Object.assign(window, { Bar, Hero, Thesis, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Provenance, Browser, Features, CLI, Roadmap, Footer });
+Object.assign(window, { Bar, Hero, Thesis, OperatingLoop, Disclosure, Recall, MCP, Skills, Storage, SchemaSection, Embeddings, Provenance, Browser, Features, CLI, Roadmap, Footer });

@@ -4,11 +4,27 @@
 const VESTIGE = {
   meta: {
     name:   'Vestige',
-    tag:    'memory infrastructure for coding agents',
+    tag:    'local-first memory infrastructure',
     repo:   'https://github.com/conorluddy/Vestige',
-    version:'v0.4.0',
+    version:'v0.5.x',
     license:'MIT',
   },
+
+  releasePulse: [
+    { v: 'V0.4.1', label: 'Tail tab', status: 'done', body: 'Live stream of memories and candidates in the terminal browser.' },
+    { v: 'V0.5', label: 'Daemon runtime', status: 'done', body: 'Opt-in LaunchAgent, IPC socket, scheduled embedding and lifecycle jobs.' },
+    { v: 'V0.5.1', label: 'Menu-bar app', status: 'done', body: 'SwiftUI glance surface for daemon health and per-project memory state.' },
+    { v: 'V0.5.3', label: 'Session ingestion', status: 'done', body: 'Agent-driven scan of Claude Code and Codex transcripts into redacted, reviewable candidates.' },
+    { v: 'V0.5.2', label: 'Menu controls', status: 'planned', body: 'Pause, kick, reload, daemon toggle, and a persistent project workspace.' },
+  ],
+
+  operatingLoop: [
+    { k: 'capture', t: 'Candidate first', b: 'Agents and humans can propose notes, decisions, preferences, and questions without polluting durable recall.' },
+    { k: 'review', t: 'Inbox as consent boundary', b: 'Ambient or passive findings stay pending until approved. Rejections never enter search.' },
+    { k: 'recall', t: 'Project-scoped by default', b: 'Search starts inside the current repo, returns compact cards, and expands only when needed.' },
+    { k: 'prove', t: 'Receipts, not lore', b: 'Every important answer can point back to events, candidates, sources, or query traces.' },
+    { k: 'operate', t: 'Optional background work', b: 'The daemon and macOS UI add scheduling and controls without replacing the CLI/MCP core.' },
+  ],
 
   // Sample memories used by the disclosure ladder + recall demo.
   memories: [
@@ -82,10 +98,14 @@ const VESTIGE = {
     { name: 'vestige_get_project_context', role: 'read',  desc: 'Token-budgeted project context pack.' },
     { name: 'vestige_record_observation',  role: 'write', desc: 'Low-to-medium confidence observation.' },
     { name: 'vestige_record_decision',     role: 'write', desc: 'Explicit project decision.' },
+    { name: 'vestige_propose_candidate',   role: 'write', desc: 'V0.2 — propose a candidate into the assimilation inbox for review.' },
+    { name: 'vestige_list_candidates',     role: 'read',  desc: 'V0.2 — list pending inbox candidates.' },
+    { name: 'vestige_get_candidate',       role: 'read',  desc: 'V0.2 — expand one candidate with its provenance.' },
     { name: 'vestige_trace',               role: 'read',  desc: 'V0.3 — list, show, or replay query traces (action=list|show|replay).' },
+    { name: 'vestige_scan_sessions',       role: 'write', desc: 'V0.5.3 — hand the agent redacted, cursor-advanced turns from local Claude Code / Codex transcripts to mine into candidates. Opt-in (mcp.allow_scan_sessions).' },
   ],
 
-  // Fifteen agent skills (agentskills.io standard), bundled in the binary,
+  // Sixteen agent skills (agentskills.io standard), bundled in the binary,
   // installed by `vestige init` into both .claude/skills/ and .agents/skills/.
   skills: [
     { kind: 'auto',       name: 'vestige-auto-memorise',     wraps: 'dispatches to vestige <cmd> add', desc: 'Fires without a prompt when the conversation produces something memorable.' },
@@ -103,13 +123,14 @@ const VESTIGE = {
     { kind: 'provenance', name: 'vestige-trace-list',        wraps: 'vestige trace',                   desc: 'V0.3 — list recent query traces; filter by kind, caller, or date.' },
     { kind: 'provenance', name: 'vestige-trace-show',        wraps: 'vestige trace <id>',              desc: 'V0.3 — full detail for one trace: mode, provider, result IDs, scores.' },
     { kind: 'provenance', name: 'vestige-trace-replay',      wraps: 'vestige trace replay <id>',       desc: 'V0.3 — re-run a stored trace; diff results against current store. Read-only.' },
+    { kind: 'ingest',     name: 'vestige-scan-sessions',     wraps: 'vestige_scan_sessions (MCP)',      desc: 'V0.5.3 — mine recent Claude Code / Codex transcripts into reviewable candidates. Opt-in.' },
   ],
 
   features: [
     { k: '01', t: 'Repo-pinned by default',  b: 'Memories never leak across projects. Global preferences must be explicitly included in recall.' },
     { k: '02', t: 'Progressive disclosure',  b: 'Search returns one-liners. Agents expand to summary, compressed, or full only when needed.' },
     { k: '03', t: 'Local SQLite, your data', b: 'Canonical store on disk under ~/.vestige/projects/. No cloud, no telemetry.' },
-    { k: '04', t: 'CLI + MCP, opt-in daemon', b: 'A binary and an MCP server. Pipe-friendly output. No GUI. Opt-in daemon — install with one command, or skip it entirely.' },
+    { k: '04', t: 'CLI + MCP + thin UI', b: 'A binary and an MCP server stay primary. The daemon and menu-bar app are optional local control surfaces.' },
     { k: '05', t: 'Source-linked',           b: 'Every memory carries provenance: who recorded it, what evidence it came from, when.' },
     { k: '06', t: 'Forget is first-class',   b: 'Soft-delete from the CLI. Forgotten memories must not regenerate from old summaries.' },
   ],
@@ -124,7 +145,8 @@ const VESTIGE = {
     { v: 'V0.5', title: 'Daemon runtime',       status: 'done',    items: '9 daemon subcommands · IPC socket · LaunchAgent · per-project providers · daemon doctor' },
     { v: 'V0.5.1', title: 'VestigeUI menu-bar', status: 'done', items: 'macOS Vestige.app · SwiftUI MenuBarExtra · per-project memory + candidate + pending-embed counts · expandable rows (Reveal in Finder) · daemon-not-running CTA · stale-daemon badge · 30-day inactive collapse · daemon snapshot adds memory_count / candidate_count / last_memory_at · PR #90' },
     { v: 'V0.5.2', title: 'Menu-bar controls', status: 'planned', items: 'kick + reload-config + pause controls from the menu · daemon.pause IPC method · persistent project workspace window · vestige ui launcher + SMAppService start-at-login (opt-in prompt on init) · #88' },
-    { v: 'V0.5.3', title: 'Session-log ingestion', status: 'planned', items: 'opt-in passive candidate producer · scans Claude Code + Codex transcripts behind a SessionSource trait · agent-driven mode (vestige_scan_sessions MCP tool, zero-config default) + daemon session_log_scan job (configurable ExtractionProvider) · routes through the V0.2 inbox (no auto-promote) · secret redaction · per-source scan-cursor watermark · off by default · epic #98' },
+    { v: 'V0.5.3', title: 'Session-log ingestion', status: 'done', items: 'agent-driven mode shipped — vestige_scan_sessions MCP tool + vestige-scan-sessions skill · Claude Code + Codex SessionSource adapters · routes through the V0.2 inbox (no auto-promote) · secret redaction · per-source scan-cursor watermark · off by default (mcp.allow_scan_sessions) · epic #98 · PRs #109–#112, #121–#123' },
+    { v: 'V0.5.4', title: 'Session ingestion — daemon + CLI', status: 'planned', items: 'deferred from V0.5.3 (#113) · daemon session_log_scan job with a configurable ExtractionProvider (default ollama) · vestige scan CLI · vestige-extract crate' },
     { v: 'V0.6', title: 'Directives',           status: 'planned', items: 'pluggable prompt blocks (.vestige/directives.md) · project-scoped allow/deny rules · injected into auto-memorise + heartbeat ingestion' },
     { v: 'V0.7', title: 'REM consolidation',    status: 'planned', items: 'Review · Evaluate · Merge — project summary refresh · clustering · review-first consolidation' },
     { v: 'V0.8', title: 'Global preferences',   status: 'planned', items: '~/.vestige/global.sqlite · explicit include · project wins' },
@@ -156,6 +178,12 @@ const VESTIGE = {
     { group: 'provenance',  cmd: 'vestige trace',                         desc: 'V0.3 — list recent query traces (default last 10).' },
     { group: 'provenance',  cmd: 'vestige trace trace_01',                desc: 'V0.3 — full detail for one trace: mode, provider, result IDs, scores.' },
     { group: 'provenance',  cmd: 'vestige trace replay trace_01',         desc: 'V0.3 — re-run a stored trace; diffs results against current store. Read-only.' },
+    { group: 'operate',     cmd: 'vestige browse --tab tail',             desc: 'V0.4.1 — open the live memory/candidate stream directly.' },
+    { group: 'operate',     cmd: 'vestige daemon status',                 desc: 'V0.5 — inspect LaunchAgent, socket, status file, and queued jobs.' },
+    { group: 'operate',     cmd: 'vestige daemon kick embed',             desc: 'V0.5 — trigger an embedding sweep without waiting for the next tick.' },
+    { group: 'operate',     cmd: 'vestige ui',                            desc: 'V0.5.2 — launch the macOS menu-bar app from the CLI.' },
+    { group: 'operate',     cmd: 'vestige daemon pause --for 1h',         desc: 'V0.5.2 — planned pause control for background scheduler ticks.' },
+    { group: 'operate',     cmd: 'vestige scan --dry-run',                desc: 'V0.5.4 — planned one-shot session-log ingestion preview (agent-driven scan ships in V0.5.3 via the vestige_scan_sessions MCP tool).' },
   ],
 };
 

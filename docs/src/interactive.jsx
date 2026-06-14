@@ -126,7 +126,7 @@ const MCP_FLOW = [
     res: '{\n  "project": { "id": "vestige", "name": "Vestige" },\n  "context": "Project: Vestige\\nSummary: …\\nDecisions: 5\\nOpen: 1",\n  "memories": 6\n}' },
   { step: 2, tool: 'vestige_search', desc: 'Agent searches for relevant memories before acting.',
     req: '{\n  "query": "storage layer",\n  "limit": 4,\n  "depth": "one_liner"\n}',
-    res: '{\n  "results": [\n    { "id": "mem_01", "title": "SQLite as canonical store", "score": 0.94 },\n    { "id": "mem_05", "title": "No daemon in V0",        "score": 0.71 }\n  ]\n}' },
+    res: '{\n  "results": [\n    { "id": "mem_01", "title": "SQLite as canonical store", "score": 0.94 },\n    { "id": "mem_05", "title": "V0.5 ships an opt-in daemon", "score": 0.71 }\n  ]\n}' },
   { step: 3, tool: 'vestige_expand', desc: 'Agent expands the relevant card to the depth it needs.',
     req: '{ "memory_id": "mem_01", "depth": "compressed" }',
     res: '{\n  "id": "mem_01",\n  "depth": "compressed",\n  "content": "Decision: SQLite canonical store. Vector layer non-authoritative …"\n}' },
