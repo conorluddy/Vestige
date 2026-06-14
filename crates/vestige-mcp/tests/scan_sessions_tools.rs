@@ -68,6 +68,32 @@ async fn disabled_gate_returns_structured_error() {
 }
 
 #[tokio::test]
+async fn read_only_server_disables_scan_even_when_allowed() {
+    // read_only must take precedence over allow_scan_sessions — the tool advances
+    // scan cursors, which is a DB write.
+    let tmp = TempDir::new().unwrap();
+    let storage_path = tmp.path().join("memory.sqlite");
+    let project_id = ProjectId::from_slug("scan-readonly");
+    let mut store = Store::open(&storage_path).unwrap();
+    store
+        .ensure_project(&project_id, "scan smoke test", None, None)
+        .unwrap();
+    let mut config: VestigeConfig =
+        build_init_config(&project_id, "scan smoke test", &storage_path);
+    config.mcp.allow_scan_sessions = true;
+    let server = VestigeServer::new(store, config, project_id, true);
+
+    let err = server
+        .vestige_scan_sessions(Parameters(ScanSessionsParams { max_turns: 100 }))
+        .await
+        .expect_err("read-only server should disable scan");
+
+    let body = error_body(&err);
+    assert_eq!(body["code"], "READ_ONLY");
+    assert_eq!(body["retryable"], false);
+}
+
+#[tokio::test]
 async fn enabled_empty_corpus_returns_empty_envelope() {
     let (_tmp, server, _project) = make_server("scan-empty", true);
 

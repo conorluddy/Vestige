@@ -88,6 +88,16 @@ impl VestigeServer {
     ) -> Result<CallToolResult, ErrorData> {
         let inner = self.inner.lock().await;
 
+        // Advancing scan cursors is a DB write, so honour read-only like the other
+        // mutating tools (propose_candidate, record_*).
+        if inner.read_only {
+            return Err(err(
+                "READ_ONLY",
+                "MCP server is read-only; vestige_scan_sessions is disabled",
+                false,
+            ));
+        }
+
         if !inner.config.mcp.allow_scan_sessions {
             return Err(err(
                 "SCAN_DISABLED",
