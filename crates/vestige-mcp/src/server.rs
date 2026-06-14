@@ -52,7 +52,8 @@ impl VestigeServer {
                 + Self::propose_candidate_router()
                 + Self::list_candidates_router()
                 + Self::get_candidate_router()
-                + Self::trace_router(),
+                + Self::trace_router()
+                + Self::scan_sessions_router(),
         }
     }
 }

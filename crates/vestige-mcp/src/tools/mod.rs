@@ -11,6 +11,7 @@ pub mod project_context;
 pub mod propose_candidate;
 pub mod record_decision;
 pub mod record_observation;
+pub mod scan_sessions;
 pub mod search;
 pub mod trace;
 
