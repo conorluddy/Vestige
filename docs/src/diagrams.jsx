@@ -65,9 +65,9 @@ function SystemSchematic() {
           <text x="320" y="183" fontSize="12" fill={C.ink} textAnchor="middle" fontWeight="600">CLI</text>
         </g>
         <g>
-          <rect x="420" y="156" width="166" height="44" fill={C.bg} stroke={C.ink} strokeDasharray="2 3" />
-          <text x="503" y="178" fontSize="11" fill={C.muted} textAnchor="middle">.vestige/pin.toml</text>
-          <text x="503" y="192" fontSize="9.5" fill={C.faint} textAnchor="middle">(committed pointer)</text>
+          <rect x="420" y="156" width="166" height="44" fill={C.mintBg} stroke={C.accent} strokeDasharray="3 3" />
+          <text x="503" y="178" fontSize="11" fill={C.ink} textAnchor="middle" fontWeight="600">Daemon + UI</text>
+          <text x="503" y="192" fontSize="9.5" fill={C.muted} textAnchor="middle">optional local ops</text>
         </g>
 
         {[[130, 114, 130, 156], [320, 114, 320, 156], [503, 114, 503, 156]].map(([x1,y1,x2,y2], i) => (
@@ -77,9 +77,9 @@ function SystemSchematic() {
         {/* Core */}
         <g>
           <rect x="100" y="234" width="420" height="68" fill={C.ink} />
-          <text x="310" y="258" fontSize="11" fill={C.mint} textAnchor="middle" letterSpacing="0.6">CORE SERVICE · vestige-core</text>
-          <text x="310" y="280" fontSize="14" fill={C.bg} textAnchor="middle" fontWeight="600">capture · recall · disclosure · scope</text>
-          <text x="310" y="295" fontSize="10.5" fill="#9a9087" textAnchor="middle">single in-process module · no daemon · no IPC</text>
+          <text x="310" y="258" fontSize="11" fill={C.mint} textAnchor="middle" letterSpacing="0.6">SHARED ENGINE · vestige-core / engine</text>
+          <text x="310" y="280" fontSize="14" fill={C.bg} textAnchor="middle" fontWeight="600">capture · review · recall · provenance · jobs</text>
+          <text x="310" y="295" fontSize="10.5" fill="var(--vt-ink-mute)" textAnchor="middle">CLI/MCP in-process · daemon wraps scheduled work</text>
         </g>
         {[[130, 200, 240, 234], [320, 200, 320, 234], [503, 200, 400, 234]].map(([x1,y1,x2,y2], i) => (
           <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={C.ink} markerEnd="url(#sysArrow)" />
@@ -91,7 +91,7 @@ function SystemSchematic() {
           <text x="52" y="356" fontSize="10.5" fill={C.muted} letterSpacing="0.6">CANONICAL STORE</text>
           <text x="52" y="378" fontSize="14" fill={C.ink} fontWeight="600">SQLite</text>
           <text x="52" y="394" fontSize="10.5" fill={C.muted}>memories · representations · sources</text>
-          <text x="52" y="408" fontSize="10.5" fill={C.muted}>~/.local/share/vestige/{'<repo>'}.db</text>
+          <text x="52" y="408" fontSize="10.5" fill={C.muted}>~/.local/share/vestige/projects/{'<repo>'}.db</text>
         </g>
         <g>
           <rect x="296" y="338" width="140" height="76" fill={C.bg} stroke={C.ink} />
@@ -164,7 +164,7 @@ function RecallPipeline() {
           <rect x="540" y="110" width="160" height="60" fill={C.ink} />
           <text x="620" y="132" fontSize="10.5" fill={C.mint} textAnchor="middle" letterSpacing="0.6">MERGE</text>
           <text x="620" y="152" fontSize="12.5" fill={C.bg} textAnchor="middle" fontWeight="600">dedup · score · rank</text>
-          <text x="620" y="164" fontSize="9.5" fill="#9a9087" textAnchor="middle">by memory_id</text>
+          <text x="620" y="164" fontSize="9.5" fill="var(--vt-ink-mute)" textAnchor="middle">by memory_id</text>
         </g>
         <line x1="700" y1="140" x2="740" y2="140" stroke={C.ink} markerEnd="url(#rpArrow)" />
 

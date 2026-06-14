@@ -4,22 +4,22 @@
  * ───────────────────────────────────────────────────────────── */
 :root {
   /* ── Palette ─────────────────────────────────────────────── */
-  --vt-bg:        #fffafb;
-  --vt-panel:     #f4eef0;
-  --vt-ink:       #131515;
-  --vt-ink-soft:  #2b2c28;
-  --vt-muted:     #2b2c2899;
-  --vt-faint:     #2b2c2855;
-  --vt-rule:      #13151522;
-  --vt-rule-hi:   #13151544;
+  --vt-bg:        #fbfcfa;
+  --vt-panel:     #eef3ef;
+  --vt-ink:       #101414;
+  --vt-ink-soft:  #26302d;
+  --vt-muted:     #26302d99;
+  --vt-faint:     #26302d55;
+  --vt-rule:      #10141422;
+  --vt-rule-hi:   #10141444;
   --vt-accent:    #339989;
   --vt-mint:      #7de2d1;
   --vt-accent-bg: #33998917;
   --vt-mint-bg:   #7de2d133;
 
   /* Inverse surface (footer, dark blocks) */
-  --vt-ink-fg:    #fffafb;
-  --vt-ink-mute:  #9a9087;
+  --vt-ink-fg:    #fbfcfa;
+  --vt-ink-mute:  #9aa6a2;
 
   /* Status colors derived from primary */
   --vt-pos:       #339989;

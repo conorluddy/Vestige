@@ -197,7 +197,7 @@ Verify it's wired:
 claude mcp list                 # vestige should appear
 ```
 
-Then start a session in that repo and the six tools are available: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision`.
+Then start a session in that repo and the eleven tools are available: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision` (V0), `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate` (V0.2), `vestige_trace` (V0.3), and `vestige_scan_sessions` (V0.5.3 — opt-in session-log ingestion, gated by `mcp.allow_scan_sessions`).
 
 Recommended agent flow:
 
@@ -218,7 +218,7 @@ questions. Use `vestige_record_decision` when you make project-level calls.
 
 ## Skills (agent skills)
 
-Vestige ships with ten agent skills bundled into the binary, compliant with the [agentskills.io](https://agentskills.io) open standard. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
+Vestige ships with sixteen agent skills bundled into the binary, compliant with the [agentskills.io](https://agentskills.io) open standard. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
 
 Currently consumed by **Claude Code** (reads `.claude/skills/`) and **Codex** (reads `.agents/skills/`). `vestige init` writes to BOTH dirs by default so any compliant agent can pick them up.
 
@@ -242,7 +242,7 @@ vestige init --no-install-skills
 
 Re-running `skills install` is idempotent — files that match the bundled bytes are skipped. If you've hand-edited a SKILL.md, install hard-fails with a verbose drift report; pass `--force` to overwrite.
 
-The ten skills, by role:
+The sixteen skills, by role:
 
 | Role        | Skill                       | Wraps                          |
 |-------------|-----------------------------|--------------------------------|
@@ -256,6 +256,12 @@ The ten skills, by role:
 | Retrieve    | `vestige-show`              | `vestige show`                 |
 | Lifecycle   | `vestige-forget`            | `vestige forget`               |
 | Lifecycle   | `vestige-restore`           | `vestige restore`              |
+| Provenance  | `vestige-why`               | `vestige why`                  |
+| Provenance  | `vestige-sources`           | `vestige sources`              |
+| Provenance  | `vestige-trace-list`        | `vestige trace`                |
+| Provenance  | `vestige-trace-show`        | `vestige trace <id>`           |
+| Provenance  | `vestige-trace-replay`      | `vestige trace replay <id>`    |
+| Ingest      | `vestige-scan-sessions`     | `vestige_scan_sessions` (MCP)  |
 
 `vestige-auto-memorise` is the headline one: it watches for memorable moments (decisions, preferences, open questions, TILs, gotchas) and captures them without an explicit "remember this" prompt. The other capture skills handle explicit cues; the retrieve and lifecycle skills give the agent durable read + edit affordances.
 
@@ -284,6 +290,18 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 - **MCP exposes intent, not mechanics.** No raw SQL tools. No destructive defaults.
 
 ## What's shipped
+
+### V0.5.3 — Session-log ingestion (agent-driven, shipped)
+
+The first *passive* path for candidates: mine local coding-agent transcripts into the V0.2 review inbox. Off by default; routes through human review, never auto-promotes.
+
+- `vestige_scan_sessions` (MCP) — hands the calling agent a batch of redacted, normalised, cursor-advanced turns from this project's transcripts. The agent extracts what's worth keeping and files it via the existing `vestige_propose_candidate` with `SourceKind::SessionLog` provenance. No extra model, no API key — the **zero-config default**.
+- Two `SessionSource` adapters: **Claude Code** (`~/.claude/projects`, cwd-from-path) and **Codex** (`~/.codex/sessions`, cwd-from-`session_meta`). Each turn carries its `source` and a `source_ref` (`<source>:<session>:L<line>`).
+- Secret redaction at the boundary; a per-file scan-cursor watermark makes re-calls idempotent (you only ever see new turns).
+- Opt-in via `[mcp] allow_scan_sessions = true`; honoured behind `--read-only`. Project-scoped — a scan in project A never surfaces project B's sessions.
+- `vestige-scan-sessions` skill triggers the flow at session start.
+
+Daemon mode (`session_log_scan` job) and a `vestige scan` CLI are deferred to **V0.5.4** (#113). Spec: `docs/prd/vestige_v_0_5_3_session_log_ingestion_prd.md`. Epic #98; PRs #109–#112, #121–#123.
 
 ### V0.4 — Memory browser (TUI)
 
@@ -363,7 +381,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 (Daemon Runtime, PRs #87/#89) and V0.5.1 (macOS menu-bar app, PR #90) have shipped. Next up: **V0.5.2** menu-bar controls (issue #88), then **V0.6 Directives** (pluggable prompt blocks injected into auto-memorise), then **V0.7 REM consolidation**. The canonical, current roadmap ordering lives in `docs/src/data.js` (the landing-page timeline); `vestige_prd.md` §20 holds the original, since-reordered version sections. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) are unscheduled backlog in `docs/prd/vestige_v_0_5_daemon_prd.md` §19.
+V0.5 (Daemon Runtime, PRs #87/#89), V0.5.1 (macOS menu-bar app, PR #90), and V0.5.3 (agent-driven session-log ingestion, PRs #109–#112 / #121–#123) have shipped. Next up: **V0.5.2** menu-bar controls (issue #88), **V0.5.4** session-ingestion daemon + CLI (deferred from V0.5.3, #113), then **V0.6 Directives** (pluggable prompt blocks injected into auto-memorise), then **V0.7 REM consolidation**. The canonical, current roadmap ordering lives in `docs/src/data.js` (the landing-page timeline); `vestige_prd.md` §20 holds the original, since-reordered version sections. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) are unscheduled backlog in `docs/prd/vestige_v_0_5_daemon_prd.md` §19.
 
 ## Contributing
 

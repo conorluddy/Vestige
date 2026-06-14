@@ -6,6 +6,7 @@ function VestigePage() {
       <Bar />
       <Hero />
       <Thesis />
+      <OperatingLoop />
       <Disclosure />
       <Recall />
       <MCP />

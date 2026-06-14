@@ -21,7 +21,7 @@ docs/
     ├── primitives.jsx  ← reusable UI: Button, Mono, Pill, Frame, Rule, Mark
     ├── diagrams.jsx    ← SystemSchematic, RecallPipeline, StorageLayout, Schema, EmbeddingLifecycle
     ├── interactive.jsx ← DisclosureLadder, RecallDemo, MCPFlow
-    ├── sections.jsx    ← Hero, Thesis, Disclosure, Recall, MCP, Schema, Embeddings, Features, CLI, Roadmap, Footer
+    ├── sections.jsx    ← Hero, Thesis, OperatingLoop, Disclosure, Recall, MCP, Skills, Storage, Schema, Embeddings, Provenance, Browser, Features, CLI, Roadmap, Footer
     └── app.jsx         ← page composition + mount
 ```
 
@@ -31,13 +31,13 @@ docs/
 
 | Token             | Hex       | Use                                  |
 | ----------------- | --------- | ------------------------------------ |
-| `--vt-bg`         | `#fffafb` | Page surface                         |
-| `--vt-panel`      | `#f4eef0` | Tinted panels, inset blocks          |
-| `--vt-ink`        | `#131515` | Headlines, hard rules                |
-| `--vt-ink-soft`   | `#2b2c28` | Body copy                            |
-| `--vt-muted`      | `#2b2c2899` | Secondary text                     |
-| `--vt-faint`      | `#2b2c2855` | Annotations, decoration            |
-| `--vt-rule`       | `#13151522` | Soft hairline                      |
+| `--vt-bg`         | `#fbfcfa` | Page surface                         |
+| `--vt-panel`      | `#eef3ef` | Tinted panels, inset blocks          |
+| `--vt-ink`        | `#101414` | Headlines, hard rules                |
+| `--vt-ink-soft`   | `#26302d` | Body copy                            |
+| `--vt-muted`      | `#26302d99` | Secondary text                     |
+| `--vt-faint`      | `#26302d55` | Annotations, decoration            |
+| `--vt-rule`       | `#10141422` | Soft hairline                      |
 | `--vt-accent`     | `#339989` | Teal — primary accent                |
 | `--vt-mint`       | `#7de2d1` | Mint — highlight surface, status pos |
 | `--vt-accent-bg`  | `#33998917` | Tinted accent fill                 |
