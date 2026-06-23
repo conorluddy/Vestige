@@ -71,7 +71,7 @@ jobs:
           echo "Tag v$local_version exists — checking registry for partial-publish recovery."
           # Workspace dep order — must match the topological order used by
           # release-plz. Update if a new crate is added to the workspace.
-          crates=(vestige-core vestige-embed vestige-store vestige-config vestige-engine vestige-mcp vestige)
+          crates=(vestige-core vestige-embed vestige-store vestige-config vestige-engine vestige-mcp vestige-daemon vestige)
           for crate in "${crates[@]}"; do
             local_version=$(cargo metadata --no-deps --format-version 1 \
               | jq -r --arg c "$crate" '.packages[] | select(.name == $c) | .version')

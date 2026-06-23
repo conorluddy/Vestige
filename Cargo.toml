@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"
@@ -24,12 +24,13 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 # Internal — version is what crates.io uses; path is what local builds use.
-vestige-core = { path = "crates/vestige-core", version = "0.4.2" }
-vestige-store = { path = "crates/vestige-store", version = "0.4.2" }
-vestige-config = { path = "crates/vestige-config", version = "0.4.2" }
-vestige-mcp = { path = "crates/vestige-mcp", version = "0.4.2" }
-vestige-embed = { path = "crates/vestige-embed", version = "0.4.2" }
-vestige-engine = { path = "crates/vestige-engine", version = "0.4.2" }
+vestige-core = { path = "crates/vestige-core", version = "0.5.0" }
+vestige-store = { path = "crates/vestige-store", version = "0.5.0" }
+vestige-config = { path = "crates/vestige-config", version = "0.5.0" }
+vestige-mcp = { path = "crates/vestige-mcp", version = "0.5.0" }
+vestige-embed = { path = "crates/vestige-embed", version = "0.5.0" }
+vestige-engine = { path = "crates/vestige-engine", version = "0.5.0" }
+vestige-daemon = { path = "crates/vestige-daemon", version = "0.5.0" }
 
 # External
 anyhow = "1"
