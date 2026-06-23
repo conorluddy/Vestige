@@ -17,17 +17,7 @@ include = [
     "Cargo.toml",
     "../../README.md",
     "../../CHANGELOG.md",
-    "skills/README.md",
-    "skills/vestige-auto-memorise/**",
-    "skills/vestige-context/**",
-    "skills/vestige-forget/**",
-    "skills/vestige-recall/**",
-    "skills/vestige-record-decision/**",
-    "skills/vestige-record-note/**",
-    "skills/vestige-record-preference/**",
-    "skills/vestige-record-question/**",
-    "skills/vestige-restore/**",
-    "skills/vestige-show/**",
+    "skills/**",
 ]
 
 [[bin]]
@@ -41,7 +31,7 @@ vestige-config.workspace = true
 vestige-embed.workspace = true
 vestige-engine.workspace = true
 vestige-mcp.workspace = true
-vestige-daemon = { path = "../vestige-daemon" }
+vestige-daemon.workspace = true
 tokio = { workspace = true, features = ["net", "io-util"] }
 clap.workspace = true
 directories.workspace = true
