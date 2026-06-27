@@ -122,6 +122,23 @@ pub struct RegisterProjectParams {
     pub repo_root: String,
 }
 
+/// Parameters for `daemon.pause`.
+///
+/// `until` is an **absolute** RFC-3339 instant (UTC). The CLI converts `--for <dur>` into
+/// `now + dur` before sending, so the daemon only ever deals with one authoritative shape and
+/// there is no clock-skew ambiguity on the daemon side.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PauseParams {
+    pub until: String,
+}
+
+/// Result payload returned by `daemon.pause` / `daemon.resume`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PauseResult {
+    /// The instant ticks are suppressed until (RFC-3339), or `null` after a resume.
+    pub paused_until: Option<String>,
+}
+
 /// Result payload returned by `daemon.register_project`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterProjectResult {
@@ -161,6 +178,7 @@ pub async fn dispatch(
     request: JsonRpcRequest,
     ttl_days_default: u32,
     config_tx: &watch::Sender<ResolvedDaemonConfig>,
+    pause_tx: &watch::Sender<Option<time::OffsetDateTime>>,
 ) -> JsonRpcResponse {
     if request.jsonrpc != "2.0" {
         return invalid_request_response(
@@ -178,6 +196,8 @@ pub async fn dispatch(
             dispatch_register_project(registry, request.id, request.params).await
         }
         "daemon.reload_config" => dispatch_reload_config(request.id, config_tx),
+        "daemon.pause" => dispatch_pause(request.id, request.params, pause_tx),
+        "daemon.resume" => dispatch_resume(request.id, pause_tx),
         _ => method_not_found_response(request.id, &request.method),
     }
 }
@@ -448,6 +468,76 @@ fn dispatch_reload_config(
     ok_response(id, result)
 }
 
+/// Pause the daemon's scheduled ticks until an absolute RFC-3339 instant (V0.5.2).
+///
+/// Best-effort: any in-flight job completes; only future ticks are suppressed. The status
+/// tick keeps running so the status file continues to refresh with `paused_until`. Pause is
+/// in-memory — a launchd restart clears it.
+fn dispatch_pause(
+    id: serde_json::Value,
+    params: serde_json::Value,
+    pause_tx: &watch::Sender<Option<time::OffsetDateTime>>,
+) -> JsonRpcResponse {
+    let params: PauseParams = match serde_json::from_value(params) {
+        Ok(p) => p,
+        Err(e) => return invalid_params_response(id, e.to_string()),
+    };
+
+    let until = match time::OffsetDateTime::parse(
+        &params.until,
+        &time::format_description::well_known::Rfc3339,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            return invalid_params_response(id, format!("invalid `until` timestamp: {e}"));
+        }
+    };
+
+    if until <= time::OffsetDateTime::now_utc() {
+        return invalid_params_response(
+            id,
+            format!("`until` must be in the future (got {})", params.until),
+        );
+    }
+
+    if pause_tx.send(Some(until)).is_err() {
+        return internal_error_response(
+            id,
+            "scheduler dropped pause receiver — daemon may be shutting down".into(),
+        );
+    }
+
+    tracing::info!(paused_until = %params.until, "daemon.pause: scheduler paused");
+    ok_response(
+        id,
+        serde_json::to_value(PauseResult {
+            paused_until: Some(params.until),
+        })
+        .expect("PauseResult serializes"),
+    )
+}
+
+/// Clear any active pause so scheduled ticks resume immediately (V0.5.2).
+///
+/// Idempotent: resuming when not paused is a no-op success.
+fn dispatch_resume(
+    id: serde_json::Value,
+    pause_tx: &watch::Sender<Option<time::OffsetDateTime>>,
+) -> JsonRpcResponse {
+    if pause_tx.send(None).is_err() {
+        return internal_error_response(
+            id,
+            "scheduler dropped pause receiver — daemon may be shutting down".into(),
+        );
+    }
+
+    tracing::info!("daemon.resume: scheduler resumed");
+    ok_response(
+        id,
+        serde_json::to_value(PauseResult { paused_until: None }).expect("PauseResult serializes"),
+    )
+}
+
 async fn dispatch_register_project(
     registry: Arc<Mutex<ProjectRegistry>>,
     id: serde_json::Value,
@@ -619,6 +709,7 @@ mod tests {
                 last_memory_at: None,
             }],
             next_jobs: Vec::new(),
+            paused_until: None,
         }
     }
 
@@ -641,6 +732,12 @@ mod tests {
         tx
     }
 
+    /// Build a dummy pause watch sender for tests that don't exercise pause.
+    fn dummy_pause_tx() -> watch::Sender<Option<time::OffsetDateTime>> {
+        let (tx, _rx) = watch::channel(None);
+        tx
+    }
+
     // -----------------------------------------------------------------------
 
     /// `daemon.status` returns the snapshot supplied by the StatusProvider.
@@ -651,7 +748,15 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.status", serde_json::json!({}));
-        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry,
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.error.is_none(), "no error expected: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -670,7 +775,15 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.no_such_method", serde_json::json!({}));
-        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry,
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -685,7 +798,15 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "garbage"}));
-        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry,
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -736,7 +857,15 @@ mod tests {
             "repo_root": "/tmp"
         });
         let req1 = make_request("daemon.register_project", params.clone());
-        let resp1 = dispatch(registry.clone(), &provider, req1, 0, &dummy_config_tx()).await;
+        let resp1 = dispatch(
+            registry.clone(),
+            &provider,
+            req1,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
         let result1 = resp1.result.expect("first call must succeed");
         let r1: RegisterProjectResult = serde_json::from_value(result1).unwrap();
         assert!(
@@ -746,7 +875,15 @@ mod tests {
 
         // Second call: still in registry → still registered=false.
         let req2 = make_request("daemon.register_project", params.clone());
-        let resp2 = dispatch(registry.clone(), &provider, req2, 0, &dummy_config_tx()).await;
+        let resp2 = dispatch(
+            registry.clone(),
+            &provider,
+            req2,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
         let result2 = resp2.result.expect("second call must succeed");
         let r2: RegisterProjectResult = serde_json::from_value(result2).unwrap();
         assert!(!r2.registered, "second call must also return false");
@@ -768,7 +905,15 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "prune"}));
-        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry,
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -785,7 +930,15 @@ mod tests {
         };
         let registry = empty_registry();
         let req = make_request("daemon.kick", serde_json::json!({"job": "embed"}));
-        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry,
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -806,7 +959,15 @@ mod tests {
             "daemon.kick",
             serde_json::json!({"job": "embed", "project_id": "proj_nonexistent"}),
         );
-        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry,
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.result.is_none());
         let err = resp.error.expect("error must be present");
@@ -856,7 +1017,15 @@ mod tests {
             "daemon.kick",
             serde_json::json!({"job": "embed", "project_id": project_id.as_str()}),
         );
-        let resp = dispatch(registry.clone(), &provider, req, 0, &dummy_config_tx()).await;
+        let resp = dispatch(
+            registry.clone(),
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &dummy_pause_tx(),
+        )
+        .await;
 
         assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
         let result = resp.result.expect("result must be present");
@@ -919,5 +1088,95 @@ mod tests {
         assert!(resp.result.is_none(), "must not have a result");
         let err = resp.error.expect("must have an error");
         assert_eq!(err.code, -32603, "must be internal error code");
+    }
+
+    // === PAUSE / RESUME (V0.5.2) ===
+
+    /// `daemon.pause` with a future `until` sets the pause instant and pushes it to the
+    /// watch channel; the response echoes `paused_until`.
+    #[tokio::test]
+    async fn dispatch_pause_sets_paused_until() {
+        let (pause_tx, pause_rx) = watch::channel(None);
+        let provider = FakeStatusProvider {
+            status: fake_status(),
+        };
+        let registry = empty_registry();
+        let until = "2999-01-01T00:00:00Z";
+        let req = make_request("daemon.pause", serde_json::json!({ "until": until }));
+
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx(), &pause_tx).await;
+        assert!(resp.error.is_none(), "no error: {:?}", resp.error);
+        let result: PauseResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+        assert_eq!(result.paused_until.as_deref(), Some(until));
+        // Scheduler side sees the pause instant.
+        assert!(
+            pause_rx.borrow().is_some(),
+            "watch channel must hold a pause instant"
+        );
+    }
+
+    /// A `until` in the past is rejected with -32602 (invalid params).
+    #[tokio::test]
+    async fn dispatch_pause_past_until_is_invalid_params() {
+        let (pause_tx, _rx) = watch::channel(None);
+        let provider = FakeStatusProvider {
+            status: fake_status(),
+        };
+        let registry = empty_registry();
+        let req = make_request(
+            "daemon.pause",
+            serde_json::json!({ "until": "2000-01-01T00:00:00Z" }),
+        );
+
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx(), &pause_tx).await;
+        let err = resp.error.expect("must error on a past instant");
+        assert_eq!(err.code, -32602);
+    }
+
+    /// A malformed `until` timestamp is rejected with -32602 (invalid params).
+    #[tokio::test]
+    async fn dispatch_pause_malformed_until_is_invalid_params() {
+        let (pause_tx, _rx) = watch::channel(None);
+        let provider = FakeStatusProvider {
+            status: fake_status(),
+        };
+        let registry = empty_registry();
+        let req = make_request("daemon.pause", serde_json::json!({ "until": "not-a-date" }));
+
+        let resp = dispatch(registry, &provider, req, 0, &dummy_config_tx(), &pause_tx).await;
+        let err = resp.error.expect("must error on a malformed instant");
+        assert_eq!(err.code, -32602);
+    }
+
+    /// `daemon.resume` clears the pause and returns `paused_until: null`; resuming when not
+    /// paused is an idempotent success.
+    #[tokio::test]
+    async fn dispatch_resume_clears_and_is_idempotent() {
+        let until = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+        let (pause_tx, pause_rx) = watch::channel(Some(until));
+        let provider = FakeStatusProvider {
+            status: fake_status(),
+        };
+        let registry = empty_registry();
+        let req = make_request("daemon.resume", serde_json::json!({}));
+
+        let resp = dispatch(
+            registry.clone(),
+            &provider,
+            req,
+            0,
+            &dummy_config_tx(),
+            &pause_tx,
+        )
+        .await;
+        assert!(resp.error.is_none());
+        let result: PauseResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+        assert_eq!(result.paused_until, None);
+        assert!(pause_rx.borrow().is_none(), "pause must be cleared");
+
+        // Resuming again is a no-op success.
+        let req2 = make_request("daemon.resume", serde_json::json!({}));
+        let resp2 = dispatch(registry, &provider, req2, 0, &dummy_config_tx(), &pause_tx).await;
+        assert!(resp2.error.is_none(), "resume is idempotent");
     }
 }

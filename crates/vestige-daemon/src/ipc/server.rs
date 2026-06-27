@@ -59,12 +59,14 @@ pub fn resolve_socket_path(override_path: Option<&Path>) -> PathBuf {
 /// `config_tx` is the watch sender for live config reload (T8.4). The dispatcher
 /// uses it to push a freshly-read [`ResolvedDaemonConfig`] to the scheduler when
 /// `daemon.reload_config` is received.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     socket_path: PathBuf,
     registry: Arc<Mutex<ProjectRegistry>>,
     status_provider: Arc<dyn methods::StatusProvider>,
     ttl_days_default: u32,
     config_tx: watch::Sender<ResolvedDaemonConfig>,
+    pause_tx: watch::Sender<Option<time::OffsetDateTime>>,
     mut cancel: watch::Receiver<bool>,
 ) -> Result<(), DaemonError> {
     // Remove any stale socket from a previously crashed daemon.
@@ -92,6 +94,7 @@ pub async fn run(
 
     // Wrap in Arc so each spawned connection handler can clone a reference.
     let config_tx = Arc::new(config_tx);
+    let pause_tx = Arc::new(pause_tx);
 
     loop {
         tokio::select! {
@@ -111,6 +114,7 @@ pub async fn run(
                             Arc::clone(&status_provider),
                             ttl_days_default,
                             Arc::clone(&config_tx),
+                            Arc::clone(&pause_tx),
                         ));
                     }
                     Err(e) => {
@@ -142,6 +146,7 @@ async fn handle_connection(
     status_provider: Arc<dyn methods::StatusProvider>,
     ttl_days_default: u32,
     config_tx: Arc<watch::Sender<ResolvedDaemonConfig>>,
+    pause_tx: Arc<watch::Sender<Option<time::OffsetDateTime>>>,
 ) {
     let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);
@@ -168,6 +173,7 @@ async fn handle_connection(
                 req,
                 ttl_days_default,
                 &config_tx,
+                &pause_tx,
             )
             .await
         }

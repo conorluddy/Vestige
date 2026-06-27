@@ -201,6 +201,7 @@ impl TickState {
 pub(crate) async fn run(
     registry: Arc<Mutex<ProjectRegistry>>,
     mut config_rx: watch::Receiver<ResolvedDaemonConfig>,
+    pause_rx: watch::Receiver<Option<time_crate::OffsetDateTime>>,
     shared_tick_state: Arc<Mutex<TickState>>,
     status_file_path: PathBuf,
     started_at_rfc3339: String,
@@ -295,6 +296,10 @@ pub(crate) async fn run(
                     }
                 }
                 _ = embed_tick.tick() => {
+                    if let Some(until) = active_pause(&pause_rx) {
+                        tracing::debug!(paused_until = ?until, "embed tick suppressed — daemon paused");
+                        continue;
+                    }
                     tick_state.lock().await.embed_last = Some(Instant::now());
                     let reg = registry.lock().await;
                     let report = jobs::embed_sweep::run_once(&reg).await;
@@ -309,6 +314,10 @@ pub(crate) async fn run(
                     );
                 }
                 _ = prune_tick.tick() => {
+                    if let Some(until) = active_pause(&pause_rx) {
+                        tracing::debug!(paused_until = ?until, "prune tick suppressed — daemon paused");
+                        continue;
+                    }
                     tick_state.lock().await.prune_last = Some(Instant::now());
                     let reg = registry.lock().await;
                     let report = jobs::trace_prune::run_once(&reg).await;
@@ -322,6 +331,10 @@ pub(crate) async fn run(
                     );
                 }
                 _ = ttl_tick.tick() => {
+                    if let Some(until) = active_pause(&pause_rx) {
+                        tracing::debug!(paused_until = ?until, "ttl tick suppressed — daemon paused");
+                        continue;
+                    }
                     tick_state.lock().await.ttl_last = Some(Instant::now());
                     let ttl_days = config.candidate_ttl_days;
                     let reg = registry.lock().await;
@@ -339,6 +352,10 @@ pub(crate) async fn run(
                 }
                 _ = scan_tick.tick() => {
                     if scan_enabled {
+                        if let Some(until) = active_pause(&pause_rx) {
+                            tracing::debug!(paused_until = ?until, "scan tick suppressed — daemon paused");
+                            continue;
+                        }
                         tick_state.lock().await.scan_last = Some(Instant::now());
                         let reg = registry.lock().await;
                         let report = jobs::session_log_scan::run_once(&reg).await;
@@ -355,6 +372,9 @@ pub(crate) async fn run(
                     }
                 }
                 _ = status_tick.tick() => {
+                    // The status tick is NEVER suppressed by pause — it keeps the status file
+                    // fresh and surfaces `paused_until` so observers see the pause state.
+                    let paused_until = format_pause(active_pause(&pause_rx));
                     let status = {
                         let reg = registry.lock().await;
                         let state = tick_state.lock().await;
@@ -364,6 +384,7 @@ pub(crate) async fn run(
                             &started_at_rfc3339,
                             &config,
                             Some(&state),
+                            paused_until,
                         ).await
                     };
                     if let Err(e) = status_file::write_atomic(&status_file_path, &status) {
@@ -395,6 +416,7 @@ pub(crate) async fn build_status(
     started_at: &str,
     _config: &ResolvedDaemonConfig,
     tick_state: Option<&TickState>,
+    paused_until: Option<String>,
 ) -> DaemonStatus {
     let project_ids: Vec<_> = registry.project_ids().cloned().collect();
     let mut projects = Vec::with_capacity(project_ids.len());
@@ -439,7 +461,30 @@ pub(crate) async fn build_status(
         uptime_secs: started.elapsed().as_secs(),
         projects,
         next_jobs,
+        paused_until,
     }
+}
+
+// === PAUSE HELPERS ===
+
+/// The active pause instant if the daemon is currently paused — `None` once it has elapsed.
+///
+/// Pause auto-expires: a `paused_until` in the past reports as not-paused so ticks resume
+/// without an explicit `resume`.
+pub(crate) fn active_pause(
+    pause_rx: &watch::Receiver<Option<time_crate::OffsetDateTime>>,
+) -> Option<time_crate::OffsetDateTime> {
+    let now = time_crate::OffsetDateTime::now_utc();
+    let v = *pause_rx.borrow();
+    v.filter(|until| *until > now)
+}
+
+/// Format an optional pause instant as an RFC-3339 string for the status snapshot.
+pub(crate) fn format_pause(until: Option<time_crate::OffsetDateTime>) -> Option<String> {
+    until.and_then(|t| {
+        t.format(&time_crate::format_description::well_known::Rfc3339)
+            .ok()
+    })
 }
 
 // === TESTS ===
@@ -485,6 +530,36 @@ mod tests {
         assert_eq!(jobs[1].kind, JobKind::Prune);
         assert_eq!(jobs[2].kind, JobKind::CandidateTtl);
         assert_eq!(jobs[3].kind, JobKind::SessionLogScan);
+    }
+
+    /// A future pause instant reports as active; a past one auto-expires to `None`.
+    #[test]
+    fn active_pause_respects_expiry() {
+        let future = OffsetDateTime::now_utc() + time_crate::Duration::hours(1);
+        let (_tx, rx) = watch::channel(Some(future));
+        assert!(active_pause(&rx).is_some(), "future pause must be active");
+
+        let past = OffsetDateTime::now_utc() - time_crate::Duration::hours(1);
+        let (_tx2, rx2) = watch::channel(Some(past));
+        assert!(
+            active_pause(&rx2).is_none(),
+            "expired pause must auto-clear"
+        );
+
+        let (_tx3, rx3) = watch::channel(None);
+        assert!(active_pause(&rx3).is_none(), "unset pause is not active");
+    }
+
+    /// `format_pause` round-trips an instant to an RFC-3339 string and `None` to `None`.
+    #[test]
+    fn format_pause_round_trips() {
+        assert_eq!(format_pause(None), None);
+        let t = OffsetDateTime::now_utc() + time_crate::Duration::hours(2);
+        let s = format_pause(Some(t)).expect("formats");
+        let parsed =
+            OffsetDateTime::parse(&s, &time_crate::format_description::well_known::Rfc3339)
+                .expect("valid RFC3339");
+        assert!(parsed > OffsetDateTime::now_utc());
     }
 
     /// When the session-log scan interval is `0` (disabled), `next_jobs` omits it.
