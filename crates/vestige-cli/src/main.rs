@@ -85,6 +85,8 @@ enum Command {
     Browse(commands::browse::BrowseArgs),
     /// Manage the V0.5 background daemon (start, stop, status, kick, log).
     Daemon(commands::daemon::DaemonArgs),
+    /// Scan this project's session transcripts into reviewable candidates (V0.5.4).
+    Scan(commands::scan::ScanArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
@@ -137,5 +139,6 @@ fn main() -> Result<()> {
         Command::Trace(args) => commands::trace::run(args),
         Command::Browse(args) => commands::browse::run(args),
         Command::Daemon(args) => commands::daemon::run(args),
+        Command::Scan(args) => commands::scan::run(args),
     }
 }

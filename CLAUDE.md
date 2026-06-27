@@ -72,6 +72,12 @@ cargo run -p vestige -- daemon doctor       # 8-check health diagnostic
 cargo run -p vestige -- daemon log -f       # tail the daemon's rolling log
 cargo run -p vestige -- daemon uninstall    # launchctl unload + remove plist
 
+# V0.5.4 — autonomous session-log ingestion (daemon + CLI)
+cargo run -p vestige -- scan --dry-run                       # preview candidates; write nothing
+cargo run -p vestige -- scan --provider fake                 # file candidates into the inbox (fake provider)
+cargo run --features extract-ollama -p vestige -- scan       # real extraction via local ollama
+cargo run -p vestige -- daemon kick scan                     # one-off session-log scan across supervised projects
+
 # Verbose logs to stderr
 VESTIGE_LOG=debug cargo run -p vestige -- status
 ```
@@ -119,7 +125,7 @@ The product principle (PRD §5.2) and the code principle. Memories disclose hand
 
 Build order matches PRD §18.1. The **canonical, current roadmap ordering lives in `docs/src/data.js`** (the landing-page timeline array) — the PRD §20 per-version sections are preserved as historical record and were reordered, so trust `data.js` when they disagree.
 
-**Shipped:** V0 (M0–M5), V0.1, V0.2, V0.3, V0.4, V0.4.1, V0.5, V0.5.1, V0.5.3 (agent-driven session-log ingestion).
+**Shipped:** V0 (M0–M5), V0.1, V0.2, V0.3, V0.4, V0.4.1, V0.5, V0.5.1, V0.5.3 (agent-driven session-log ingestion), V0.5.4 (autonomous session-log ingestion — daemon + CLI).
 
 - V0.2 added the assimilation inbox (candidate review layer).
 - V0.3 added the provenance and receipts layer — `vestige why`, `vestige sources`, `vestige trace list/show/replay`, `vestige_expand depth=provenance`, the new `vestige_trace` MCP tool, `query_events` tracing, and the `[traces]` config block.
@@ -128,8 +134,9 @@ Build order matches PRD §18.1. The **canonical, current roadmap ordering lives 
 - V0.5 (**Daemon runtime**) shipped on `feat/v0.5-daemon` (PRs #87/#89) — `vestige daemon` (9 subcommands), Unix-socket IPC, macOS LaunchAgent, per-project providers, `daemon doctor`. Spec: `docs/prd/vestige_v_0_5_daemon_prd.md`; walkthrough: `docs/v0.5.md`.
 - V0.5.1 (**VestigeUI menu-bar**) shipped a read-only macOS `Vestige.app` SwiftUI `MenuBarExtra` over the daemon status file (PR #90).
 - V0.5.3 (**Session-log ingestion — agent-driven mode**) shipped the zero-config default: the `vestige_scan_sessions` MCP tool hands the calling agent redacted, cursor-advanced turns from this project's **Claude Code + Codex** transcripts (two `SessionSource` adapters in `vestige-engine`), and the agent files candidates via `vestige_propose_candidate` with `SourceKind::SessionLog` provenance. Opt-in via `mcp.allow_scan_sessions` (off by default, honoured behind `--read-only`); secret redaction at the boundary; per-file scan-cursor watermark for idempotent re-calls; `vestige-scan-sessions` skill. No new write paths. Daemon `session_log_scan` job + `vestige scan` CLI deferred to V0.5.4 (#113). Epic #98; PRs #109–#112, #121–#123; spec: `docs/prd/vestige_v_0_5_3_session_log_ingestion_prd.md`.
+- V0.5.4 (**Session-log ingestion — daemon + CLI, autonomous mode**) shipped the deferred autonomy half (#113 → #103/#106/#107): the new **`vestige-extract`** crate (sync `ExtractionProvider` trait mirroring `vestige-embed` — always-compiled `fake`, feature-gated `ollama`/`anthropic`/`openai` via `--features extract-<provider>`, `build_provider` factory, `ExtractError`), an additive `[extraction]` config section, and the shared **`vestige_engine::scan_and_propose`** core (reads turns past the watermark, redacts, hands a batch to the provider, routes results through the V0.2 inbox with `session_log` provenance — never auto-promotes; per-session extraction failure = warn + skip without advancing the cursor). Consumed two ways: the daemon's **`session_log_scan`** scheduled job (`[daemon] session_log_scan_interval_secs`, `0` disables; `daemon kick scan`; provider unavailable ⇒ no-op + warn) and the one-shot **`vestige scan`** CLI (`--dry-run`, `--provider`/`--model`). `NormalizedTurn` moved to `vestige-core` to keep `engine → extract → core` one-way. No new write paths.
 
-**Next up (planned, per `data.js`):** V0.5.2 Menu-bar controls (kick / reload-config / pause from the menu + `daemon.pause` IPC + persistent workspace window + `vestige ui` launcher and `SMAppService` start-at-login via an opt-in, agent-guarded prompt on `init`, issue #88; spec: `docs/prd/vestige_v_0_5_2_menubar_controls_prd.md`) → V0.5.4 **Session ingestion — daemon + CLI** (deferred from V0.5.3, epic #113: daemon `session_log_scan` job with a configurable `ExtractionProvider` (default `ollama`), `vestige scan` CLI, and the `vestige-extract` crate) → V0.6 **Directives** (pluggable prompt blocks in `.vestige/directives.md` + project-scoped allow/deny rules injected into auto-memorise + heartbeat ingestion) → V0.7 **REM consolidation** (Review · Evaluate · Merge; formerly "Dream-Lite") → V0.8 Global preferences → V0.9 Federation → V0.10 Memory dashboard (GUI) → V1. The daemon PRD §19 open questions (MCP-talks-to-daemon, Linux systemd) are unscheduled backlog, not assigned to V0.6.
+**Next up (planned, per `data.js`):** V0.5.2 Menu-bar controls (kick / reload-config / pause from the menu + `daemon.pause` IPC + persistent workspace window + `vestige ui` launcher and `SMAppService` start-at-login via an opt-in, agent-guarded prompt on `init`, issue #88; spec: `docs/prd/vestige_v_0_5_2_menubar_controls_prd.md`) → V0.6 **Directives** (pluggable prompt blocks in `.vestige/directives.md` + project-scoped allow/deny rules injected into auto-memorise + heartbeat ingestion) → V0.7 **REM consolidation** (Review · Evaluate · Merge; formerly "Dream-Lite") → V0.8 Global preferences → V0.9 Federation → V0.10 Memory dashboard (GUI) → V1. The daemon PRD §19 open questions (MCP-talks-to-daemon, Linux systemd) are unscheduled backlog, not assigned to V0.6.
 
 ## Hard rules (will reject in review)
 

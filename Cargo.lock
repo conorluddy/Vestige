@@ -4263,6 +4263,7 @@ dependencies = [
  "vestige-daemon",
  "vestige-embed",
  "vestige-engine",
+ "vestige-extract",
  "vestige-mcp",
  "vestige-store",
 ]
