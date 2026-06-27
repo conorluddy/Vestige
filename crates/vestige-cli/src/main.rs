@@ -87,6 +87,8 @@ enum Command {
     Daemon(commands::daemon::DaemonArgs),
     /// Scan this project's session transcripts into reviewable candidates (V0.5.4).
     Scan(commands::scan::ScanArgs),
+    /// Launch the macOS menu-bar app (V0.5.2; macOS only).
+    Ui(commands::ui::UiArgs),
 }
 
 /// Initialise the tracing subscriber and dispatch to the resolved subcommand.
@@ -140,5 +142,6 @@ fn main() -> Result<()> {
         Command::Browse(args) => commands::browse::run(args),
         Command::Daemon(args) => commands::daemon::run(args),
         Command::Scan(args) => commands::scan::run(args),
+        Command::Ui(args) => commands::ui::run(args),
     }
 }
