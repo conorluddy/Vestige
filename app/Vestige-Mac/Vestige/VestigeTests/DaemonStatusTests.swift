@@ -94,4 +94,39 @@ final class DaemonStatusTests: XCTestCase {
         """.data(using: .utf8)!
         XCTAssertNoThrow(try DaemonStatus.recommendedDecoder.decode(DaemonStatus.self, from: json))
     }
+
+    // V0.5.2 — pause state.
+
+    func test_decode_pausedUntil_setsIsPaused() throws {
+        let json = """
+        {
+          "schema_version": 1, "version": "0.5.2", "pid": 1, "started_at": "2026-01-01T00:00:00Z",
+          "uptime_secs": 0, "projects": [], "next_jobs": [],
+          "paused_until": "2999-01-01T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+        let status = try DaemonStatus.recommendedDecoder.decode(DaemonStatus.self, from: json)
+        XCTAssertNotNil(status.pausedUntil)
+        XCTAssertTrue(status.isPaused, "a future paused_until must report isPaused = true")
+    }
+
+    func test_absentPausedUntil_isNotPaused() throws {
+        // The v1 fixture omits paused_until — it must decode to nil and report not-paused.
+        let data = try loadFixture("daemon.status.v1")
+        let status = try DaemonStatus.recommendedDecoder.decode(DaemonStatus.self, from: data)
+        XCTAssertNil(status.pausedUntil)
+        XCTAssertFalse(status.isPaused)
+    }
+
+    func test_decode_sessionLogScanJobKind() throws {
+        let json = """
+        {
+          "schema_version": 1, "version": "0.5.4", "pid": 1, "started_at": "2026-01-01T00:00:00Z",
+          "uptime_secs": 0, "projects": [],
+          "next_jobs": [{ "kind": "session_log_scan", "at": "2026-01-01T01:00:00Z" }]
+        }
+        """.data(using: .utf8)!
+        let status = try DaemonStatus.recommendedDecoder.decode(DaemonStatus.self, from: json)
+        XCTAssertEqual(status.nextJobs.first?.kind, .sessionLogScan)
+    }
 }

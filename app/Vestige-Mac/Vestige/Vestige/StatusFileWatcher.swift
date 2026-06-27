@@ -26,6 +26,17 @@ final class StatusFileWatcher {
 
     private(set) var state: State = .loading
 
+    /// SF Symbol for the menu-bar label. Shows a paused affordance (V0.5.2) when the daemon
+    /// is paused, otherwise the standard brain glyph.
+    var menuBarSymbol: String {
+        switch state {
+        case .running(let status), .stale(let status):
+            return status.isPaused ? "pause.circle" : "brain"
+        default:
+            return "brain"
+        }
+    }
+
     // MARK: - Private
 
     private let statusPath: URL
