@@ -279,6 +279,8 @@ pub async fn run_with_cancel(
         std::time::Duration::from_secs(config.embed_sweep_interval_secs),
         std::time::Duration::from_secs(config.trace_prune_interval_secs),
         std::time::Duration::from_secs(config.candidate_ttl_sweep_interval_secs),
+        (config.session_log_scan_interval_secs > 0)
+            .then(|| std::time::Duration::from_secs(config.session_log_scan_interval_secs)),
     );
     let shared_tick_state: Arc<Mutex<scheduler::TickState>> =
         Arc::new(Mutex::new(initial_tick_state));

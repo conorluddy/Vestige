@@ -68,9 +68,12 @@ pub(crate) struct TickState {
     embed_interval: Duration,
     prune_interval: Duration,
     ttl_interval: Duration,
+    /// `None` when the session-log scan job is disabled (interval `0`).
+    scan_interval: Option<Duration>,
     embed_last: Option<Instant>,
     prune_last: Option<Instant>,
     ttl_last: Option<Instant>,
+    scan_last: Option<Instant>,
 }
 
 impl TickState {
@@ -80,6 +83,7 @@ impl TickState {
         embed: Duration,
         prune: Duration,
         ttl: Duration,
+        scan: Option<Duration>,
     ) -> Self {
         Self {
             started_odt,
@@ -87,9 +91,11 @@ impl TickState {
             embed_interval: embed,
             prune_interval: prune,
             ttl_interval: ttl,
+            scan_interval: scan,
             embed_last: None,
             prune_last: None,
             ttl_last: None,
+            scan_last: None,
         }
     }
 
@@ -99,7 +105,7 @@ impl TickState {
     /// `project_id` is `None` because all sweep jobs run across every registered
     /// project in one tick (not per-project).
     fn next_jobs(&self) -> Vec<ScheduledJob> {
-        vec![
+        let mut jobs = vec![
             ScheduledJob {
                 kind: JobKind::Embed,
                 project_id: None,
@@ -121,7 +127,18 @@ impl TickState {
                     self.ttl_last.unwrap_or(self.started_instant) + self.ttl_interval,
                 ),
             },
-        ]
+        ];
+        // Only surface the scan job when it is enabled (interval > 0).
+        if let Some(scan_interval) = self.scan_interval {
+            jobs.push(ScheduledJob {
+                kind: JobKind::SessionLogScan,
+                project_id: None,
+                at: self.instant_to_rfc3339(
+                    self.scan_last.unwrap_or(self.started_instant) + scan_interval,
+                ),
+            });
+        }
+        jobs
     }
 
     /// Convert a monotonic `Instant` to an RFC 3339 string via offset arithmetic.
@@ -201,17 +218,31 @@ pub(crate) async fn run(
         let ttl_interval = Duration::from_secs(config.candidate_ttl_sweep_interval_secs);
         let status_interval = Duration::from_secs(5);
 
+        // Session-log scan: `0` disables the job. A zero `Duration` would panic
+        // `tokio::time::interval`, so disabled = a ~136-year sentinel period that never
+        // realistically fires, plus a `scan_enabled` guard on the arm body.
+        let scan_enabled = config.session_log_scan_interval_secs > 0;
+        let scan_interval = if scan_enabled {
+            Some(Duration::from_secs(config.session_log_scan_interval_secs))
+        } else {
+            None
+        };
+        let scan_tick_period =
+            scan_interval.unwrap_or_else(|| Duration::from_secs(u32::MAX as u64));
+
         let mut embed_tick = tokio_time::interval(embed_interval);
         let mut prune_tick = tokio_time::interval(prune_interval);
         let mut ttl_tick = tokio_time::interval(ttl_interval);
+        let mut scan_tick = tokio_time::interval(scan_tick_period);
         let mut status_tick = tokio_time::interval(status_interval);
 
-        // Skip the first immediate tick for embed/prune/ttl so we don't run full
+        // Skip the first immediate tick for embed/prune/ttl/scan so we don't run full
         // sweeps at t=0. `status_tick` fires immediately on first poll — intentional
         // so the status file exists as soon as the daemon is up.
         embed_tick.tick().await;
         prune_tick.tick().await;
         ttl_tick.tick().await;
+        scan_tick.tick().await;
 
         // T8.3 — update the shared TickState so next_jobs reflects the current
         // cadences. Reset on every config rebuild (after reload_config).
@@ -223,6 +254,7 @@ pub(crate) async fn run(
                 embed_interval,
                 prune_interval,
                 ttl_interval,
+                scan_interval,
             );
         }
 
@@ -304,6 +336,23 @@ pub(crate) async fn run(
                         elapsed_ms = report.elapsed_ms,
                         "candidate ttl finished"
                     );
+                }
+                _ = scan_tick.tick() => {
+                    if scan_enabled {
+                        tick_state.lock().await.scan_last = Some(Instant::now());
+                        let reg = registry.lock().await;
+                        let report = jobs::session_log_scan::run_once(&reg).await;
+                        drop(reg);
+                        tracing::info!(
+                            projects_scanned = report.projects_scanned,
+                            projects_succeeded = report.projects_succeeded,
+                            projects_failed = report.projects_failed,
+                            projects_skipped = report.projects_skipped,
+                            total_candidates_proposed = report.total_candidates_proposed,
+                            elapsed_ms = report.elapsed_ms,
+                            "session log scan finished"
+                        );
+                    }
                 }
                 _ = status_tick.tick() => {
                     let status = {
@@ -408,6 +457,7 @@ mod tests {
             Duration::from_secs(embed),
             Duration::from_secs(prune),
             Duration::from_secs(ttl),
+            Some(Duration::from_secs(1_800)),
         )
     }
 
@@ -418,7 +468,11 @@ mod tests {
         let state = make_tick_state(600, 86_400, 3_600);
         let jobs = state.next_jobs();
 
-        assert_eq!(jobs.len(), 3, "must have exactly 3 scheduled jobs");
+        assert_eq!(
+            jobs.len(),
+            4,
+            "must have 4 scheduled jobs (embed/prune/ttl/scan) when scan is enabled"
+        );
         for job in &jobs {
             assert!(
                 job.project_id.is_none(),
@@ -430,6 +484,23 @@ mod tests {
         assert_eq!(jobs[0].kind, JobKind::Embed);
         assert_eq!(jobs[1].kind, JobKind::Prune);
         assert_eq!(jobs[2].kind, JobKind::CandidateTtl);
+        assert_eq!(jobs[3].kind, JobKind::SessionLogScan);
+    }
+
+    /// When the session-log scan interval is `0` (disabled), `next_jobs` omits it.
+    #[test]
+    fn next_jobs_omits_scan_when_disabled() {
+        let state = TickState::new(
+            OffsetDateTime::now_utc(),
+            Instant::now(),
+            Duration::from_secs(600),
+            Duration::from_secs(86_400),
+            Duration::from_secs(3_600),
+            None,
+        );
+        let jobs = state.next_jobs();
+        assert_eq!(jobs.len(), 3, "disabled scan must not appear in next_jobs");
+        assert!(jobs.iter().all(|j| j.kind != JobKind::SessionLogScan));
     }
 
     /// After `embed_last` is set, the embed job's `at` is in the future.
@@ -483,9 +554,10 @@ mod tests {
         let state_after = make_tick_state(60, 86_400, 3_600);
 
         // Stale state has embed interval of 600 s; new state has 60 s.
-        // Both produce 3 jobs; the test just confirms the rebuild doesn't panic.
-        assert_eq!(state_before.next_jobs().len(), 3);
-        assert_eq!(state_after.next_jobs().len(), 3);
+        // Both produce 4 jobs (embed/prune/ttl/scan); the test confirms the rebuild
+        // doesn't panic.
+        assert_eq!(state_before.next_jobs().len(), 4);
+        assert_eq!(state_after.next_jobs().len(), 4);
 
         // Check that intervals differ by inspecting the Duration fields directly.
         assert_eq!(state_before.embed_interval, Duration::from_secs(600));

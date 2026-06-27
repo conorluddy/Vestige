@@ -475,6 +475,9 @@ pub const DAEMON_DEFAULT_CANDIDATE_TTL_DAYS: u32 = 0;
 /// Default cadence for checking candidate TTLs: 1 hour.
 pub const DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS: u64 = 3_600;
 
+/// Default session-log scan cadence: 30 minutes. `0` disables the scheduled job. V0.5.4+.
+pub const DAEMON_DEFAULT_SESSION_LOG_SCAN_INTERVAL_SECS: u64 = 1_800;
+
 /// Default log level passed to `tracing`.
 pub const DAEMON_DEFAULT_LOG_LEVEL: &str = "info";
 
@@ -518,6 +521,9 @@ pub struct DaemonConfig {
     /// How often to check candidate TTLs, in seconds. Default: `3600` (1 hour).
     pub candidate_ttl_sweep_interval_secs: Option<u64>,
 
+    /// Session-log scan cadence in seconds; `0` disables. Default: `1800` (30 min). V0.5.4+.
+    pub session_log_scan_interval_secs: Option<u64>,
+
     /// Log level passed to `tracing` (`error`, `warn`, `info`, `debug`, `trace`).
     /// Default: `"info"`.
     pub log_level: Option<String>,
@@ -545,6 +551,8 @@ pub struct ResolvedDaemonConfig {
     pub candidate_ttl_days: u32,
     /// How often to check candidate TTLs, in seconds.
     pub candidate_ttl_sweep_interval_secs: u64,
+    /// Session-log scan cadence in seconds; `0` disables the scheduled job. V0.5.4+.
+    pub session_log_scan_interval_secs: u64,
     /// Log level passed to `tracing`.
     pub log_level: String,
     /// Path to the daemon Unix socket. `None` means use the default.
@@ -577,6 +585,9 @@ pub fn daemon_config_for(section: Option<&DaemonConfig>) -> ResolvedDaemonConfig
         candidate_ttl_sweep_interval_secs: s
             .candidate_ttl_sweep_interval_secs
             .unwrap_or(DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS),
+        session_log_scan_interval_secs: s
+            .session_log_scan_interval_secs
+            .unwrap_or(DAEMON_DEFAULT_SESSION_LOG_SCAN_INTERVAL_SECS),
         log_level: s
             .log_level
             .clone()
@@ -987,6 +998,7 @@ allow_forget             = false
             trace_prune_interval_secs: Some(43_200),
             candidate_ttl_days: Some(7),
             candidate_ttl_sweep_interval_secs: Some(1_800),
+            session_log_scan_interval_secs: Some(900),
             log_level: Some("debug".to_owned()),
             socket_path: Some("/tmp/test-daemon.sock".to_owned()),
             status_file_path: Some("/tmp/test-daemon.status.json".to_owned()),

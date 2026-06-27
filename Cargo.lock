@@ -4320,6 +4320,7 @@ dependencies = [
  "vestige-core",
  "vestige-embed",
  "vestige-engine",
+ "vestige-extract",
  "vestige-store",
 ]
 

@@ -113,6 +113,8 @@ pub enum JobKind {
     Prune,
     /// Mark overdue assimilation candidates as rejected via TTL policy.
     CandidateTtl,
+    /// Scan local session transcripts and propose candidates (V0.5.4).
+    SessionLogScan,
 }
 
 // === PUBLIC API ===

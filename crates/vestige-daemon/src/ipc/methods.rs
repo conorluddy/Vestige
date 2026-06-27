@@ -98,6 +98,9 @@ pub enum KickJob {
     Embed,
     Prune,
     Ttl,
+    /// Scan local session transcripts and propose candidates (V0.5.4). Wire name: `"scan"`.
+    #[serde(rename = "scan")]
+    ScanSessionLogs,
 }
 
 /// Result payload returned by `daemon.kick`.
@@ -338,6 +341,33 @@ async fn dispatch_kick(
                     tracing::warn!(
                         project = %pid.as_str(),
                         "kick ttl: worker disappeared between enumeration and dispatch; skipping"
+                    );
+                }
+            },
+            KickJob::ScanSessionLogs => match worker {
+                Some(w) => match w.scan_sessions().await {
+                    Ok(summary) => {
+                        drop(guard);
+                        projects_queued += 1;
+                        tracing::info!(
+                            project = %pid.as_str(),
+                            sessions_scanned = summary.sessions_scanned,
+                            candidates_proposed = summary.candidates_proposed,
+                            skipped = summary.skipped,
+                            finished_at = %summary.finished_at,
+                            "kick scan ok"
+                        );
+                    }
+                    Err(e) => {
+                        drop(guard);
+                        tracing::warn!(project = %pid.as_str(), error = %e, "kick scan failed");
+                    }
+                },
+                None => {
+                    drop(guard);
+                    tracing::warn!(
+                        project = %pid.as_str(),
+                        "kick scan: worker disappeared between enumeration and dispatch; skipping"
                     );
                 }
             },
