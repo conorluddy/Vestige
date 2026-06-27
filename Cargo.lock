@@ -4282,6 +4282,7 @@ dependencies = [
  "ulid",
  "vestige-core",
  "vestige-embed",
+ "vestige-extract",
 ]
 
 [[package]]
@@ -4354,7 +4355,21 @@ dependencies = [
  "vestige-config",
  "vestige-core",
  "vestige-embed",
+ "vestige-extract",
  "vestige-store",
+]
+
+[[package]]
+name = "vestige-extract"
+version = "0.5.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "vestige-core",
 ]
 
 [[package]]

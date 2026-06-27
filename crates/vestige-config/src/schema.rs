@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use vestige_core::ProjectId;
 use vestige_embed::EmbeddingsConfig;
+use vestige_extract::ExtractionConfig;
 
 use crate::{ConfigError, Result};
 
@@ -112,6 +113,14 @@ pub struct VestigeConfig {
     /// `None` when the section is absent — existing V0 configs stay unaffected.
     #[serde(default)]
     pub search: Option<SearchConfigSection>,
+
+    /// Optional LLM extraction provider config (TOML `[extraction]`). V0.5.4+.
+    ///
+    /// `None` when the section is absent — `vestige init` does not emit it. Used only by
+    /// daemon-mode session-log ingestion (the `session_log_scan` job) and the one-shot
+    /// `vestige scan` CLI. The agent-driven `vestige_scan_sessions` MCP tool never reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<ExtractionConfigSection>,
 
     /// Optional assimilation inbox config (TOML `[assimilation]`). V0.2+.
     ///
@@ -204,6 +213,56 @@ pub fn embeddings_config_for(section: Option<&EmbeddingsConfigSection>) -> Embed
             provider: DEFAULT_PROVIDER.into(),
             model: None,
             dimensions: None,
+        },
+    }
+}
+
+/// Default extraction backend when `[extraction]` is absent or `provider` is unset.
+///
+/// `"ollama"` (local, no API key) per the V0.5.4 PRD. Daemon mode only.
+const DEFAULT_EXTRACTION_PROVIDER: &str = "ollama";
+
+/// Configuration for the daemon-mode LLM extraction provider (`[extraction]`).
+///
+/// Mirrors [`EmbeddingsConfigSection`] exactly: every field optional, `#[serde(default)]`,
+/// round-trip-faithful. Used only by `session_log_scan` (daemon) and `vestige scan` (CLI).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+pub struct ExtractionConfigSection {
+    /// Extraction backend. `"ollama"` (default) | `"anthropic"` | `"openai"` | `"fake"`.
+    ///
+    /// `"ollama"` requires a running local Ollama daemon and a build with
+    /// `--features ollama`. `"anthropic"` / `"openai"` need the matching feature and an
+    /// API key in the environment. `"fake"` is for tests only.
+    pub provider: Option<String>,
+
+    /// Model identifier passed to the provider.
+    ///
+    /// Omit to use the provider's recommended default (e.g. `llama3.2` for ollama).
+    pub model: Option<String>,
+}
+
+/// Borrow conversion: section → runtime [`ExtractionConfig`].
+impl From<&ExtractionConfigSection> for ExtractionConfig {
+    fn from(section: &ExtractionConfigSection) -> Self {
+        ExtractionConfig {
+            provider: section
+                .provider
+                .clone()
+                .unwrap_or_else(|| DEFAULT_EXTRACTION_PROVIDER.into()),
+            model: section.model.clone(),
+        }
+    }
+}
+
+/// Build an [`ExtractionConfig`] from an optional section, defaulting to
+/// [`DEFAULT_EXTRACTION_PROVIDER`] (`ollama`) when absent.
+pub fn extraction_config_for(section: Option<&ExtractionConfigSection>) -> ExtractionConfig {
+    match section {
+        Some(s) => s.into(),
+        None => ExtractionConfig {
+            provider: DEFAULT_EXTRACTION_PROVIDER.into(),
+            model: None,
         },
     }
 }

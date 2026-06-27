@@ -37,13 +37,13 @@ pub use identity::{
 };
 pub use paths::{discover_config, read_config, storage_path_for, write_config};
 pub use schema::{
-    daemon_config_for, embeddings_config_for, traces_config_for, AssimilationConfig, CaptureMode,
-    DaemonConfig, EmbeddingsConfigSection, McpConfig, RecallConfig, ResolvedDaemonConfig,
-    SearchConfigSection, StorageConfig, TracesConfig, VestigeConfig,
-    DAEMON_DEFAULT_CANDIDATE_TTL_DAYS, DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS,
-    DAEMON_DEFAULT_EMBED_SWEEP_INTERVAL_SECS, DAEMON_DEFAULT_ENABLED, DAEMON_DEFAULT_LOG_LEVEL,
-    DAEMON_DEFAULT_TRACE_PRUNE_INTERVAL_SECS, TRACES_DEFAULT_MAX_PER_PROJECT,
-    TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES,
+    daemon_config_for, embeddings_config_for, extraction_config_for, traces_config_for,
+    AssimilationConfig, CaptureMode, DaemonConfig, EmbeddingsConfigSection,
+    ExtractionConfigSection, McpConfig, RecallConfig, ResolvedDaemonConfig, SearchConfigSection,
+    StorageConfig, TracesConfig, VestigeConfig, DAEMON_DEFAULT_CANDIDATE_TTL_DAYS,
+    DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS, DAEMON_DEFAULT_EMBED_SWEEP_INTERVAL_SECS,
+    DAEMON_DEFAULT_ENABLED, DAEMON_DEFAULT_LOG_LEVEL, DAEMON_DEFAULT_TRACE_PRUNE_INTERVAL_SECS,
+    TRACES_DEFAULT_MAX_PER_PROJECT, TRACES_DEFAULT_TRUNCATE_QUERY_TEXT_BYTES,
 };
 
 /// The in-repo config directory name. Always `.vestige`.

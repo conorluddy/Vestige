@@ -1,0 +1,30 @@
+[package]
+name = "vestige-extract"
+description = "Internal crate for Vestige — LLM extraction provider abstraction for daemon-mode session-log ingestion (V0.5.4). Deterministic fake provider always available; ollama/anthropic/openai land behind feature flags."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[features]
+default = []
+ollama = ["dep:reqwest"]
+anthropic = ["dep:reqwest"]
+openai = ["dep:reqwest"]
+
+[dependencies]
+vestige-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+reqwest = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

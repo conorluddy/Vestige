@@ -46,6 +46,7 @@ pub fn build_init_config(
         mcp: Default::default(),
         embeddings: None,
         search: None,
+        extraction: None,
         assimilation: None,
         traces: None,
         daemon: None,

@@ -17,17 +17,12 @@ use super::IngestError;
 
 /// A normalised conversational turn extracted from a coding-agent transcript.
 ///
-/// All adapters normalise their source format into this common shape so downstream
-/// processing (candidate proposal, redaction, deduplication) is source-agnostic.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NormalizedTurn {
-    /// Speaker role: `"user"`, `"assistant"`, `"system"`, or a source-specific value.
-    pub role: String,
-    /// Plain-text content of the turn. May be empty for turns with only tool-call payloads.
-    pub text: String,
-    /// 1-based line index within the source `.jsonl` file (for provenance attribution).
-    pub line: usize,
-}
+/// Defined in `vestige-core` ([`vestige_core::NormalizedTurn`]) and re-exported here
+/// so the source layer and the `vestige-extract` crate share one type without crossing
+/// the one-way crate boundary. All adapters normalise their source format into this
+/// common shape so downstream processing (candidate proposal, redaction, deduplication,
+/// LLM extraction) is source-agnostic.
+pub use vestige_core::NormalizedTurn;
 
 /// A transcript file discovered on disk, already mapped to a registered project.
 ///
