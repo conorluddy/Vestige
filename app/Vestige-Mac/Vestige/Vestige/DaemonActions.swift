@@ -67,6 +67,13 @@ final class DaemonActions {
         }
     }
 
+    /// Open `vestige browse --tab candidates` in Terminal.app (EXP-2 one-click review).
+    func reviewCandidates() {
+        guard let bin = Self.resolveBinary() else { reportMissingBinary(); return }
+        let script = "tell application \"Terminal\" to do script \"\(bin) browse --tab candidates\""
+        runAppleScript(script, success: "Opening inbox…")
+    }
+
     /// Run `vestige daemon doctor` in Terminal.app.
     func runDoctor() {
         guard let bin = Self.resolveBinary() else { reportMissingBinary(); return }

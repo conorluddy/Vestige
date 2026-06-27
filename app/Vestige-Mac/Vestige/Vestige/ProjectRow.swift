@@ -12,8 +12,9 @@ struct ProjectRow: View {
             Button(action: { isExpanded.toggle() }) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(statusColor)
+                        .fill(health.color)
                         .frame(width: 8, height: 8)
+                        .accessibilityLabel(health.label)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(project.projectName)
@@ -59,6 +60,17 @@ struct ProjectRow: View {
             detailRow("Prune", absoluteOrNever(project.lastPruneRun))
             detailRow("TTL",   absoluteOrNever(project.lastTtlRun))
 
+            // EXP-4: memory-growth sparkline (app-local history). Hidden until ≥ 2 samples.
+            let series = MemoryHistoryStore.shared.history(for: project.projectId)
+            if series.count >= 2 {
+                HStack(spacing: 8) {
+                    Text("Growth")
+                        .frame(width: 44, alignment: .leading)
+                        .foregroundStyle(.tertiary)
+                    Sparkline(values: series, color: health.color)
+                }
+            }
+
             Button {
                 let url = URL(fileURLWithPath: project.repoRoot)
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -99,17 +111,8 @@ struct ProjectRow: View {
         return memories
     }
 
-    private var statusColor: Color {
-        // Pending-embed backlog dominates: anything queued is more urgent than staleness.
-        if project.pendingEmbeds >= 10 { return .red }
-        if project.pendingEmbeds >= 1 { return .orange }
-
-        // Age-of-last-embed: amber after 7 days, hidden by inactive-collapse after 30.
-        guard let lastEmbed = project.lastEmbedRun else { return .gray }
-        let ageDays = Date().timeIntervalSince(lastEmbed) / 86_400
-        if ageDays > 7 { return .yellow }
-        return .green
-    }
+    // EXP-3: status-dot semantics live in ProjectHealth, not inline here.
+    private var health: ProjectHealth { ProjectHealth.of(project) }
 
     private func tildePath(_ path: String) -> String {
         NSString(string: path).abbreviatingWithTildeInPath

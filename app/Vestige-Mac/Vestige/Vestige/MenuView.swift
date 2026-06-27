@@ -35,6 +35,9 @@ struct MenuView: View {
         }
         .frame(width: 320)
         .padding(.vertical, 12)
+        // EXP-3: modern material backdrop for the popover. (Liquid Glass / `glassEffect`
+        // lands on macOS 26; `.regularMaterial` is the safe cross-version backdrop.)
+        .background(.regularMaterial)
         .task { watcher.start() }
     }
 
@@ -77,6 +80,9 @@ struct MenuView: View {
                 }
                 menuButton("Open Vestige window", systemImage: "macwindow", id: "open-window") {
                     openWindow(id: "workspace")
+                }
+                menuButton("Quick capture… (⌥⌘N)", systemImage: "square.and.pencil", id: "quick-capture") {
+                    openWindow(id: "quick-capture")
                 }
                 menuButton("Open browser…", systemImage: "list.bullet.rectangle", id: "open-browser") {
                     actions.openBrowser()
@@ -236,6 +242,24 @@ struct MenuView: View {
             }
 
             Divider()
+
+            // EXP-2: one-click review when there are unreviewed candidates.
+            if watcher.candidateBadge > 0 {
+                Button {
+                    actions.reviewCandidates()
+                } label: {
+                    Label("\(watcher.candidateBadge) candidate\(watcher.candidateBadge == 1 ? "" : "s") to review",
+                          systemImage: "tray.full")
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("review-candidates")
+                Divider()
+            }
 
             projectList(status.projects)
 

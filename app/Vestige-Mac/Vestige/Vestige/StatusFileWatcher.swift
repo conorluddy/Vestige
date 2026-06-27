@@ -37,6 +37,20 @@ final class StatusFileWatcher {
         }
     }
 
+    /// Monotonic counter bumped whenever a status refresh shows real work happening (EXP-1).
+    /// `VestigeApp` drives a one-shot `symbolEffect` pulse on changes to this value.
+    private(set) var activityTick: Int = 0
+
+    /// Aggregate unreviewed candidate count across all projects (EXP-2 badge). `0` ⇒ no badge.
+    var candidateBadge: Int {
+        switch state {
+        case .running(let status), .stale(let status):
+            return Int(status.projects.reduce(0) { $0 + $1.candidateCount })
+        default:
+            return 0
+        }
+    }
+
     // MARK: - Private
 
     private let statusPath: URL
@@ -140,9 +154,38 @@ final class StatusFileWatcher {
             return
         }
 
+        // EXP-1: pulse the icon when this refresh reflects real work since the last snapshot.
+        if let previous = lastDecoded, Self.activityDetected(previous: previous, next: decoded) {
+            activityTick &+= 1
+        }
+        // EXP-4: record per-project memory counts for the sparkline history.
+        MemoryHistoryStore.shared.record(decoded)
+
         lastDecoded = decoded
         lastDecodedAt = Date()
         transition(to: .running(decoded))
+    }
+
+    /// Pure diff (EXP-1): did real work happen between two snapshots? `true` when any project
+    /// completed a sweep (its `lastEmbedRun` advanced or `pendingEmbeds` dropped) or gained
+    /// candidates. No-op refreshes (identical counts) return `false`.
+    static func activityDetected(previous: DaemonStatus, next: DaemonStatus) -> Bool {
+        var prevById: [String: ProjectStatus] = [:]
+        for p in previous.projects { prevById[p.projectId] = p }
+        for p in next.projects {
+            guard let old = prevById[p.projectId] else {
+                // A newly-supervised project with content is activity.
+                if p.memoryCount > 0 || p.candidateCount > 0 { return true }
+                continue
+            }
+            if p.candidateCount > old.candidateCount { return true }
+            if p.memoryCount > old.memoryCount { return true }
+            if p.pendingEmbeds < old.pendingEmbeds { return true }
+            if let newEmbed = p.lastEmbedRun, old.lastEmbedRun.map({ newEmbed > $0 }) ?? true {
+                return true
+            }
+        }
+        return false
     }
 
     private func checkStaleness() {

@@ -28,6 +28,9 @@ struct WorkspaceView: View {
                             Divider()
                         }
                     }
+                    // EXP-5 + EXP-6: read-only memory peek (recent ticker + ⌘-search).
+                    MemoryPeekView(watcher: watcher)
+                        .padding(.top, 4)
                 case .unsupportedSchema(let version):
                     Text("App is older than the daemon (schema v\(version)). Update the app.")
                         .foregroundStyle(.red)
@@ -39,6 +42,7 @@ struct WorkspaceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(minWidth: 420, minHeight: 320)
+        .background(.regularMaterial) // EXP-3 material backdrop
         .task { watcher.start() }
     }
 
