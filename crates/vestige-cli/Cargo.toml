@@ -29,6 +29,7 @@ vestige-core.workspace = true
 vestige-store.workspace = true
 vestige-config.workspace = true
 vestige-embed.workspace = true
+vestige-extract.workspace = true
 vestige-engine.workspace = true
 vestige-mcp.workspace = true
 vestige-daemon.workspace = true
@@ -50,6 +51,10 @@ ratatui = "0.30"
 default = []
 fastembed = ["vestige-embed/fastembed"]
 ollama = ["vestige-embed/ollama"]
+# Session-log extraction backends for `vestige scan` and the daemon (V0.5.4).
+extract-ollama = ["vestige-extract/ollama", "vestige-engine/extract-ollama", "vestige-daemon/extract-ollama"]
+extract-anthropic = ["vestige-extract/anthropic", "vestige-engine/extract-anthropic", "vestige-daemon/extract-anthropic"]
+extract-openai = ["vestige-extract/openai", "vestige-engine/extract-openai", "vestige-daemon/extract-openai"]
 
 [dev-dependencies]
 tempfile.workspace = true

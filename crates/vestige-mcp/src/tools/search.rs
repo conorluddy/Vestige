@@ -189,6 +189,7 @@ fn engine_err_to_data(e: EngineError) -> ErrorData {
         EngineError::Validation { .. } => err("VALIDATION_ERROR", e.to_string(), false),
         EngineError::Core(_) => err("CORE_ERROR", e.to_string(), false),
         EngineError::TraceNotFound { .. } => err("TRACE_NOT_FOUND", e.to_string(), false),
+        EngineError::Ingest(_) => err("INGEST_FAILED", e.to_string(), true),
     }
 }
 

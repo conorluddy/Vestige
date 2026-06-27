@@ -5,23 +5,148 @@ import AppKit
 
 struct MenuView: View {
     var watcher: StatusFileWatcher
+    var actions: DaemonActions
+    var loginItem: LoginItemController
     @State private var copied = false
     @State private var showInactive = false
+    @Environment(\.openWindow) private var openWindow
 
     private static let inactiveThreshold: TimeInterval = 30 * 24 * 60 * 60  // 30 days
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             stateBody
+            controlsSection
+            if let message = actions.lastMessage {
+                Divider()
+                Label(message, systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .accessibilityIdentifier("toast")
+            }
             Divider()
             Button("Quit Vestige") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .accessibilityIdentifier("quit")
         }
         .frame(width: 320)
         .padding(.vertical, 12)
+        // EXP-3: modern material backdrop for the popover. (Liquid Glass / `glassEffect`
+        // lands on macOS 26; `.regularMaterial` is the safe cross-version backdrop.)
+        .background(.regularMaterial)
         .task { watcher.start() }
+    }
+
+    // MARK: - Controls (V0.5.2)
+
+    /// Action + settings controls, shown only when the daemon is running.
+    @ViewBuilder
+    private var controlsSection: some View {
+        if let status = currentStatus {
+            Divider().padding(.top, 4)
+            VStack(alignment: .leading, spacing: 4) {
+                menuButton("Kick embed sweep now", systemImage: "bolt", id: "kick-embed") {
+                    actions.kickEmbed()
+                }
+                menuButton("Scan sessions now", systemImage: "doc.text.magnifyingglass", id: "kick-scan") {
+                    actions.kickScan()
+                }
+
+                if status.isPaused {
+                    menuButton("Resume", systemImage: "play.circle", id: "resume") {
+                        actions.resume()
+                    }
+                } else {
+                    Menu {
+                        Button("For 1 hour") { actions.pause(for: 3600, label: "for 1 hour") }
+                            .accessibilityIdentifier("pause-1h")
+                        Button("Until tomorrow morning") { actions.pauseUntilMorning() }
+                            .accessibilityIdentifier("pause-morning")
+                    } label: {
+                        Label("Pause…", systemImage: "pause.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .accessibilityIdentifier("pause-menu")
+                }
+
+                menuButton("Reload config", systemImage: "arrow.clockwise", id: "reload") {
+                    actions.reloadConfig()
+                }
+                menuButton("Open Vestige window", systemImage: "macwindow", id: "open-window") {
+                    openWindow(id: "workspace")
+                }
+                menuButton("Quick capture… (⌥⌘N)", systemImage: "square.and.pencil", id: "quick-capture") {
+                    openWindow(id: "quick-capture")
+                }
+                menuButton("Open browser…", systemImage: "list.bullet.rectangle", id: "open-browser") {
+                    actions.openBrowser()
+                }
+                menuButton("Open daemon log…", systemImage: "doc.plaintext", id: "open-log") {
+                    actions.openLog()
+                }
+                menuButton("Run doctor…", systemImage: "stethoscope", id: "doctor") {
+                    actions.runDoctor()
+                }
+
+                Divider().padding(.vertical, 2)
+
+                Toggle(isOn: daemonEnabledBinding) {
+                    Text("Daemon enabled").font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .padding(.horizontal, 12)
+                .accessibilityIdentifier("daemon-toggle")
+
+                Toggle(isOn: loginItemBinding) {
+                    Text("Start at login").font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .padding(.horizontal, 12)
+                .accessibilityIdentifier("login-toggle")
+            }
+            .disabled(actions.isBusy)
+        }
+    }
+
+    private func menuButton(_ title: String, systemImage: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .accessibilityIdentifier(id)
+    }
+
+    private var currentStatus: DaemonStatus? {
+        switch watcher.state {
+        case .running(let s), .stale(let s): return s
+        default: return nil
+        }
+    }
+
+    private var daemonEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { currentStatus != nil },
+            set: { enabled in enabled ? actions.enableDaemon() : actions.disableDaemon() }
+        )
+    }
+
+    private var loginItemBinding: Binding<Bool> {
+        Binding(
+            get: { loginItem.isEnabled },
+            set: { loginItem.setEnabled($0) }
+        )
     }
 
     // MARK: - State bodies
@@ -99,6 +224,15 @@ struct MenuView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 2)
 
+            if status.isPaused, let until = status.pausedUntil {
+                Label("Paused · resumes \(RelativeTime.short(from: until))", systemImage: "pause.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                    .accessibilityIdentifier("pause-affordance")
+            }
+
             if let aggregate = aggregateLine(status: status) {
                 Text(aggregate)
                     .font(.caption)
@@ -108,6 +242,24 @@ struct MenuView: View {
             }
 
             Divider()
+
+            // EXP-2: one-click review when there are unreviewed candidates.
+            if watcher.candidateBadge > 0 {
+                Button {
+                    actions.reviewCandidates()
+                } label: {
+                    Label("\(watcher.candidateBadge) candidate\(watcher.candidateBadge == 1 ? "" : "s") to review",
+                          systemImage: "tray.full")
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("review-candidates")
+                Divider()
+            }
 
             projectList(status.projects)
 

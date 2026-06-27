@@ -51,6 +51,16 @@ pub struct InitArgs {
     /// (`.agents/skills/`).
     #[arg(long, value_enum, default_value_t = SkillsTarget::Both)]
     pub skills_target: SkillsTarget,
+
+    /// Suppress the macOS menu-bar app boot prompt (V0.5.2). Always implied in
+    /// agent / CI / non-TTY contexts; this flag opts out explicitly.
+    #[arg(long)]
+    pub no_ui: bool,
+
+    /// Accept the menu-bar app boot prompt non-interactively (macOS only, for
+    /// scripted *human* setup). No effect in agent / CI contexts.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// Initialise (or re-confirm) Vestige for the current repository.
@@ -239,6 +249,9 @@ pub fn run(args: InitArgs) -> Result<()> {
             if is_fresh {
                 print_next_steps();
             }
+            // V0.5.2: offer to boot the macOS menu-bar app. Strictly gated — silent in
+            // agent / CI / non-TTY / non-macOS contexts (see commands::ui::decide_boot).
+            crate::commands::ui::maybe_offer_boot(args.no_ui, args.yes);
             Ok(())
         }
     }

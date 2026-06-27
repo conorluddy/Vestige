@@ -37,6 +37,13 @@ pub enum EngineError {
     #[error("embed: {0}")]
     Embed(#[from] vestige_embed::EmbedError),
 
+    /// Session-log ingestion (discovery / transcript read) failed.
+    ///
+    /// Transient I/O failures during a session scan. Per-session extraction
+    /// failures are handled inside the scan (warn + skip) and do not surface here.
+    #[error("ingest: {0}")]
+    Ingest(#[from] crate::ingest::IngestError),
+
     /// Embeddings are unavailable for the requested mode.
     ///
     /// Distinct from an in-band warning: this variant is raised only when the

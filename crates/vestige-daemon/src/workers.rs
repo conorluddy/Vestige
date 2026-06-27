@@ -70,6 +70,13 @@ pub enum WorkerCommand {
         ttl_days: u32,
         reply: oneshot::Sender<Result<TtlSummary, DaemonError>>,
     },
+    /// Scan this project's local session transcripts and propose candidates (V0.5.4).
+    ///
+    /// Builds the configured `[extraction]` provider from the project's
+    /// `.vestige/config.toml`. When the provider is unavailable (not configured, or its
+    /// feature flag is absent in this build), the scan is a **no-op** with `skipped = true`
+    /// — it never dumps raw turns as candidates.
+    ScanSessionLogs(oneshot::Sender<Result<ScanSummary, DaemonError>>),
     /// Graceful drain — worker loops until this is received, then exits.
     Shutdown(oneshot::Sender<()>),
 }
@@ -105,6 +112,19 @@ pub struct TtlSummary {
     pub finished_at: String,
     /// The TTL setting used for this run. `0` means the job was a no-op.
     pub ttl_days: u32,
+}
+
+/// Summary returned after a session-log scan completes.
+#[derive(Debug, Clone)]
+pub struct ScanSummary {
+    /// Candidates proposed into the inbox this run.
+    pub candidates_proposed: u64,
+    /// In-scope sessions inspected this run.
+    pub sessions_scanned: u64,
+    /// RFC-3339 timestamp when the scan finished.
+    pub finished_at: String,
+    /// `true` when no extraction provider was available, so the scan was a no-op.
+    pub skipped: bool,
 }
 
 /// Point-in-time snapshot of a project's worker state.
@@ -274,6 +294,28 @@ impl ProjectWorker {
             reply: reply_tx,
         })
         .await?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::ProjectNotRegistered {
+                project_id: self.project_id.as_str().to_string(),
+            })?
+    }
+
+    /// Send a [`WorkerCommand::ScanSessionLogs`] and await the reply.
+    ///
+    /// Scans the project's local Claude Code / Codex transcripts past their watermarks,
+    /// extracts candidates via the configured `[extraction]` provider, and proposes them
+    /// through the V0.2 inbox. Returns a no-op summary (`skipped = true`) when no provider
+    /// is available.
+    ///
+    /// # Errors
+    ///
+    /// - [`DaemonError::ProjectNotRegistered`] — channel closed.
+    /// - [`DaemonError::JobFailed`] — discovery / transcript-read / store failure.
+    pub async fn scan_sessions(&self) -> Result<ScanSummary, DaemonError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send_command(WorkerCommand::ScanSessionLogs(reply_tx))
+            .await?;
         reply_rx
             .await
             .map_err(|_| DaemonError::ProjectNotRegistered {
@@ -517,6 +559,9 @@ fn run_worker(
                     }
                 }
             }
+            WorkerCommand::ScanSessionLogs(reply) => {
+                let _ = reply.send(run_session_scan(&mut store, &project_id, &repo_root));
+            }
             WorkerCommand::Shutdown(reply) => {
                 let _ = reply.send(());
                 break;
@@ -603,6 +648,92 @@ fn compute_snapshot(
     }
 }
 
+/// Run one session-log scan for this project inside the worker thread.
+///
+/// Builds the default session sources and the project's configured `[extraction]`
+/// provider, then delegates to [`vestige_engine::scan_and_propose`]. When no provider is
+/// available (unconfigured or feature-gated out), returns a no-op summary with
+/// `skipped = true` rather than an error — passive ingestion stays opt-in and never dumps
+/// raw turns.
+fn run_session_scan(
+    store: &mut Store,
+    project_id: &ProjectId,
+    repo_root: &Path,
+) -> Result<ScanSummary, DaemonError> {
+    let sources = vestige_engine::build_sources().map_err(|e| DaemonError::JobFailed {
+        job: "session_log_scan".into(),
+        reason: e.to_string(),
+    })?;
+
+    let Some(provider) = build_extraction_provider(repo_root, project_id) else {
+        return Ok(ScanSummary {
+            candidates_proposed: 0,
+            sessions_scanned: 0,
+            finished_at: now_rfc3339(),
+            skipped: true,
+        });
+    };
+
+    match vestige_engine::scan_and_propose(
+        &sources,
+        store,
+        project_id,
+        provider.as_ref(),
+        &vestige_engine::ScanOptions::default(),
+    ) {
+        Ok(report) => Ok(ScanSummary {
+            candidates_proposed: report.candidates_proposed as u64,
+            sessions_scanned: report.sessions_scanned as u64,
+            finished_at: now_rfc3339(),
+            skipped: false,
+        }),
+        Err(e) => Err(DaemonError::JobFailed {
+            job: "session_log_scan".into(),
+            reason: e.to_string(),
+        }),
+    }
+}
+
+/// Build the project's configured extraction provider from its `.vestige/config.toml`.
+///
+/// Returns `None` (the no-op signal) when the provider cannot be built — e.g. the default
+/// `ollama` backend in a build without `--features extract-ollama`, or an unknown provider
+/// name. Mirrors `registry::build_project_provider` for embeddings.
+fn build_extraction_provider(
+    repo_root: &Path,
+    project_id: &ProjectId,
+) -> Option<Box<dyn vestige_extract::ExtractionProvider>> {
+    let config_path = repo_root
+        .join(vestige_config::CONFIG_DIR)
+        .join(vestige_config::CONFIG_FILE);
+
+    let cfg = match vestige_config::read_config(&config_path) {
+        Ok(c) => vestige_config::extraction_config_for(c.extraction.as_ref()),
+        Err(_) => vestige_config::extraction_config_for(None),
+    };
+
+    match vestige_extract::build_provider(&cfg) {
+        Ok(p) => {
+            info!(
+                project = %project_id.as_str(),
+                provider = p.provider_name(),
+                model = p.model_name(),
+                "session scan using configured extraction provider"
+            );
+            Some(p)
+        }
+        Err(e) => {
+            warn!(
+                project = %project_id.as_str(),
+                provider = %cfg.provider,
+                error = %e,
+                "extraction provider unavailable; session scan is a no-op (rebuild with --features extract-<provider>)"
+            );
+            None
+        }
+    }
+}
+
 /// Return the current UTC time as an RFC-3339 string.
 ///
 /// Used to stamp `last_embed_run` and similar fields inside the worker thread,
@@ -643,6 +774,9 @@ fn drain_command_with_error(cmd: WorkerCommand, err: DaemonError) {
             let _ = reply.send(Err(err));
         }
         WorkerCommand::Ttl { reply, .. } => {
+            let _ = reply.send(Err(err));
+        }
+        WorkerCommand::ScanSessionLogs(reply) => {
             let _ = reply.send(Err(err));
         }
         WorkerCommand::Shutdown(reply) => {
@@ -1024,6 +1158,40 @@ mod tests {
                 Some(known_ts.to_string()),
                 "worker must hydrate last_embed_run from the store on startup"
             );
+            worker.shutdown().await.expect("shutdown ok");
+        });
+    }
+
+    #[test]
+    fn scan_sessions_noops_without_extraction_provider() {
+        // A project whose repo_root has no `[extraction]` config resolves to the default
+        // `ollama` provider, which is feature-gated out of the test build → the scan must be
+        // a no-op (`skipped = true`), never an error and never a candidate.
+        let rt = Runtime::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("memory.sqlite");
+        let repo_root = tmp.path().join("repo"); // no .vestige/config.toml here
+
+        let project_id = ProjectId::from_slug("test-scan-noop");
+        {
+            let mut store = Store::open_with_busy_timeout(&db_path, 5000).unwrap();
+            seed_project(&mut store, &project_id);
+        }
+
+        let worker = ProjectWorker::spawn(
+            project_id,
+            "Scan No-op".to_string(),
+            repo_root,
+            db_path,
+            5000,
+            fake_provider(),
+        )
+        .expect("worker spawns");
+
+        rt.block_on(async move {
+            let summary = worker.scan_sessions().await.expect("scan returns Ok");
+            assert!(summary.skipped, "scan must be a no-op without a provider");
+            assert_eq!(summary.candidates_proposed, 0);
             worker.shutdown().await.expect("shutdown ok");
         });
     }

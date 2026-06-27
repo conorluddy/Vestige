@@ -18,6 +18,7 @@ vestige-store.workspace = true
 vestige-config.workspace = true
 vestige-engine.workspace = true
 vestige-embed.workspace = true
+vestige-extract.workspace = true
 tokio = { workspace = true, features = ["signal", "net", "io-util", "time", "fs"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true }
@@ -34,6 +35,10 @@ time = { workspace = true }
 default = []
 fastembed = ["vestige-embed/fastembed"]
 ollama = ["vestige-embed/ollama"]
+# Daemon-mode session-log extraction backends (V0.5.4).
+extract-ollama = ["vestige-extract/ollama", "vestige-engine/extract-ollama"]
+extract-anthropic = ["vestige-extract/anthropic", "vestige-engine/extract-anthropic"]
+extract-openai = ["vestige-extract/openai", "vestige-engine/extract-openai"]
 
 [dev-dependencies]
 tempfile.workspace = true

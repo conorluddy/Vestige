@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use vestige_core::ProjectId;
 use vestige_embed::EmbeddingsConfig;
+use vestige_extract::ExtractionConfig;
 
 use crate::{ConfigError, Result};
 
@@ -112,6 +113,14 @@ pub struct VestigeConfig {
     /// `None` when the section is absent — existing V0 configs stay unaffected.
     #[serde(default)]
     pub search: Option<SearchConfigSection>,
+
+    /// Optional LLM extraction provider config (TOML `[extraction]`). V0.5.4+.
+    ///
+    /// `None` when the section is absent — `vestige init` does not emit it. Used only by
+    /// daemon-mode session-log ingestion (the `session_log_scan` job) and the one-shot
+    /// `vestige scan` CLI. The agent-driven `vestige_scan_sessions` MCP tool never reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<ExtractionConfigSection>,
 
     /// Optional assimilation inbox config (TOML `[assimilation]`). V0.2+.
     ///
@@ -204,6 +213,56 @@ pub fn embeddings_config_for(section: Option<&EmbeddingsConfigSection>) -> Embed
             provider: DEFAULT_PROVIDER.into(),
             model: None,
             dimensions: None,
+        },
+    }
+}
+
+/// Default extraction backend when `[extraction]` is absent or `provider` is unset.
+///
+/// `"ollama"` (local, no API key) per the V0.5.4 PRD. Daemon mode only.
+const DEFAULT_EXTRACTION_PROVIDER: &str = "ollama";
+
+/// Configuration for the daemon-mode LLM extraction provider (`[extraction]`).
+///
+/// Mirrors [`EmbeddingsConfigSection`] exactly: every field optional, `#[serde(default)]`,
+/// round-trip-faithful. Used only by `session_log_scan` (daemon) and `vestige scan` (CLI).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+pub struct ExtractionConfigSection {
+    /// Extraction backend. `"ollama"` (default) | `"anthropic"` | `"openai"` | `"fake"`.
+    ///
+    /// `"ollama"` requires a running local Ollama daemon and a build with
+    /// `--features ollama`. `"anthropic"` / `"openai"` need the matching feature and an
+    /// API key in the environment. `"fake"` is for tests only.
+    pub provider: Option<String>,
+
+    /// Model identifier passed to the provider.
+    ///
+    /// Omit to use the provider's recommended default (e.g. `llama3.2` for ollama).
+    pub model: Option<String>,
+}
+
+/// Borrow conversion: section → runtime [`ExtractionConfig`].
+impl From<&ExtractionConfigSection> for ExtractionConfig {
+    fn from(section: &ExtractionConfigSection) -> Self {
+        ExtractionConfig {
+            provider: section
+                .provider
+                .clone()
+                .unwrap_or_else(|| DEFAULT_EXTRACTION_PROVIDER.into()),
+            model: section.model.clone(),
+        }
+    }
+}
+
+/// Build an [`ExtractionConfig`] from an optional section, defaulting to
+/// [`DEFAULT_EXTRACTION_PROVIDER`] (`ollama`) when absent.
+pub fn extraction_config_for(section: Option<&ExtractionConfigSection>) -> ExtractionConfig {
+    match section {
+        Some(s) => s.into(),
+        None => ExtractionConfig {
+            provider: DEFAULT_EXTRACTION_PROVIDER.into(),
+            model: None,
         },
     }
 }
@@ -416,6 +475,9 @@ pub const DAEMON_DEFAULT_CANDIDATE_TTL_DAYS: u32 = 0;
 /// Default cadence for checking candidate TTLs: 1 hour.
 pub const DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS: u64 = 3_600;
 
+/// Default session-log scan cadence: 30 minutes. `0` disables the scheduled job. V0.5.4+.
+pub const DAEMON_DEFAULT_SESSION_LOG_SCAN_INTERVAL_SECS: u64 = 1_800;
+
 /// Default log level passed to `tracing`.
 pub const DAEMON_DEFAULT_LOG_LEVEL: &str = "info";
 
@@ -459,6 +521,9 @@ pub struct DaemonConfig {
     /// How often to check candidate TTLs, in seconds. Default: `3600` (1 hour).
     pub candidate_ttl_sweep_interval_secs: Option<u64>,
 
+    /// Session-log scan cadence in seconds; `0` disables. Default: `1800` (30 min). V0.5.4+.
+    pub session_log_scan_interval_secs: Option<u64>,
+
     /// Log level passed to `tracing` (`error`, `warn`, `info`, `debug`, `trace`).
     /// Default: `"info"`.
     pub log_level: Option<String>,
@@ -486,6 +551,8 @@ pub struct ResolvedDaemonConfig {
     pub candidate_ttl_days: u32,
     /// How often to check candidate TTLs, in seconds.
     pub candidate_ttl_sweep_interval_secs: u64,
+    /// Session-log scan cadence in seconds; `0` disables the scheduled job. V0.5.4+.
+    pub session_log_scan_interval_secs: u64,
     /// Log level passed to `tracing`.
     pub log_level: String,
     /// Path to the daemon Unix socket. `None` means use the default.
@@ -518,6 +585,9 @@ pub fn daemon_config_for(section: Option<&DaemonConfig>) -> ResolvedDaemonConfig
         candidate_ttl_sweep_interval_secs: s
             .candidate_ttl_sweep_interval_secs
             .unwrap_or(DAEMON_DEFAULT_CANDIDATE_TTL_SWEEP_INTERVAL_SECS),
+        session_log_scan_interval_secs: s
+            .session_log_scan_interval_secs
+            .unwrap_or(DAEMON_DEFAULT_SESSION_LOG_SCAN_INTERVAL_SECS),
         log_level: s
             .log_level
             .clone()
@@ -928,6 +998,7 @@ allow_forget             = false
             trace_prune_interval_secs: Some(43_200),
             candidate_ttl_days: Some(7),
             candidate_ttl_sweep_interval_secs: Some(1_800),
+            session_log_scan_interval_secs: Some(900),
             log_level: Some("debug".to_owned()),
             socket_path: Some("/tmp/test-daemon.sock".to_owned()),
             status_file_path: Some("/tmp/test-daemon.status.json".to_owned()),
