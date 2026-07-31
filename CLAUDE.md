@@ -32,9 +32,14 @@ cargo test
 cargo test -p vestige-store ensure_project_idempotent
 cargo test -p vestige-core representations::tests::
 
-# Lint + format (must pass before PR)
-cargo clippy --all-targets --all-features -- -D warnings
+# Lint + format (must pass before PR — matches CI exactly)
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+
+# Only if you touched vestige-embed (the sole crate with #[cfg(feature = ...)] code).
+# Workspace-wide --all-features forces ~36 of 46 test binaries to link ONNX Runtime,
+# tokenizers and a C++ build script they never use at runtime — minutes vs. seconds.
+cargo clippy -p vestige-embed --all-features --all-targets -- -D warnings
 
 # Run the CLI from source.
 # Note: package name is `vestige` (in crates/vestige-cli/Cargo.toml); the directory

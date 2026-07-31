@@ -393,7 +393,7 @@ V0.5 (Daemon Runtime, PRs #87/#89), V0.5.1 (macOS menu-bar app, PR #90), and V0.
 ```bash
 cargo build
 cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
