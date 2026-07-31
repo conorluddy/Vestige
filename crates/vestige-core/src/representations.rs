@@ -11,6 +11,13 @@ use crate::types::RepresentationDepth;
 /// Title is capped at 60 chars to fit in list views and agent summaries.
 const MAX_TITLE_CHARS: usize = 60;
 
+/// One-liner cap for run-on bodies with no sentence terminator. `first_sentence`
+/// falls back to the entire body when it finds no `!?.\n`, so without this cap
+/// a terminator-free body of any length would produce an unbounded `one_liner`.
+/// Properly terminated sentences are never capped here, even if longer than
+/// this — only the unterminated fallback case is.
+const MAX_ONE_LINER_CHARS: usize = 240;
+
 /// Output of [`derive()`] — the four text representations and a derived title.
 ///
 /// The title is a display-only label (≤ 60 chars) and is **not** one of the
@@ -21,6 +28,8 @@ pub struct DerivedRepresentations {
     /// Derived from the first sentence of the body.
     pub title: String,
     /// First sentence of the body, trimmed. Maps to [`RepresentationDepth::OneLiner`].
+    /// Capped at [`MAX_ONE_LINER_CHARS`] (word-boundary truncated) when the
+    /// body has no sentence terminator at all.
     pub one_liner: String,
     /// Full trimmed body. Maps to [`RepresentationDepth::Summary`].
     pub summary: String,
@@ -40,7 +49,7 @@ pub struct DerivedRepresentations {
 pub fn derive(body: &str) -> DerivedRepresentations {
     let trimmed = body.trim();
     let title = derive_title(trimmed);
-    let one_liner = first_sentence(trimmed).to_string();
+    let one_liner = cap_one_liner(first_sentence(trimmed), trimmed);
     DerivedRepresentations {
         title,
         one_liner,
@@ -62,6 +71,20 @@ pub fn depth_pick(d: RepresentationDepth, r: &DerivedRepresentations) -> &str {
 }
 
 // === PRIVATE HELPERS ===
+
+/// Cap `sentence` at [`MAX_ONE_LINER_CHARS`] when `first_sentence` fell back
+/// to the entire (unterminated) body — recognised by `sentence` being exactly
+/// as long as `trimmed_body` in bytes, which only happens when no terminator
+/// was found. A properly terminated sentence is always strictly shorter than
+/// `trimmed_body` (it excludes at least the terminator) and is left untouched.
+fn cap_one_liner(sentence: &str, trimmed_body: &str) -> String {
+    let is_unterminated_fallback = sentence.len() == trimmed_body.len();
+    if is_unterminated_fallback && sentence.chars().count() > MAX_ONE_LINER_CHARS {
+        truncate_at_word(sentence, MAX_ONE_LINER_CHARS)
+    } else {
+        sentence.to_string()
+    }
+}
 
 /// Produce a title ≤ `MAX_TITLE_CHARS` chars from the body's first sentence,
 /// truncating at the last word boundary that fits.
@@ -98,8 +121,11 @@ fn first_sentence(body: &str) -> &str {
 
 /// Truncate `s` at the last complete word boundary that keeps the result
 /// ≤ `max_chars` Unicode codepoints. Falls back to a hard codepoint cut for
-/// a single oversized word.
-fn truncate_at_word(s: &str, max_chars: usize) -> String {
+/// a single oversized word. Never splits a UTF-8 codepoint. Shared by
+/// [`derive_title`], [`cap_one_liner`], and callers outside this crate
+/// (e.g. `vestige-cli`'s inbox listing) that need the same word/char-safe
+/// truncation.
+pub fn truncate_at_word(s: &str, max_chars: usize) -> String {
     let mut out = String::new();
     let mut count = 0usize;
     for word in s.split_whitespace() {
@@ -170,5 +196,35 @@ mod tests {
     fn exclamation_still_terminates() {
         let d = derive("Whoa! Second part.");
         assert_eq!(d.one_liner, "Whoa");
+    }
+
+    #[test]
+    fn run_on_body_without_terminator_caps_one_liner_at_word_boundary() {
+        // No `!?.\n` anywhere, so `first_sentence` falls back to the whole
+        // body. Build a body over 240 chars purely from whitespace-separated
+        // words so the cap must engage.
+        let body = "word ".repeat(80); // 400 chars, no terminator
+        let d = derive(&body);
+        assert!(
+            d.one_liner.chars().count() <= MAX_ONE_LINER_CHARS,
+            "one_liner must be capped at {MAX_ONE_LINER_CHARS} chars, got {}",
+            d.one_liner.chars().count()
+        );
+        assert!(
+            !d.one_liner.ends_with(' '),
+            "capped one_liner must not end with a partial trailing word/space"
+        );
+        assert!(
+            body.starts_with(&d.one_liner),
+            "capped one_liner must be a clean word-boundary prefix of the body"
+        );
+    }
+
+    #[test]
+    fn terminated_body_under_cap_is_unaffected_by_one_liner_cap() {
+        // Sanity: a normal terminated sentence well under the cap is not
+        // touched by the new capping logic at all.
+        let d = derive("First sentence. Second sentence with more detail.");
+        assert_eq!(d.one_liner, "First sentence");
     }
 }

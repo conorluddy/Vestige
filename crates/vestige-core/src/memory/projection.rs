@@ -101,28 +101,13 @@ pub fn pick_representation(
 fn derive_title_from_one_liner(one_liner: &str) -> String {
     // The one-liner is already short enough by construction (first sentence).
     // Re-using `derive` would re-enter the title-truncation rule, so keep it
-    // direct here — same MAX as `representations::derive`.
+    // direct here — same MAX and same shared `truncate_at_word` as
+    // `representations::derive_title`.
     const MAX: usize = 60;
     if one_liner.chars().count() <= MAX {
         return one_liner.to_string();
     }
-    let mut out = String::new();
-    let mut count = 0usize;
-    for word in one_liner.split_whitespace() {
-        let prospective = count + word.chars().count() + if out.is_empty() { 0 } else { 1 };
-        if prospective > MAX {
-            break;
-        }
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(word);
-        count = prospective;
-    }
-    if out.is_empty() {
-        out.extend(one_liner.chars().take(MAX));
-    }
-    out
+    crate::representations::truncate_at_word(one_liner, MAX)
 }
 
 #[cfg(test)]
@@ -157,6 +142,25 @@ mod tests {
         assert!(!card.title.is_empty());
         assert!(!card.one_liner.is_empty());
         assert_eq!(card.available_depths.len(), 4);
+    }
+
+    #[test]
+    fn derive_title_from_one_liner_matches_representations_derive_title() {
+        // Both call the same shared `truncate_at_word` — assert identical
+        // output for identical input to prove the dedup is behaviour-preserving.
+        let cases = [
+            "Short one liner",
+            "This is a very long one liner that definitely exceeds the sixty character title limit by a wide margin",
+            "supercalifragilisticexpialidocioussupercalifragilisticexpialidocious",
+        ];
+        for case in cases {
+            let from_one_liner = derive_title_from_one_liner(case);
+            let from_representations = crate::representations::derive(case).title;
+            assert_eq!(
+                from_one_liner, from_representations,
+                "derive_title_from_one_liner and representations::derive_title must agree for {case:?}"
+            );
+        }
     }
 
     #[test]
