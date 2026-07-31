@@ -53,8 +53,20 @@ impl VestigeServer {
                 + Self::list_candidates_router()
                 + Self::get_candidate_router()
                 + Self::trace_router()
-                + Self::scan_sessions_router(),
+                + Self::scan_sessions_router()
+                + Self::revise_memory_router(),
         }
+    }
+
+    /// Whether `name` is registered on this server's tool router.
+    ///
+    /// Exists so smoke tests can assert the agent-facing tool surface without
+    /// reaching through `ServerHandler::list_tools`, which needs a full
+    /// `RequestContext` to call. The MCP tool list is a contract with agents —
+    /// a tool silently failing to register is exactly the kind of drift worth
+    /// a cheap assertion.
+    pub fn has_tool(&self, name: &str) -> bool {
+        self.tool_router.has_route(name)
     }
 }
 

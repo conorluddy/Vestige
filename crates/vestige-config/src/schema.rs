@@ -333,6 +333,15 @@ pub struct McpConfig {
     /// to call `vestige_propose_candidate`.
     #[serde(default)]
     pub allow_scan_sessions: bool,
+
+    /// Permit the `vestige_revise_memory` MCP tool (in-place content revision). Default: `true`.
+    ///
+    /// On by default — same precedent as `allow_record_decision`: an explicit, intentional,
+    /// journaled write. The agent that discovers a memory has gone stale mid-session is the
+    /// primary consumer of revise, so friction-free access matters more than for passive
+    /// capture like `allow_scan_sessions`. `--read-only` blocks regardless of this flag.
+    #[serde(default = "default_true")]
+    pub allow_revise: bool,
 }
 
 impl Default for McpConfig {
@@ -345,6 +354,7 @@ impl Default for McpConfig {
             allow_candidate_approval: false,
             allow_candidate_rejection: false,
             allow_scan_sessions: false,
+            allow_revise: true,
         }
     }
 }
@@ -736,6 +746,50 @@ allow_forget             = false
         assert!(config.mcp.allow_propose_candidate);
         assert!(!config.mcp.allow_candidate_approval);
         assert!(!config.mcp.allow_candidate_rejection);
+    }
+
+    #[test]
+    fn allow_revise_defaults_to_true() {
+        assert!(
+            McpConfig::default().allow_revise,
+            "allow_revise must default to true — precedent is allow_record_decision"
+        );
+    }
+
+    #[test]
+    fn allow_revise_defaults_to_true_with_no_mcp_section_at_all() {
+        // A config with no [mcp] section whatsoever must still enable revise —
+        // the `mcp` field on VestigeConfig is itself #[serde(default)].
+        const NO_MCP_SECTION_TOML: &str = r#"
+project_id   = "proj_test"
+project_name = "Test Project"
+
+[storage]
+mode = "user_data"
+path = "~/.vestige/projects/proj_test/memory.sqlite"
+
+[recall]
+default_depth              = "one_liner"
+max_results                = 8
+include_global_preferences = false
+"#;
+        let config: VestigeConfig =
+            toml::from_str(NO_MCP_SECTION_TOML).expect("must parse without [mcp] section");
+        assert!(config.mcp.allow_revise);
+    }
+
+    #[test]
+    fn allow_revise_deserialises_from_v0_toml_without_the_field() {
+        // A V0 [mcp] section predates allow_revise — it must still default to true.
+        let config: VestigeConfig = toml::from_str(V0_TOML).expect("V0 TOML must parse");
+        assert!(config.mcp.allow_revise);
+    }
+
+    #[test]
+    fn allow_revise_false_disables_via_explicit_config() {
+        let toml_str = format!("{V0_TOML}allow_revise = false\n");
+        let config: VestigeConfig = toml::from_str(&toml_str).expect("must parse");
+        assert!(!config.mcp.allow_revise);
     }
 
     // ─────────────────────────────────────────────────────────────────
