@@ -127,16 +127,13 @@ fn supersede_full_lifecycle_remember_search_why_restore() {
         "record output must echo the supersede link"
     );
 
-    // search: A gone, B present
-    let out = vestige(
-        &repo,
-        &[
-            "search",
-            "daemon LaunchAgent systemd",
-            "--lexical",
-            "--json",
-        ],
-    );
+    // search: A gone, B present.
+    //
+    // The query must match *both* memories for this assertion to mean
+    // anything — otherwise "A is absent" passes trivially because A never
+    // matched. FTS5 ANDs bare terms, so a query naming a token unique to one
+    // memory (`LaunchAgent`, `systemd`) matches neither. "daemon" is in both.
+    let out = vestige(&repo, &["search", "daemon", "--lexical", "--json"]);
     assert_ok(&out, "search after supersede");
     let json = parse_json(&out, "search json");
     let ids: Vec<&str> = json["results"]
