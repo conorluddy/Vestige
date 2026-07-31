@@ -2,6 +2,12 @@
 //!
 //! Both methods validate `status = 'pending'` before mutating. Either one failing
 //! returns a `StoreError::Corruption` mapping to the `CandidateNotPending` semantic.
+//!
+//! TODO(#130): migrate these guards to the typed `StoreError::NotFound` /
+//! `StoreError::Validation` variants introduced for `revise_memory`. Encoding
+//! a caller-fixable precondition as `Corruption` misreports it to the MCP
+//! boundary, where `StoreError` becomes the agent-facing `{code, message,
+//! retryable}` contract. Left as-is here to keep #130's diff scoped.
 //! The `candidate_fts_after_update` trigger (migration 0004) removes the FTS row
 //! automatically when status leaves `'pending'` — no explicit cleanup here.
 

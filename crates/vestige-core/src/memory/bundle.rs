@@ -191,7 +191,13 @@ fn validate_input(input: &NewMemory<'_>) -> Result<()> {
 }
 
 /// SHA-256 of `s`, truncated to the first 16 bytes, hex-encoded (32 chars).
-fn hash(s: &str) -> String {
+///
+/// `pub` (re-exported at [`crate::memory::hash`]) so `vestige-store` can
+/// recompute a representation's `content_hash` on revision (issue #130)
+/// without duplicating the hashing scheme. Every other caller of this
+/// algorithm — [`build_representation_rows`] included — must keep going
+/// through this one function.
+pub fn hash(s: &str) -> String {
     let digest = Sha256::digest(s.as_bytes());
     hex::encode(&digest[..16])
 }

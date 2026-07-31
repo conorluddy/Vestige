@@ -25,7 +25,8 @@
 //!
 //! - `mod.rs` — shared `row_to_memory` private helper used by every read path.
 //! - `record.rs` — `record_memory`, `record_event`, `append_status_event`.
-//! - `lifecycle.rs` — `forget_memory`, `restore_memory` (status flips only).
+//! - `lifecycle.rs` — `forget_memory`, `restore_memory` (status flips), and
+//!   `revise_memory` (in-place content revision, issue #130).
 //! - `fetch.rs` — single-memory reads + representation/source helpers + counts.
 //! - `list_search.rs` — bulk list and FTS5 search.
 
@@ -33,6 +34,8 @@ mod fetch;
 mod lifecycle;
 mod list_search;
 mod record;
+
+pub use lifecycle::RevisionOutcome;
 
 use std::str::FromStr;
 

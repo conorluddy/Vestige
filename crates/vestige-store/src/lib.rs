@@ -39,6 +39,7 @@ mod trace_ops;
 
 pub use candidate_ops::{CandidateFilter, CandidateHit};
 pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
+pub use memory_ops::RevisionOutcome;
 pub use provenance::{ProvenanceEvent, SourceReceiptRow};
 pub use scan_ops::ScanCursorRow;
 pub use trace_ops::{NewQueryEvent, QueryEventRow, TraceFilter};
@@ -81,6 +82,21 @@ pub enum StoreError {
     /// ID prefix mismatch). Indicates either a writer bug or on-disk damage.
     #[error("data corruption: {0}")]
     Corruption(String),
+
+    /// A caller-supplied ID does not resolve to an existing row. Not a
+    /// corruption signal — the caller passed an ID that never existed or was
+    /// never persisted. Message should name what was looked up and by what ID.
+    #[error("not found: {0}")]
+    NotFound(String),
+
+    /// Caller-supplied input, or the target row's current state, failed a
+    /// precondition the caller can fix and retry (e.g. an empty body, or a
+    /// mutation that requires `status = 'active'` on a row that isn't).
+    /// Distinct from [`StoreError::NotFound`] — the row exists, but the
+    /// operation isn't valid against it right now. Message should say what
+    /// failed and how to fix it.
+    #[error("validation: {0}")]
+    Validation(String),
 }
 
 /// Crate-local `Result` alias — wraps [`StoreError`].

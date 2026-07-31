@@ -14,8 +14,8 @@ mod scoring;
 mod search;
 
 pub use bundle::{
-    build_bundle, truncate_at_utf8_boundary, MemoryBundle, NewMemory, NewSource, RepresentationRow,
-    SourceRow, SOURCE_SNIPPET_MAX_BYTES,
+    build_bundle, hash, truncate_at_utf8_boundary, MemoryBundle, NewMemory, NewSource,
+    RepresentationRow, SourceRow, SOURCE_SNIPPET_MAX_BYTES,
 };
 pub use projection::{
     pick_representation, project_card, project_detail, FetchedMemory, MemoryCard, MemoryDetail,
