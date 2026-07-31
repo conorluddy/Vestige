@@ -111,7 +111,7 @@ Every command supports `--json` for scripting. `VESTIGE_LOG=debug` turns on stru
 
 ## Semantic recall (V0.1)
 
-V0 ships with BM25 lexical search. V0.1 adds embeddings and hybrid recall so agents can find memories that don't share keywords with the query. Embeddings are an optional, rebuildable index over the canonical SQLite store — the lexical path always works, even with no embeddings.
+V0 ships with BM25 lexical search. V0.1 adds embeddings and hybrid recall so agents can find memories that don't share keywords with the query. Embeddings are an optional, rebuildable index over the canonical SQLite store — the lexical path always works, even with no embeddings. Hybrid is the default mode as of V0.6: before a project has run `vestige embed --all`, hybrid searches degrade to lexical inline with a `warning:` on stderr, so recall never breaks — it just stays lexical until embeddings exist.
 
 ### Walkthrough
 
@@ -146,9 +146,9 @@ The convenience aliases `--lexical` / `--semantic` / `--hybrid` are equivalent t
 
 | Mode | Best for | Notes |
 |------|---------|-------|
-| `lexical` (default) | Exact keywords, IDs, command names, error strings. | Always available. BM25 over FTS5. |
+| `lexical` | Exact keywords, IDs, command names, error strings. | Always available. BM25 over FTS5. Opt-out default (`[search] default_mode = "lexical"`). |
 | `semantic` | Paraphrases and concept queries — *"why did we pick our store?"*. | Requires `vestige embed --all` first. Hard error in MCP if no embeddings exist. |
-| `hybrid` | The default for agents. Merges both legs with score diagnostics. | Falls back to lexical (with a warning) when embeddings are missing. |
+| `hybrid` (default) | Merges both legs with score diagnostics — the normal case for agent recall. | Falls back to lexical (with a warning) when embeddings are missing. |
 
 `vestige recall` shares the same engine; the only difference is `--limit` defaults to `[recall] max_results` from config rather than a fixed `8`.
 

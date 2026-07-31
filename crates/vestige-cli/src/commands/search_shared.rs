@@ -40,7 +40,7 @@ pub struct SearchModeFlags<'a> {
 /// Execute a search with already-resolved `limit` and `mode_flags`.
 ///
 /// Loads the project context, resolves the search mode (alias flags →
-/// `--mode` → config default → `Lexical`), dispatches into the engine,
+/// `--mode` → config default → `Hybrid`), dispatches into the engine,
 /// forwards any warnings to stderr, and prints the result envelope in
 /// the requested format.
 pub fn run_search(
@@ -127,7 +127,7 @@ fn dispatch(
 /// Resolve the search mode from flags, config default, and the engine fallback.
 ///
 /// Alias flags (`--lexical` / `--semantic` / `--hybrid`) take priority, then
-/// `--mode`, then `[search] default_mode` from config, then `Lexical`.
+/// `--mode`, then `[search] default_mode` from config, then `Hybrid`.
 fn resolve_mode(flags: &SearchModeFlags<'_>, ctx: &ProjectContext) -> Result<SearchMode> {
     if flags.lexical {
         return Ok(SearchMode::Lexical);

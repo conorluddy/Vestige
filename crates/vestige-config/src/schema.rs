@@ -212,14 +212,15 @@ pub fn embeddings_config_for(section: Option<&EmbeddingsConfigSection>) -> Embed
 ///
 /// Controls the fallback search mode when no explicit `--mode` flag is passed.
 /// See `vestige_core::memory::search::resolve_default_mode` for the full
-/// precedence chain (explicit flag → config default → `"lexical"`).
+/// precedence chain (explicit flag → config default → `"hybrid"`).
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(default)]
 pub struct SearchConfigSection {
     /// Default retrieval strategy. `"lexical"` | `"semantic"` | `"hybrid"`.
     ///
-    /// Defaults to `"lexical"` when absent (backwards-compatible with V0).
-    /// Set to `"hybrid"` once embeddings are configured for best recall quality.
+    /// Defaults to `"hybrid"` when absent — it degrades gracefully to lexical
+    /// (with a warning) before embeddings exist, so no explicit opt-in is
+    /// needed. Set to `"lexical"` to opt back out.
     pub default_mode: Option<String>,
 }
 
