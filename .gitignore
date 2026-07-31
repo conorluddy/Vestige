@@ -27,6 +27,9 @@ pages-seed/
 !.claude/hooks/
 .claude/hooks/*
 !.claude/hooks/check-claude-md-drift.sh
+# Exception: subagent definitions carrying this repo's architecture rules and
+# review bar. Shared tooling like the skills above, not per-machine state.
+!.claude/agents/
 
 # .agents/skills/ is an install output of `vestige skills install`.
 # Bundled skills get re-written from the binary on every install; nothing
