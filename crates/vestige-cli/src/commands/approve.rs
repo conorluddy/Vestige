@@ -1,13 +1,14 @@
 //! `vestige approve` — promote a pending candidate to a full memory.
 //!
-//! Thin dispatcher: parses `<cand_id>` and optional overrides, then calls
+//! Thin dispatcher: parses `<cand_id>` and optional overrides — including
+//! `--supersedes <mem_id>` (issue #131) — then calls
 //! [`vestige_engine::approve_candidate`]. No business logic here.
 
 use std::str::FromStr;
 
 use anyhow::Result;
 use clap::Args;
-use vestige_core::{CandidateId, MemoryType};
+use vestige_core::{CandidateId, MemoryId, MemoryType};
 use vestige_engine::{approve_candidate, ApprovalOverrides};
 
 use crate::context;
@@ -31,6 +32,10 @@ pub struct ApproveArgs {
     #[arg(long)]
     pub importance: Option<f32>,
 
+    /// Soft-delete and link the given memory as superseded by the approved one.
+    #[arg(long, value_name = "MEM_ID")]
+    pub supersedes: Option<String>,
+
     #[arg(long)]
     pub json: bool,
 }
@@ -44,11 +49,17 @@ pub fn run(args: ApproveArgs) -> Result<()> {
         .as_deref()
         .map(MemoryType::from_str)
         .transpose()?;
+    let supersedes = args
+        .supersedes
+        .as_deref()
+        .map(MemoryId::from_str)
+        .transpose()?;
 
     let overrides = ApprovalOverrides {
         proposed_type,
         body: args.body,
         importance: args.importance,
+        supersedes,
     };
 
     let outcome = approve_candidate(&mut ctx.store, &ctx.project_id, &candidate_id, overrides)?;

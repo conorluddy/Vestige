@@ -10,9 +10,17 @@
 //!   for candidates). Used by the engine's `walk_provenance` to build the timeline.
 //! - [`SourceReceiptRow`] — one row from `memory_sources` or `candidate_sources`,
 //!   with the source row `id` included. Used by `list_sources` in the engine.
+//!
+//! Also owns [`Store::find_superseded_memory`], the reverse-provenance lookup
+//! for memory supersession (issue #131) — the forward `superseded_by` pointer
+//! lives on `Memory` itself, so only the inverse direction needs a query here.
 
+use std::str::FromStr;
+
+use rusqlite::OptionalExtension;
 use vestige_core::{CandidateId, MemoryId};
 
+use crate::helpers::invalid_id_to_sqlite;
 use crate::{Result, Store};
 
 // === PUBLIC TYPES ===
@@ -155,6 +163,34 @@ impl Store {
                 .query_map(rusqlite::params![id.as_str()], row_to_source_receipt)?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             Ok(rows)
+        }
+    }
+
+    /// Reverse-lookup for memory supersession (issue #131): find the memory
+    /// that `superseding_id` superseded, i.e. the row whose own
+    /// `superseded_by` column points at `superseding_id`.
+    ///
+    /// `superseded_by` (migration 0007) is the forward pointer, stored on the
+    /// *old* memory and read directly off `Memory::superseded_by`. This is
+    /// the inverse direction needed to render `vestige why <new_id>` →
+    /// `"supersedes": "<old_id>"` — backed by the partial index
+    /// `idx_memories_superseded_by`. Returns `None` if `superseding_id` has
+    /// not superseded anything. At most one row can match: `supersede_memory`
+    /// only ever sets `superseded_by` on an `'active'` row, and a memory can
+    /// be superseded at most once (superseding it again requires it to still
+    /// be `'active'`).
+    pub fn find_superseded_memory(&self, superseding_id: &MemoryId) -> Result<Option<MemoryId>> {
+        let found: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT id FROM memories WHERE superseded_by = ?1",
+                rusqlite::params![superseding_id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match found {
+            Some(s) => Ok(Some(MemoryId::from_str(&s).map_err(invalid_id_to_sqlite)?)),
+            None => Ok(None),
         }
     }
 

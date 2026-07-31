@@ -1,16 +1,19 @@
-//! Soft-delete lifecycle — `forget_memory` and `restore_memory` — plus
-//! `revise_memory`, the in-place content-revision path (issue #130).
+//! Soft-delete lifecycle — `forget_memory`, `restore_memory`, and
+//! `supersede_memory` (issue #131) — plus `revise_memory`, the in-place
+//! content-revision path (issue #130).
 //!
-//! `forget`/`restore` flip `memories.status`; FTS sync is handled by triggers
-//! in migration 0002 (`memory_after_soft_delete` drops FTS rows;
-//! `memory_after_restore` re-inserts them). `revise_memory` instead UPDATEs
-//! the four `memory_representations` rows in place — `UNIQUE(memory_id,
-//! representation_type)` means revision is an UPDATE, never an INSERT. Two
-//! already-shipped triggers activate as a side effect of that UPDATE:
-//! `memory_repr_after_update` (0002_fts.sql) resyncs FTS, and
-//! `embedding_repr_content_changed` (0003_embeddings.sql) marks embeddings
-//! stale on `content_hash` change. None of the three mutators in this file
-//! ever issue `DELETE FROM memories`.
+//! `forget`/`restore`/`supersede` flip `memories.status`; FTS sync is handled
+//! by triggers in migration 0002 (`memory_after_soft_delete` drops FTS rows;
+//! `memory_after_restore` re-inserts them). `supersede_memory` is `forget`
+//! plus a `superseded_by` pointer (migration 0007) — same trigger path, same
+//! `memory.superseded` journal event in place of `memory.forgotten`.
+//! `revise_memory` instead UPDATEs the four `memory_representations` rows in
+//! place — `UNIQUE(memory_id, representation_type)` means revision is an
+//! UPDATE, never an INSERT. Two already-shipped triggers activate as a side
+//! effect of that UPDATE: `memory_repr_after_update` (0002_fts.sql) resyncs
+//! FTS, and `embedding_repr_content_changed` (0003_embeddings.sql) marks
+//! embeddings stale on `content_hash` change. None of the mutators in this
+//! file ever issue `DELETE FROM memories`.
 
 use rusqlite::OptionalExtension;
 use time::OffsetDateTime;
@@ -63,10 +66,18 @@ impl Store {
 
     /// Restore a soft-deleted memory (`vestige restore`).
     ///
-    /// Flips `status` from `'deleted'` back to `'active'` and clears
-    /// `deleted_at`. The `memory_after_restore` trigger (migration 0002)
+    /// Flips `status` from `'deleted'` back to `'active'`, clears
+    /// `deleted_at`, and unconditionally clears `superseded_by` — restoring a
+    /// plain forget leaves `superseded_by` untouched since it was already
+    /// `NULL`, but restoring a superseded memory must break the lineage
+    /// pointer rather than leave a `'deleted'`-status row unlinked from an
+    /// `'active'` one. The `memory_after_restore` trigger (migration 0002)
     /// synchronously re-inserts the memory's representations into `memory_fts`,
     /// making it searchable again. A `memory.restored` event is appended.
+    ///
+    /// Does not cascade: the memory named by the cleared `superseded_by` (the
+    /// one that superseded `id`) is left untouched — restoring A never
+    /// deletes or otherwise mutates B.
     ///
     /// Note: embeddings are left stale after restore (PRD §8.4) — they will
     /// re-embed on the next `vestige embed` run.
@@ -76,12 +87,70 @@ impl Store {
         let now_str = rfc3339(OffsetDateTime::now_utc())?;
         let updated = self.connection().execute(
             "UPDATE memories
-             SET status = 'active', deleted_at = NULL, updated_at = ?2
+             SET status = 'active', deleted_at = NULL, superseded_by = NULL, updated_at = ?2
              WHERE id = ?1 AND status = 'deleted'",
             rusqlite::params![id.as_str(), now_str],
         )?;
         if updated > 0 {
             self.append_status_event(id, "memory.restored", &now_str)?;
+        }
+        Ok(updated > 0)
+    }
+
+    /// Supersede a memory with a newer replacement (`vestige remember
+    /// --supersedes`, `vestige approve --supersedes`).
+    ///
+    /// Soft-deletes `old_id` exactly like [`Store::forget_memory`], plus sets
+    /// `superseded_by = new_id` in the same UPDATE and appends a
+    /// `memory.superseded` event (payload `{memory_id, superseded_by}`)
+    /// instead of `memory.forgotten`.
+    ///
+    /// # Contrast with the counter-bump methods in `fetch.rs`
+    ///
+    /// `bump_recall_stats`/`bump_expand_stats` carry a documented invariant to
+    /// **never** touch `status`, because every trigger on `memories` is
+    /// scoped `AFTER UPDATE OF status` and a stray status touch would
+    /// spuriously re-fire FTS/embedding-staleness sync. This method is the
+    /// mirror image: it *must* set `status = 'deleted'` and *wants* those
+    /// triggers to fire — `old_id` should drop out of FTS and its embeddings
+    /// should go stale, the same way a plain `forget_memory` already works.
+    ///
+    /// Returns `true` if `old_id` existed in `'active'` state and was
+    /// updated; `false` if not found, already deleted, or already superseded
+    /// — idempotent, not an error, same `bool` semantics as
+    /// [`Store::forget_memory`].
+    pub fn supersede_memory(&mut self, old_id: &MemoryId, new_id: &MemoryId) -> Result<bool> {
+        let now_str = rfc3339(OffsetDateTime::now_utc())?;
+        let updated = self.connection().execute(
+            "UPDATE memories
+             SET status = 'deleted', deleted_at = ?2, superseded_by = ?3, updated_at = ?2
+             WHERE id = ?1 AND status = 'active'",
+            rusqlite::params![old_id.as_str(), now_str, new_id.as_str()],
+        )?;
+        if updated > 0 {
+            let project_id: String = self.connection().query_row(
+                "SELECT project_id FROM memories WHERE id = ?1",
+                rusqlite::params![old_id.as_str()],
+                |r| r.get(0),
+            )?;
+            let payload = serde_json::json!({
+                "memory_id": old_id.as_str(),
+                "superseded_by": new_id.as_str(),
+            })
+            .to_string();
+            let event_id = format!("evt_{}", Ulid::new());
+            self.connection().execute(
+                "INSERT INTO memory_events (id, project_id, event_type, payload_json, memory_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    event_id,
+                    project_id,
+                    "memory.superseded",
+                    payload,
+                    old_id.as_str(),
+                    now_str,
+                ],
+            )?;
         }
         Ok(updated > 0)
     }

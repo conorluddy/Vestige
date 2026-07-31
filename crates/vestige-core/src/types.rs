@@ -192,6 +192,11 @@ pub enum CandidateStatus {
     /// Dismissed — a `RejectionReason` and optional note are attached.
     Rejected,
     /// Replaced by a newer or higher-confidence candidate.
+    ///
+    /// A candidate-level dedup mechanic only — unrelated to memory
+    /// supersession (issue #131, `Memory.superseded_by` + `Store::supersede_memory`),
+    /// which links two full `memories` rows via soft-delete, not a candidate
+    /// status transition. Don't conflate the two when reading either.
     Superseded,
 }
 
