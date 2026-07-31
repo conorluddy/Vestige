@@ -93,11 +93,7 @@ fn print_walk(walk: &vestige_engine::ProvenanceWalk, include_full: bool) {
     }
 
     // Candidate back-reference.
-    if let Some(cand) =
-        walk.provenance
-            .get("candidate")
-            .and_then(|v| if v.is_null() { None } else { Some(v) })
-    {
+    if let Some(cand) = walk.provenance.get("candidate").filter(|v| !v.is_null()) {
         if let Some(cand_id) = cand["candidate_id"].as_str() {
             println!("  ◆ Promoted from candidate {cand_id}");
             if let Some(cand_events) = cand["events"].as_array() {
