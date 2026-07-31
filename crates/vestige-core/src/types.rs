@@ -368,6 +368,21 @@ pub struct Memory {
     /// Set when `status == Deleted`; `None` for active memories.
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub deleted_at: Option<OffsetDateTime>,
+    /// How many times this memory has been returned by a search. Feeds
+    /// ranking, the context pack, and the future `vestige review` hygiene
+    /// queue. `i64` (not `u64`) mirrors SQLite's signed integer storage,
+    /// avoiding a lossy cast at the `rusqlite` boundary.
+    pub recall_count: i64,
+    /// How many times this memory has been expanded to a deeper
+    /// representation. Same storage-type reasoning as `recall_count`.
+    pub expand_count: i64,
+    /// When this memory was last recalled by a search; `None` until first
+    /// recall. Drives recency-aware ranking alongside `recall_count`.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub last_recalled_at: Option<OffsetDateTime>,
+    /// Set when a newer memory replaces this one, making lineage walkable.
+    /// `None` for every memory that has not been superseded.
+    pub superseded_by: Option<MemoryId>,
 }
 
 /// One representation of a memory at a specific disclosure depth.

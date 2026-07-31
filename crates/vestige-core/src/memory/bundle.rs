@@ -103,6 +103,10 @@ pub fn build_bundle(project_id: &ProjectId, input: NewMemory<'_>) -> Result<Memo
         created_at: now,
         updated_at: now,
         deleted_at: None,
+        recall_count: 0,
+        expand_count: 0,
+        last_recalled_at: None,
+        superseded_by: None,
     };
 
     let derived = derive(input.body);

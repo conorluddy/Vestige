@@ -92,6 +92,7 @@ const MIGRATION_EMBEDDINGS: &str = include_str!("migrations/0003_embeddings.sql"
 const MIGRATION_CANDIDATES: &str = include_str!("migrations/0004_candidates.sql");
 const MIGRATION_PROVENANCE: &str = include_str!("migrations/0005_provenance.sql");
 const MIGRATION_SCAN_CURSORS: &str = include_str!("migrations/0006_session_scan_cursors.sql");
+const MIGRATION_USAGE_AND_LIFECYCLE: &str = include_str!("migrations/0007_usage_and_lifecycle.sql");
 
 /// Build the ordered migration set from the embedded SQL files.
 ///
@@ -105,6 +106,7 @@ fn migrations() -> Migrations<'static> {
         M::up(MIGRATION_CANDIDATES),
         M::up(MIGRATION_PROVENANCE),
         M::up(MIGRATION_SCAN_CURSORS),
+        M::up(MIGRATION_USAGE_AND_LIFECYCLE),
     ])
 }
 
@@ -397,6 +399,50 @@ mod tests {
     fn migrations_check_valid() {
         // rusqlite_migration ships a self-check ensuring SQL parses cleanly.
         migrations().validate().unwrap();
+    }
+
+    #[test]
+    fn usage_and_lifecycle_columns_have_expected_defaults() {
+        // Proves migration 0007 applies cleanly to a fresh DB and that the
+        // four new columns exist with the defaults the issue spec requires.
+        // Inserted via raw SQL rather than `record_memory` deliberately: this
+        // asserts the *migration's* column contract, so it must not depend on
+        // what the Rust INSERT path happens to bind.
+        let tmp = TempDir::new().unwrap();
+        let mut store = Store::open(tmp.path().join("memory.sqlite")).unwrap();
+        let project_id = ProjectId::from_slug("usage-lifecycle");
+        let project = store
+            .ensure_project(&project_id, "Usage Lifecycle", Some("/repo"), None)
+            .unwrap();
+
+        store
+            .conn
+            .execute(
+                "INSERT INTO memories (id, project_id, type, status, confidence, importance, created_at, updated_at)
+                 VALUES ('mem_01USAGELIFECYCLETESTROW00', ?1, 'note', 'active', 1.0, 0.5, '2026-07-31T00:00:00Z', '2026-07-31T00:00:00Z')",
+                rusqlite::params![project.id.as_str()],
+            )
+            .unwrap();
+
+        let (recall_count, expand_count, last_recalled_at, superseded_by): (
+            i64,
+            i64,
+            Option<String>,
+            Option<String>,
+        ) = store
+            .conn
+            .query_row(
+                "SELECT recall_count, expand_count, last_recalled_at, superseded_by
+                 FROM memories WHERE id = 'mem_01USAGELIFECYCLETESTROW00'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+
+        assert_eq!(recall_count, 0);
+        assert_eq!(expand_count, 0);
+        assert_eq!(last_recalled_at, None);
+        assert_eq!(superseded_by, None);
     }
 
     #[test]

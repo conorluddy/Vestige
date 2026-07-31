@@ -58,8 +58,11 @@ impl Store {
         let updated_str = rfc3339(m.updated_at)?;
 
         tx.execute(
-            "INSERT INTO memories (id, project_id, type, status, confidence, importance, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO memories (
+                 id, project_id, type, status, confidence, importance, created_at, updated_at,
+                 recall_count, expand_count, last_recalled_at, superseded_by
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, 0, NULL, NULL)",
             rusqlite::params![
                 m.id.as_str(),
                 m.project_id.as_str(),

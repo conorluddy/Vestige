@@ -1,14 +1,21 @@
 //! Per-memory reads: `get_memory`, `memory_counts`, and the
 //! representation / source helpers used by every list/search path.
+//!
+//! Also owns the usage-counter bump methods (`bump_recall_stats`,
+//! `bump_expand_stats`, issue #128) — grouped here with the other
+//! single-memory operations rather than in `record.rs`, since they update an
+//! existing row instead of inserting one.
 
 use std::str::FromStr;
+
+use time::OffsetDateTime;
 
 use vestige_core::{
     FetchedMemory, Memory, MemoryCounts, MemoryId, ProjectId, RepresentationDepth,
     RepresentationRow, SourceRow,
 };
 
-use crate::helpers::invalid_id_to_sqlite;
+use crate::helpers::{invalid_id_to_sqlite, rfc3339};
 use crate::{Result, Store};
 
 use super::row_to_memory;
@@ -72,11 +79,65 @@ impl Store {
         }))
     }
 
+    /// Record that `ids` were returned by a search: increment `recall_count`
+    /// and stamp `last_recalled_at`. Batched into one transaction; an empty
+    /// slice is a no-op.
+    ///
+    /// # Trigger-safety invariant
+    ///
+    /// **This UPDATE must never SET `status`** — not even redundantly to its
+    /// current value. Every trigger on `memories` is scoped
+    /// `AFTER UPDATE OF status`: `memory_after_soft_delete` and
+    /// `memory_after_restore` (`0002_fts.sql:31,39`) and
+    /// `embedding_memory_soft_deleted` (`0003_embeddings.sql:74`). A
+    /// counter-only UPDATE therefore cannot fire them. Widening this into a
+    /// full-row update would silently re-run FTS sync and mark embeddings
+    /// stale on every search. Do not "tidy" it into one.
+    ///
+    /// Takes `&self` rather than `&mut self` so read paths holding a shared
+    /// `&Store` can bump without threading a mutable borrow through every
+    /// caller. Same posture as [`Store::record_query_event`].
+    pub fn bump_recall_stats(&self, ids: &[MemoryId]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let now = rfc3339(OffsetDateTime::now_utc())?;
+        let tx = self.connection().unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "UPDATE memories
+                 SET recall_count = recall_count + 1, last_recalled_at = ?2
+                 WHERE id = ?1",
+            )?;
+            for id in ids {
+                stmt.execute(rusqlite::params![id.as_str(), now])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Record that `id` was expanded to a deeper representation: increment
+    /// `expand_count` only, leaving `recall_count` and `last_recalled_at`
+    /// untouched. Expansion is a distinct signal from recall — a memory can be
+    /// surfaced often but rarely read in full.
+    ///
+    /// Carries the same trigger-safety invariant as
+    /// [`Store::bump_recall_stats`]: never SET `status` here.
+    pub fn bump_expand_stats(&self, id: &MemoryId) -> Result<()> {
+        self.connection().execute(
+            "UPDATE memories SET expand_count = expand_count + 1 WHERE id = ?1",
+            rusqlite::params![id.as_str()],
+        )?;
+        Ok(())
+    }
+
     /// Fetch the raw `memories` row for `id`. No representations or sources.
     pub(crate) fn fetch_memory_row(&self, id: &MemoryId) -> Result<Option<Memory>> {
         let mut stmt = self.connection().prepare(
             "SELECT id, project_id, type, status, confidence, importance,
-                    created_at, updated_at, deleted_at
+                    created_at, updated_at, deleted_at,
+                    recall_count, expand_count, last_recalled_at, superseded_by
              FROM memories WHERE id = ?1",
         )?;
         let mut rows = stmt.query(rusqlite::params![id.as_str()])?;

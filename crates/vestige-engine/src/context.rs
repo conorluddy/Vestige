@@ -70,6 +70,8 @@ pub fn expand_memory(
         )))
     })?;
 
+    bump_expand_stats_non_fatal(store, id);
+
     let detail = project_detail(&fetched);
     let content = detail
         .representations
@@ -193,4 +195,17 @@ pub fn get_project_context(
     );
 
     Ok(ContextOutcome { pack })
+}
+
+// === PRIVATE HELPERS ===
+
+/// Bump `expand_count` for `id`, logging (never propagating) a store failure.
+///
+/// Same failure posture as [`write_trace_configured`] (PRD §10.5): the
+/// counter is a side effect of a resolved expand, not a precondition, so a
+/// bump failure must never turn a successful expand into an error.
+fn bump_expand_stats_non_fatal(store: &Store, id: &MemoryId) {
+    if let Err(e) = store.bump_expand_stats(id) {
+        tracing::warn!("expand-stats bump failed (non-fatal): {e}");
+    }
 }

@@ -111,6 +111,8 @@ pub fn search_lexical(
     let type_filter_str = type_filter.map(|t| t.as_str().to_string());
     let params_json = search_params_json(limit, type_filter_str.as_deref());
 
+    bump_recall_stats_non_fatal(store, &result_ids);
+
     write_trace_configured(
         store,
         &TracePayload {
@@ -236,6 +238,8 @@ pub fn search_semantic(
     let type_filter_str = type_filter.map(|t| t.as_str().to_string());
     let params_json = search_params_json(limit, type_filter_str.as_deref());
 
+    bump_recall_stats_non_fatal(store, &result_ids);
+
     write_trace_configured(
         store,
         &TracePayload {
@@ -333,6 +337,8 @@ pub fn search_hybrid(
         let type_filter_str = type_filter.map(|t| t.as_str().to_string());
         let params_json = search_params_json(limit, type_filter_str.as_deref());
 
+        bump_recall_stats_non_fatal(store, &result_ids);
+
         write_trace_configured(
             store,
             &TracePayload {
@@ -427,6 +433,8 @@ pub fn search_hybrid(
     let type_filter_str = type_filter.map(|t| t.as_str().to_string());
     let params_json = search_params_json(limit, type_filter_str.as_deref());
 
+    bump_recall_stats_non_fatal(store, &result_ids);
+
     write_trace_configured(
         store,
         &TracePayload {
@@ -454,6 +462,19 @@ pub fn search_hybrid(
 }
 
 // === PRIVATE HELPERS ===
+
+/// Bump `recall_count` / `last_recalled_at` for every returned id, logging
+/// (never propagating) a store failure.
+///
+/// Mirrors the failure posture of [`write_trace_configured`] (PRD §10.5): a
+/// usage-counter write is a side effect of a successful search, not a
+/// precondition for one, so a bump failure must never turn a good search
+/// into an error for the caller.
+fn bump_recall_stats_non_fatal(store: &Store, ids: &[MemoryId]) {
+    if let Err(e) = store.bump_recall_stats(ids) {
+        tracing::warn!("recall-stats bump failed (non-fatal): {e}");
+    }
+}
 
 /// Over-fetch factor applied to each leg of a hybrid search before merging.
 ///
