@@ -183,6 +183,10 @@ mod tests {
                 created_at,
                 updated_at: created_at,
                 deleted_at: None,
+                recall_count: 0,
+                expand_count: 0,
+                last_recalled_at: None,
+                superseded_by: None,
             },
             representations: vec![RepresentationRow {
                 memory_id: id,
@@ -324,6 +328,10 @@ mod tests {
                 created_at: now,
                 updated_at: now,
                 deleted_at: None,
+                recall_count: 0,
+                expand_count: 0,
+                last_recalled_at: None,
+                superseded_by: None,
             },
             representations: vec![
                 RepresentationRow {

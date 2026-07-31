@@ -103,6 +103,10 @@ pub fn build_bundle(project_id: &ProjectId, input: NewMemory<'_>) -> Result<Memo
         created_at: now,
         updated_at: now,
         deleted_at: None,
+        recall_count: 0,
+        expand_count: 0,
+        last_recalled_at: None,
+        superseded_by: None,
     };
 
     let derived = derive(input.body);
@@ -187,7 +191,13 @@ fn validate_input(input: &NewMemory<'_>) -> Result<()> {
 }
 
 /// SHA-256 of `s`, truncated to the first 16 bytes, hex-encoded (32 chars).
-fn hash(s: &str) -> String {
+///
+/// `pub` (re-exported at [`crate::memory::hash`]) so `vestige-store` can
+/// recompute a representation's `content_hash` on revision (issue #130)
+/// without duplicating the hashing scheme. Every other caller of this
+/// algorithm — [`build_representation_rows`] included — must keep going
+/// through this one function.
+pub fn hash(s: &str) -> String {
     let digest = Sha256::digest(s.as_bytes());
     hex::encode(&digest[..16])
 }

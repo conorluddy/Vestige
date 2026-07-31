@@ -298,11 +298,9 @@ fn extract_flat_turn(obj: &serde_json::Value, line_number: usize) -> Option<Norm
                 .unwrap_or("")
                 .to_string(),
         }
-    } else if let Some(text_val) = obj.get("text").and_then(|v| v.as_str()) {
-        text_val.to_string()
     } else {
-        // No usable text field — skip this turn.
-        return None;
+        // No usable text field — `?` skips this turn.
+        obj.get("text").and_then(|v| v.as_str())?.to_string()
     };
 
     Some(NormalizedTurn {

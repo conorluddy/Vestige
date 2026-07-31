@@ -1,10 +1,14 @@
 //! Shared add-args + dispatch for the four memory-capture commands
 //! (decision / note / question / preference). They differ only in `MemoryType`,
 //! the default `--importance`, and (decision only) optional rationale prefixing.
+//! All four also get `--supersedes <mem_id>` (issue #131) for free via this
+//! shared path — see `super::record` for the two-step, non-atomic sequence.
+
+use std::str::FromStr;
 
 use anyhow::Result;
 use clap::Args;
-use vestige_core::MemoryType;
+use vestige_core::{MemoryId, MemoryType};
 
 use crate::context;
 use crate::output::OutputFormat;
@@ -51,6 +55,9 @@ pub struct CaptureAddArgs {
     pub source_content: Option<String>,
     #[arg(long)]
     pub importance: Option<f64>,
+    /// Soft-delete and link the given memory as superseded by this one.
+    #[arg(long, value_name = "MEM_ID")]
+    pub supersedes: Option<String>,
     #[arg(long)]
     pub json: bool,
 }
@@ -69,6 +76,11 @@ pub fn add(kind: CaptureKind, args: CaptureAddArgs) -> Result<()> {
         }
         args.body.clone()
     };
+    let supersedes = args
+        .supersedes
+        .as_deref()
+        .map(MemoryId::from_str)
+        .transpose()?;
     record(
         &mut ctx.store,
         &ctx.project_id,
@@ -78,6 +90,7 @@ pub fn add(kind: CaptureKind, args: CaptureAddArgs) -> Result<()> {
             importance,
             source_ref: args.source.as_deref(),
             source_content: args.source_content.as_deref(),
+            supersedes: supersedes.as_ref(),
         },
         OutputFormat::pick(args.json),
     )

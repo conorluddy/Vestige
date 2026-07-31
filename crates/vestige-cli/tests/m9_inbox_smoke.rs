@@ -617,6 +617,43 @@ fn approve_then_show_returns_approved() {
     );
 }
 
+/// Regression for issue #129: `vestige inbox` (text output) used to slice
+/// `one_liner` at a raw byte index (59), which panics when a multi-byte
+/// character straddles that boundary. Build a body with no sentence
+/// terminator (so the whole thing becomes the one_liner) where a 3-byte
+/// CJK character sits across byte offset 59, then assert the CLI renders
+/// without panicking.
+#[test]
+fn inbox_list_does_not_panic_on_multibyte_char_straddling_byte_59() {
+    let repo = fresh_repo();
+    init(&repo);
+
+    // 58 ASCII bytes, then a 3-byte CJK char (occupies bytes 58,59,60 —
+    // byte index 59 is NOT a UTF-8 char boundary), then more words to keep
+    // the one_liner over the 60-char display truncation threshold. No
+    // `!?.\n` anywhere, so `first_sentence` returns the whole body.
+    let padding = "a".repeat(58);
+    let body = format!(
+        "{padding}日 padding words to exceed sixty chars for the inbox display truncation cutoff test"
+    );
+
+    let out = vestige(
+        &repo,
+        &["candidate", "add", "--type", "note", "--body", &body],
+    );
+    assert_ok(&out, "candidate add");
+
+    // Text-mode inbox listing is where the old code panicked on the raw
+    // byte slice. A clean exit (not a signal/abort) proves the fix holds.
+    let out = vestige(&repo, &["inbox"]);
+    assert_ok(&out, "inbox (text) must not panic on multi-byte one_liner");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains('…'),
+        "expected truncated one_liner with ellipsis in output: {stdout}"
+    );
+}
+
 /// Record a durable memory; then propose a candidate with similar body.
 /// The JSON response's `similar_memories` must be non-empty and include the
 /// existing memory id.

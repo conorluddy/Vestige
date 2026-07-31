@@ -26,7 +26,8 @@ impl Store {
     ) -> Result<Vec<FetchedMemory>> {
         let mut sql = String::from(
             "SELECT id, project_id, type, status, confidence, importance,
-                    created_at, updated_at, deleted_at
+                    created_at, updated_at, deleted_at,
+                    recall_count, expand_count, last_recalled_at, superseded_by
              FROM memories
              WHERE project_id = ?1",
         );
@@ -78,7 +79,8 @@ impl Store {
     ) -> Result<Vec<FetchedMemory>> {
         let mut stmt = self.connection().prepare(
             "SELECT id, project_id, type, status, confidence, importance,
-                    created_at, updated_at, deleted_at
+                    created_at, updated_at, deleted_at,
+                    recall_count, expand_count, last_recalled_at, superseded_by
              FROM memories
              WHERE project_id = ?1 AND status = 'active'
              ORDER BY datetime(created_at) DESC

@@ -240,7 +240,7 @@ fn mcp_record_search_expand_lifecycle() {
     assert_eq!(
         envelope["mode"].as_str(),
         Some("lexical"),
-        "default mode must be lexical"
+        "since #134 the default is hybrid, which falls back to lexical with no embeddings"
     );
     let arr = envelope["results"].as_array().unwrap();
     assert!(!arr.is_empty(), "search should hit MCP decision");

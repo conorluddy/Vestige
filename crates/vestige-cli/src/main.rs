@@ -57,6 +57,8 @@ enum Command {
     Forget(commands::forget::ForgetArgs),
     /// Restore a soft-deleted memory.
     Restore(commands::restore::RestoreArgs),
+    /// Revise a memory's content in place, keeping its handle.
+    Revise(commands::revise::ReviseArgs),
     /// Embed memory representations using an embedding provider.
     Embed(commands::embed::EmbedArgs),
     /// Manage embedding indexes (status, and future clear/stale).
@@ -123,6 +125,7 @@ fn main() -> Result<()> {
         Command::Show(args) => commands::show::run(args),
         Command::Forget(args) => commands::forget::run(args),
         Command::Restore(args) => commands::restore::run(args),
+        Command::Revise(args) => commands::revise::run(args),
         Command::Embed(args) => commands::embed::run(args),
         Command::Embeddings(args) => commands::embeddings::run(args),
         Command::Reindex(args) => commands::reindex::run(args),

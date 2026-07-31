@@ -25,9 +25,9 @@ use crate::server::{err, ok_json, Inner, VestigeServer};
 pub struct SearchParams {
     /// Free-text query. FTS5 special characters are stripped per token.
     pub query: String,
-    /// Search mode: `"lexical"` (BM25, default — always available),
-    /// `"semantic"` (cosine over embeddings; requires `vestige embed --all` first),
-    /// or `"hybrid"` (merged with score breakdown; falls back to lexical when no
+    /// Search mode: `"lexical"` (BM25, always available), `"semantic"` (cosine
+    /// over embeddings; requires `vestige embed --all` first), or `"hybrid"`
+    /// (merged with score breakdown; default — falls back to lexical when no
     /// embeddings exist and adds a warning to the response).
     #[serde(default)]
     pub mode: Option<String>,
@@ -61,11 +61,12 @@ struct SearchEnvelope<'a> {
 #[tool_router(router = search_router, vis = "pub(crate)")]
 impl VestigeServer {
     #[tool(
-        description = "Search project memory. Three modes: lexical (BM25 over text, default — \
-                          always available), semantic (cosine over embeddings; requires \
+        description = "Search project memory. Three modes: lexical (BM25 over text, always \
+                          available), semantic (cosine over embeddings; requires \
                           `vestige embed --all` first), hybrid (merged, with score breakdown; \
-                          falls back to lexical with a warning when no embeddings exist). \
-                          Returns compact memory cards; use vestige_expand for full content."
+                          default — falls back to lexical with a warning when no embeddings \
+                          exist). Returns compact memory cards; use vestige_expand for full \
+                          content."
     )]
     pub async fn vestige_search(
         &self,
@@ -73,7 +74,7 @@ impl VestigeServer {
     ) -> Result<CallToolResult, ErrorData> {
         let inner = self.inner.lock().await;
 
-        // Explicit request param takes priority; config default is next; Lexical is the fallback.
+        // Explicit request param takes priority; config default is next; Hybrid is the fallback.
         // A bad request param returns INVALID_MODE; a bad config value returns INVALID_CONFIG.
         if let Some(ref mode_str) = p.mode {
             SearchMode::from_str(mode_str)

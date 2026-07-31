@@ -71,11 +71,13 @@ pub fn run(args: BrowseArgs) -> Result<()> {
     let storage_path = cfg.resolved_storage_path()?;
     let store = Store::open(&storage_path).context("opening project store")?;
 
-    // Resolve the initial search mode from config. If the configured default
-    // requires a provider that is unavailable, fall back silently to Lexical —
-    // the status line will show `mode:hybrid→lexical` to explain the fallback.
+    // Resolve the initial search mode via the shared precedence chain — config
+    // `[search] default_mode` if set, otherwise Hybrid. If the resolved mode
+    // requires a provider that is unavailable, later lookups fall back silently
+    // to Lexical — the status line shows `mode:hybrid→lexical` to explain the
+    // fallback.
     let config_default = cfg.search.as_ref().and_then(|s| s.default_mode.as_deref());
-    let requested_mode = resolve_default_mode(None, config_default).unwrap_or(SearchMode::Lexical);
+    let requested_mode = initial_browse_mode(config_default);
 
     let counts = read_counts(&store, &project_id)?;
     let mut app = App::with_mode(
@@ -977,4 +979,36 @@ fn apply_tail_tick(app: &mut App, store: &Store, project_id: &ProjectId) -> Resu
         }
     }
     Ok(())
+}
+
+/// Resolve the mode `vestige browse` opens in, given the project's optional
+/// `[search] default_mode`.
+///
+/// Extracted from [`run`] purely so the precedence is testable without a store
+/// or a terminal. Falls back to [`SearchMode::Lexical`] only when the config
+/// value is unparseable — an invalid string in config should not stop the
+/// browser from opening.
+fn initial_browse_mode(config_default: Option<&str>) -> SearchMode {
+    resolve_default_mode(None, config_default).unwrap_or(SearchMode::Lexical)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browse_defaults_to_hybrid_without_config() {
+        // Issue #134: an unpinned project opens in Hybrid, not Lexical.
+        assert_eq!(initial_browse_mode(None), SearchMode::Hybrid);
+    }
+
+    #[test]
+    fn browse_honours_config_lexical_opt_out() {
+        assert_eq!(initial_browse_mode(Some("lexical")), SearchMode::Lexical);
+    }
+
+    #[test]
+    fn browse_falls_back_to_lexical_on_unparseable_config() {
+        assert_eq!(initial_browse_mode(Some("nonsense")), SearchMode::Lexical);
+    }
 }

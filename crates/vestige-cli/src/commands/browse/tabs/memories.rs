@@ -1034,6 +1034,10 @@ mod tests {
                 } else {
                     None
                 },
+                recall_count: 0,
+                expand_count: 0,
+                last_recalled_at: None,
+                superseded_by: None,
             },
             representations: vec![],
             sources: vec![],
@@ -1067,6 +1071,10 @@ mod tests {
                 created_at: created,
                 updated_at: updated,
                 deleted_at: None,
+                recall_count: 0,
+                expand_count: 0,
+                last_recalled_at: None,
+                superseded_by: None,
             },
             representations: vec![
                 vestige_core::RepresentationRow {

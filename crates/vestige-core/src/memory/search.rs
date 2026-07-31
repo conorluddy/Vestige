@@ -57,7 +57,12 @@ impl FromStr for SearchMode {
 /// 1. `explicit` — the value of `--mode` or an alias flag (`--lexical` etc.)
 ///    after the caller has already converted alias flags to their string form.
 /// 2. `config_default` — `[search] default_mode` from `.vestige/config.toml`.
-/// 3. [`SearchMode::Lexical`] — the unconditional fallback.
+/// 3. [`SearchMode::Hybrid`] — the unconditional fallback. Vocabulary mismatch
+///    between sessions is the normal case for agent recall, and `search_hybrid`
+///    degrades gracefully to lexical (with an honest trace row and a stderr
+///    warning) when a project has no embeddings yet, so hybrid-by-default is
+///    safe even before the first `vestige embed --all`. Set
+///    `[search] default_mode = "lexical"` in `.vestige/config.toml` to opt out.
 ///
 /// Both inputs are raw `&str` slices so this function has no dependency on
 /// `rusqlite`, `clap`, or `rmcp` — it belongs in `vestige-core` and callers
@@ -75,7 +80,7 @@ pub fn resolve_default_mode(
     if let Some(s) = config_default {
         return SearchMode::from_str(s);
     }
-    Ok(SearchMode::Lexical)
+    Ok(SearchMode::Hybrid)
 }
 
 /// A semantic search result from the store layer.
@@ -216,9 +221,19 @@ mod tests {
             resolve_default_mode(None, Some("hybrid")).unwrap(),
             SearchMode::Hybrid
         );
-        // Lexical fallback when both absent
+        // Hybrid fallback when both absent
         assert_eq!(
             resolve_default_mode(None, None).unwrap(),
+            SearchMode::Hybrid
+        );
+        // config opt-out to lexical intact
+        assert_eq!(
+            resolve_default_mode(None, Some("lexical")).unwrap(),
+            SearchMode::Lexical
+        );
+        // explicit flag still wins over config
+        assert_eq!(
+            resolve_default_mode(Some("lexical"), Some("hybrid")).unwrap(),
             SearchMode::Lexical
         );
         // bad explicit → error

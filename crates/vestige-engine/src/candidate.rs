@@ -71,6 +71,9 @@ pub struct ApprovalOverrides {
     pub body: Option<String>,
     /// Override importance. Falls back to the candidate's importance if `None`.
     pub importance: Option<f32>,
+    /// Soft-delete and link this memory as superseded by the one being
+    /// approved (issue #131). `None` leaves every existing memory untouched.
+    pub supersedes: Option<MemoryId>,
 }
 
 /// Return value from [`approve_candidate`].
@@ -139,24 +142,31 @@ pub fn propose_candidate(
 /// 1. Load candidate; verify project scope and pending status.
 /// 2. Apply `overrides` (type, body, importance).
 /// 3. Build a `MemoryBundle` and call `store.record_memory` (fires FTS triggers).
-/// 4. Write additional `memory_sources` rows: one per `CandidateSource` and one
+/// 4. If `overrides.supersedes` is set, call `store.supersede_memory` to
+///    soft-delete and link the old memory (issue #131).
+/// 5. Write additional `memory_sources` rows: one per `CandidateSource` and one
 ///    reverse-provenance row with `source_type = "candidate"` (PRD §14).
-/// 5. Call `store.mark_candidate_approved` (flips status, emits audit event).
+/// 6. Call `store.mark_candidate_approved` (flips status, emits audit event).
 ///
 /// # Transactionality
 ///
-/// Steps 3 and 5 are two separate internally-transactional store calls. A
-/// failure between them leaves the memory written but the candidate still
-/// pending — re-running `approve` will attempt to write a duplicate memory row.
+/// Steps 3, 4, and 6 are separate internally-transactional store calls. A
+/// failure between them leaves earlier steps applied but later ones not —
+/// e.g. re-running `approve` after a failure between 3 and 6 will attempt to
+/// write a duplicate memory row. The same accepted window covers step 4: a
+/// failure between the memory being recorded (3) and the old memory being
+/// superseded (4) leaves the new memory active but the old one un-superseded.
 ///
-/// TODO(v0.3): wrap steps 3+5 in a single store-level transaction to eliminate
-/// the window. For V0.2 the two-step approach is acceptable.
+/// TODO(v0.3): wrap steps 3+6 (and now 4) in a single store-level transaction
+/// to eliminate the window. For V0.2 the two-step approach is acceptable.
 ///
 /// # Errors
 ///
 /// - [`EngineError::CandidateNotFound`] — no row for `candidate_id`.
 /// - [`EngineError::OutOfScope`] — candidate belongs to a different project.
 /// - [`EngineError::CandidateNotPending`] — candidate is not `Pending`.
+/// - [`EngineError::Validation`] — `overrides.supersedes` names a memory that
+///   is not found, already deleted, or already superseded.
 /// - [`EngineError::Core`] — `build_bundle` validation failure.
 /// - [`EngineError::Store`] — any SQLite failure.
 pub fn approve_candidate(
@@ -220,7 +230,19 @@ pub fn approve_candidate(
     let memory_id = bundle.memory.id.clone();
     store.record_memory(&bundle)?;
 
-    // --- Step 4: write source rows ---
+    // --- Step 4: optional supersede (issue #131) ---
+    if let Some(old_id) = &overrides.supersedes {
+        if !store.supersede_memory(old_id, &memory_id)? {
+            return Err(EngineError::Validation {
+                message: format!(
+                    "approved {memory_id} but could not supersede `{old_id}` — it may not \
+                     exist or is already deleted/superseded"
+                ),
+            });
+        }
+    }
+
+    // --- Step 5: write source rows ---
 
     // Copy each CandidateSource from the candidate to memory_sources.
     for src in &candidate.sources {
@@ -243,7 +265,7 @@ pub fn approve_candidate(
     // Mandatory reverse-provenance row (PRD §14).
     store.add_memory_source(&memory_id, "candidate", Some(candidate_id.as_str()), None)?;
 
-    // --- Step 5: flip candidate status ---
+    // --- Step 6: flip candidate status ---
     store.mark_candidate_approved(candidate_id, &memory_id)?;
 
     Ok(ApprovalOutcome {
@@ -755,6 +777,99 @@ mod tests {
         assert!(
             matches!(err, EngineError::OutOfScope),
             "expected OutOfScope, got: {err}"
+        );
+    }
+
+    // --- approve_candidate with --supersedes (issue #131) ---
+
+    #[test]
+    fn approve_with_supersedes_supersedes_old_memory_in_one_call() {
+        let tmp = TempDir::new().unwrap();
+        let mut store = open_store(&tmp);
+        let proj = ProjectId::from_slug("approve-supersedes");
+        seed_project(&mut store, &proj);
+
+        let old_id = seed_memory(
+            &mut store,
+            &proj,
+            "Use polling for the daemon status check.",
+            MemoryType::Decision,
+        );
+
+        let proposed = propose_candidate(
+            &mut store,
+            &proj,
+            new_candidate(
+                proj.clone(),
+                "Use a Unix-socket push for the daemon status check.",
+                MemoryType::Decision,
+            ),
+        )
+        .unwrap();
+
+        let outcome = approve_candidate(
+            &mut store,
+            &proj,
+            &proposed.candidate_id,
+            ApprovalOverrides {
+                supersedes: Some(old_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // Old memory is now deleted and linked to the newly approved one.
+        let old_fetched = store.get_memory(&old_id).unwrap().unwrap();
+        assert_eq!(
+            old_fetched.memory.status,
+            vestige_core::MemoryStatus::Deleted
+        );
+        assert_eq!(
+            old_fetched.memory.superseded_by,
+            Some(outcome.memory_id.clone())
+        );
+
+        // New memory is active and unaffected otherwise.
+        let new_fetched = store.get_memory(&outcome.memory_id).unwrap().unwrap();
+        assert_eq!(
+            new_fetched.memory.status,
+            vestige_core::MemoryStatus::Active
+        );
+    }
+
+    #[test]
+    fn approve_with_supersedes_unknown_memory_returns_validation_error() {
+        let tmp = TempDir::new().unwrap();
+        let mut store = open_store(&tmp);
+        let proj = ProjectId::from_slug("approve-supersedes-missing");
+        seed_project(&mut store, &proj);
+
+        let proposed = propose_candidate(
+            &mut store,
+            &proj,
+            new_candidate(
+                proj.clone(),
+                "A candidate that claims to supersede a bogus memory.",
+                MemoryType::Note,
+            ),
+        )
+        .unwrap();
+
+        let bogus_old_id = MemoryId::new();
+        let err = approve_candidate(
+            &mut store,
+            &proj,
+            &proposed.candidate_id,
+            ApprovalOverrides {
+                supersedes: Some(bogus_old_id),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, EngineError::Validation { .. }),
+            "expected Validation, got: {err}"
         );
     }
 

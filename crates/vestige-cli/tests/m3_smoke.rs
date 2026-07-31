@@ -88,6 +88,8 @@ fn search_and_recall_roundtrip() {
     let out = vestige(&repo, &["search", "SQLite", "--json"]);
     assert_ok(&out, "search SQLite");
     let envelope = parse_json(&out, "search json");
+    // Since #134 the default mode is `hybrid`; with no embeddings in this repo
+    // it falls back to lexical, so the effective mode here is still "lexical".
     assert_eq!(envelope["mode"].as_str().unwrap(), "lexical");
     let arr = envelope["results"].as_array().unwrap();
     assert_eq!(arr.len(), 1, "expected one match for SQLite");
@@ -176,7 +178,13 @@ fn empty_query_returns_no_matches_text_mode() {
     let out = vestige(&repo, &["search", "***"]);
     assert_ok(&out, "search ***");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("(no matches)"));
+    // Matches both the bare `(no matches)` and the cold-start variant
+    // `(no matches — try \`vestige embed --all\` …)`. Since #134 made hybrid the
+    // default, a project with no embeddings takes the second form.
+    assert!(
+        stdout.contains("(no matches"),
+        "expected a no-matches line, got: {stdout}"
+    );
 }
 
 #[test]

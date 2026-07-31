@@ -1,8 +1,9 @@
 //! `vestige search` — lexical, semantic, or hybrid memory retrieval.
 //!
-//! Default mode is `lexical` (FTS5, always available) unless the caller
-//! supplies `--mode`, `--semantic`, or `--hybrid`, or config sets
-//! `[search] default_mode`. The `--limit` default is fixed in clap (8).
+//! Default mode is `hybrid` (falls back to lexical-only when the project has
+//! no embeddings yet) unless the caller supplies `--mode`, `--lexical`,
+//! `--semantic`, or `--hybrid`, or config sets `[search] default_mode`.
+//! The `--limit` default is fixed in clap (8).
 //! For a config-budgeted limit per project, use `vestige recall` (PRD §12.6).
 //!
 //! All real work lives in [`crate::commands::search_shared`]; this file is

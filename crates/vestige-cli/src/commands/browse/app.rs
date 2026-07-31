@@ -470,8 +470,9 @@ pub struct App {
     /// Optional caller filter for the Traces tab.
     pub traces_caller_filter: Option<String>,
     /// Active search mode for the Memories-tab `/` filter. Defaults to
-    /// `Lexical` (or the config `[search] default_mode` when constructed from
-    /// a live project context). Persists for the browser session only.
+    /// `Hybrid` (or the config `[search] default_mode` when constructed from
+    /// a live project context, via `resolve_default_mode`). Persists for the
+    /// browser session only.
     pub search_mode: SearchMode,
     /// When `Some`, the configured provider was unavailable for the requested
     /// mode and the browser fell back to lexical. The value is the originally
