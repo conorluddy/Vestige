@@ -1,0 +1,14 @@
+# Pins the toolchain for local development and CI alike.
+#
+# Why an exact version rather than `stable`: CI used to track `stable` while
+# developer machines lagged behind, so `cargo clippy -- -D warnings` could pass
+# locally and fail in CI on lints added in the interim. That happened twice in
+# one PR (`clippy::question_mark`, `clippy::manual_filter`) — a green local gate
+# could not predict CI. Pinning means the toolchain moves when someone bumps
+# this file deliberately, not whenever the GitHub runner image updates.
+#
+# Bumping: change `channel` here AND the `dtolnay/rust-toolchain@<version>` ref
+# in .github/workflows/ci.yml — they must stay in lockstep.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
