@@ -12,7 +12,9 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 use vestige_config::{build_init_config, VestigeConfig};
-use vestige_core::{CandidateId, ProjectId, RejectionReason};
+use vestige_core::{
+    build_bundle, CandidateId, MemoryId, MemoryType, NewMemory, ProjectId, RejectionReason,
+};
 use vestige_engine::{approve_candidate, reject_candidate, ApprovalOverrides};
 use vestige_mcp::{
     GetCandidateParams, ListCandidatesParams, ProposeCandidateParams, ProposeSource, VestigeServer,
@@ -37,6 +39,38 @@ fn make_server(slug: &str) -> (TempDir, VestigeServer, ProjectId) {
     (tmp, server, project_id)
 }
 
+/// Seed the MCP server's underlying store with a decision memory via a
+/// separate `Store` handle, without recording any embedding for it.
+///
+/// Mirrors `search_modes.rs`'s `seed_via_second_connection` pattern: the
+/// server holds its own connection behind `Arc<Mutex<Inner>>`, so test setup
+/// goes through a second connection to the same SQLite file. Leaving the
+/// memory unembedded means the dedup probe's semantic leg early-returns
+/// (`embedding_status.embedded_representations == 0`, see
+/// `vestige_engine::candidate::run_semantic_dedup_leg`), so any hit on this
+/// memory can only come from the lexical leg — `matched_via` is asserted as
+/// `"lexical"` on that basis, not by a priori assumption.
+fn seed_similar_memory(
+    storage_path: &std::path::Path,
+    project: &ProjectId,
+    body: &str,
+) -> MemoryId {
+    let mut store = Store::open(storage_path).unwrap();
+    let bundle = build_bundle(
+        project,
+        NewMemory {
+            r#type: MemoryType::Decision,
+            body,
+            importance: 0.5,
+            source: None,
+        },
+    )
+    .unwrap();
+    let id = bundle.memory.id.clone();
+    store.record_memory(&bundle).unwrap();
+    id
+}
+
 /// Pull the JSON envelope out of a successful `CallToolResult`.
 fn envelope(result: &rmcp::model::CallToolResult) -> Value {
     let text = result
@@ -59,14 +93,22 @@ fn error_body(err: &rmcp::ErrorData) -> Value {
 
 #[tokio::test]
 async fn propose_then_list_then_get() {
-    let (_tmp, server, _project) = make_server("cand-full-journey");
+    let (tmp, server, project) = make_server("cand-full-journey");
+
+    // Seed a memory with heavy lexical overlap against the candidate body
+    // below, so the dedup probe's lexical leg is guaranteed to fire.
+    let existing_memory_id = seed_similar_memory(
+        &tmp.path().join("memory.sqlite"),
+        &project,
+        "We will use dual skill targets for both claude and agents directories",
+    );
 
     // 1. Propose
     let propose_result = server
         .vestige_propose_candidate(Parameters(ProposeCandidateParams {
             r#type: "decision".to_string(),
             title: None,
-            body: "use dual skill targets".to_string(),
+            body: "We will use dual skill targets for both claude and agents directories to maximise compatibility".to_string(),
             rationale: Some("claude+codex".to_string()),
             importance: 0.7,
             confidence: 0.8,
@@ -87,9 +129,23 @@ async fn propose_then_list_then_get() {
         env["status"], "pending",
         "newly proposed candidate must be pending"
     );
+    let similar_memories = env["similar_memories"]
+        .as_array()
+        .expect("similar_memories must be an array");
     assert!(
-        env["similar_memories"].is_array(),
-        "similar_memories must be an array"
+        !similar_memories.is_empty(),
+        "similar_memories must contain the seeded overlapping memory, got: {env}"
+    );
+    let seeded_hit = similar_memories
+        .iter()
+        .find(|m| m["id"].as_str() == Some(existing_memory_id.as_str()))
+        .expect("seeded memory must appear in similar_memories");
+    // No embedding was ever recorded for the project, so the semantic leg
+    // early-returns (see `seed_similar_memory` doc comment) — the hit can
+    // only have come from the lexical leg.
+    assert_eq!(
+        seeded_hit["matched_via"], "lexical",
+        "unembedded project: dedup hit must be matched_via lexical, got: {seeded_hit}"
     );
     assert!(
         env["similar_candidates"].is_array(),

@@ -8,9 +8,11 @@ use std::str::FromStr;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use vestige_core::{CandidateId, MemoryId, MemoryType, NewCandidate, NewCandidateSource};
+use vestige_embed::{build_provider, EmbeddingProvider};
 use vestige_engine::propose_candidate;
 
 use crate::context;
+use crate::context::ProjectContext;
 use crate::output::{emit_json, OutputFormat};
 
 /// Arguments for `vestige candidate`.
@@ -123,8 +125,13 @@ fn add(args: CandidateAddArgs) -> Result<()> {
         duplicate_of_candidate_id,
     };
 
-    // TODO(#133 commit 4): wire an actual soft-fail provider here.
-    let outcome = propose_candidate(&mut ctx.store, &ctx.project_id, new_candidate, None)?;
+    let embedding_provider = dedup_embedding_provider(&ctx);
+    let outcome = propose_candidate(
+        &mut ctx.store,
+        &ctx.project_id,
+        new_candidate,
+        embedding_provider.as_deref(),
+    )?;
 
     match OutputFormat::pick(args.json) {
         OutputFormat::Json => {
@@ -133,6 +140,7 @@ fn add(args: CandidateAddArgs) -> Result<()> {
                 id: String,
                 title: String,
                 score: f32,
+                matched_via: vestige_engine::candidate::MatchedVia,
             }
             #[derive(serde::Serialize)]
             struct SimilarCandidateJson {
@@ -157,6 +165,7 @@ fn add(args: CandidateAddArgs) -> Result<()> {
                         id: m.id.to_string(),
                         title: m.title.clone(),
                         score: m.score,
+                        matched_via: m.matched_via,
                     })
                     .collect(),
                 similar_candidates: outcome
@@ -180,7 +189,14 @@ fn add(args: CandidateAddArgs) -> Result<()> {
                 let list: Vec<String> = outcome
                     .similar_memories
                     .iter()
-                    .map(|m| format!("{} ({:.2})", m.id, m.score))
+                    .map(|m| {
+                        format!(
+                            "{} ({:.2}, {})",
+                            m.id,
+                            m.score,
+                            matched_via_label(m.matched_via)
+                        )
+                    })
                     .collect();
                 println!("  Similar memories: {}", list.join(", "));
             }
@@ -194,5 +210,37 @@ fn add(args: CandidateAddArgs) -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+// === PRIVATE HELPERS ===
+
+/// Builds the configured embedding provider for the semantic leg of the
+/// dedup probe, soft-failing to `None` on any error.
+///
+/// Unlike [`search_shared::build_embed_provider`](crate::commands::search_shared::build_embed_provider),
+/// which hard-fails a `search`/`recall` invocation, provider construction here
+/// must never block filing a candidate (PRD §13: dedup is a hint, not a gate).
+/// A misconfigured provider name, a feature not compiled in, or a model that
+/// fails to load all just mean the probe falls back to lexical-only.
+fn dedup_embedding_provider(ctx: &ProjectContext) -> Option<Box<dyn EmbeddingProvider>> {
+    match build_provider(&ctx.resolve_embeddings_config()) {
+        Ok(provider) => Some(provider),
+        Err(e) => {
+            tracing::debug!(error = %e, "dedup probe: embedding provider unavailable, falling back to lexical-only");
+            None
+        }
+    }
+}
+
+/// Lowercase label for `matched_via` in human-readable text output, matching
+/// the JSON serialization already produced by `MatchedVia`'s `serde(rename_all
+/// = "lowercase")`.
+fn matched_via_label(matched_via: vestige_engine::candidate::MatchedVia) -> &'static str {
+    use vestige_engine::candidate::MatchedVia;
+    match matched_via {
+        MatchedVia::Lexical => "lexical",
+        MatchedVia::Semantic => "semantic",
+        MatchedVia::Both => "both",
     }
 }

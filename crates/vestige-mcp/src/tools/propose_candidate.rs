@@ -12,10 +12,13 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
+use vestige_config::embeddings_config_for;
 use vestige_core::{MemoryType, NewCandidate, NewCandidateSource};
+use vestige_embed::{build_provider, EmbeddingProvider};
+use vestige_engine::candidate::MatchedVia;
 use vestige_engine::{error::EngineError, propose_candidate, ProposeOutcome};
 
-use crate::server::{err, ok_json, VestigeServer};
+use crate::server::{err, ok_json, Inner, VestigeServer};
 
 // === INPUT SCHEMA ===
 
@@ -68,6 +71,7 @@ struct SimilarMemoryJson {
     id: String,
     title: String,
     score: f32,
+    matched_via: MatchedVia,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,6 +93,7 @@ impl From<ProposeOutcome> for ProposeCandidateResponse {
                     id: m.id.as_str().to_string(),
                     title: m.title,
                     score: m.score,
+                    matched_via: m.matched_via,
                 })
                 .collect(),
             similar_candidates: outcome
@@ -169,15 +174,40 @@ impl VestigeServer {
             duplicate_of_candidate_id: None,
         };
 
-        // TODO(#133 commit 4): wire an actual soft-fail provider here.
-        let outcome = propose_candidate(&mut inner.store, &project_id, new_candidate, None)
-            .map_err(map_engine_error)?;
+        let embedding_provider = dedup_embedding_provider(&inner);
+        let outcome = propose_candidate(
+            &mut inner.store,
+            &project_id,
+            new_candidate,
+            embedding_provider.as_deref(),
+        )
+        .map_err(map_engine_error)?;
 
         ok_json(&ProposeCandidateResponse::from(outcome))
     }
 }
 
 // === PRIVATE HELPERS ===
+
+/// Builds the configured embedding provider for the semantic leg of the
+/// dedup probe, soft-failing to `None` on any error.
+///
+/// Unlike `search::build_configured_provider`, which hard-fails
+/// `vestige_search`/`vestige_expand` on provider errors, provider construction here
+/// must never block filing a candidate (PRD §13: dedup is a hint, not a
+/// gate). A misconfigured provider name, a feature not compiled in, or a
+/// model that fails to load all just mean the probe falls back to
+/// lexical-only — logged at `debug!`, never surfaced as a tool error.
+fn dedup_embedding_provider(inner: &Inner) -> Option<Box<dyn EmbeddingProvider>> {
+    let cfg = embeddings_config_for(inner.config.embeddings.as_ref());
+    match build_provider(&cfg) {
+        Ok(provider) => Some(provider),
+        Err(e) => {
+            tracing::debug!(error = %e, "dedup probe: embedding provider unavailable, falling back to lexical-only");
+            None
+        }
+    }
+}
 
 fn map_engine_error(e: EngineError) -> ErrorData {
     match e {
