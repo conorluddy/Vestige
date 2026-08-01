@@ -19,7 +19,7 @@ pub mod trace;
 use rmcp::ErrorData;
 use vestige_core::{
     build_bundle, build_pack, project_card, ContextOptions, ContextSources, FetchedMemory,
-    ListFilter, MemoryCard, MemoryType, NewMemory, NewSource, SOURCE_SNIPPET_MAX_BYTES,
+    ListFilter, ListOrder, MemoryCard, MemoryType, NewMemory, NewSource, SOURCE_SNIPPET_MAX_BYTES,
 };
 
 use crate::server::{err, Inner};
@@ -47,14 +47,25 @@ pub(crate) fn build_context_pack(
                 include_deleted: false,
                 r#type: Some(MemoryType::ProjectSummary),
                 limit: Some(1),
+                order: ListOrder::RecencyDesc,
             },
         )
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))?
         .into_iter()
         .next();
-    let decisions = list(inner, Some(MemoryType::Decision), per_section)?;
-    let open_questions = list(inner, Some(MemoryType::OpenQuestion), per_section)?;
-    let recent = list(inner, None, per_section)?;
+    let decisions = list(
+        inner,
+        Some(MemoryType::Decision),
+        per_section,
+        ListOrder::ImportanceUsageRecency,
+    )?;
+    let open_questions = list(
+        inner,
+        Some(MemoryType::OpenQuestion),
+        per_section,
+        ListOrder::ImportanceUsageRecency,
+    )?;
+    let recent = list(inner, None, per_section, ListOrder::ImportanceUsageRecency)?;
     Ok(build_pack(
         ContextSources {
             project_name: inner.config.project_name.clone(),
@@ -67,11 +78,12 @@ pub(crate) fn build_context_pack(
     ))
 }
 
-/// List memories of an optional type up to `limit`; used by build_context_pack.
+/// List memories of an optional type up to `limit`, in `order`; used by build_context_pack.
 pub(crate) fn list(
     inner: &Inner,
     r#type: Option<MemoryType>,
     limit: u32,
+    order: ListOrder,
 ) -> Result<Vec<FetchedMemory>, ErrorData> {
     inner
         .store
@@ -81,6 +93,7 @@ pub(crate) fn list(
                 include_deleted: false,
                 r#type,
                 limit: Some(limit),
+                order,
             },
         )
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))

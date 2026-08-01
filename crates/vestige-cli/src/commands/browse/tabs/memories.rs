@@ -22,8 +22,8 @@ use ratatui::{
 use anyhow::Result;
 use vestige_config::traces_config_for;
 use vestige_core::{
-    project_card, FetchedMemory, ListFilter, MemoryCard, MemoryStatus, MemoryType, ProjectId,
-    RepresentationDepth, RepresentationRow, SearchFilter, SearchMode,
+    project_card, FetchedMemory, ListFilter, ListOrder, MemoryCard, MemoryStatus, MemoryType,
+    ProjectId, RepresentationDepth, RepresentationRow, SearchFilter, SearchMode,
 };
 use vestige_embed::EmbeddingProvider;
 use vestige_engine::search::{search_hybrid, search_semantic};
@@ -202,6 +202,7 @@ fn load_unfiltered(
         include_deleted,
         r#type: kind,
         limit: Some(LIST_CAP),
+        order: ListOrder::RecencyDesc,
     };
     let fetched = store.list_memories(project_id, &filter)?;
     let mut cards: Vec<MemoryCard> = fetched.iter().map(project_card).collect();

@@ -226,6 +226,9 @@ pub fn search_semantic(
                     vector: similarity,
                     importance: 0.0,
                     type_boost: 0.0,
+                    // Semantic-only ranks on cosine alone; usage is a hybrid
+                    // merge signal and doesn't participate here.
+                    usage: 0.0,
                     total: similarity,
                 }),
             });

@@ -80,6 +80,7 @@ fn approve_candidate_creates_recallable_memory() {
             "Use cargo workspaces for multi-crate monorepos.",
             MemoryType::Decision,
         ),
+        None,
     )
     .unwrap();
 
@@ -122,6 +123,7 @@ fn approve_candidate_writes_reverse_provenance() {
             "All public APIs must be documented with rustdoc.",
             MemoryType::Preference,
         ),
+        None,
     )
     .unwrap();
 
@@ -167,7 +169,7 @@ fn approve_candidate_copies_original_sources() {
         source_content: Some("pub struct MemoryId(String);".to_string()),
     });
 
-    let proposed = propose_candidate(&mut store, &project, new_cand).unwrap();
+    let proposed = propose_candidate(&mut store, &project, new_cand, None).unwrap();
 
     let outcome = approve_candidate(
         &mut store,
@@ -217,6 +219,7 @@ fn approve_candidate_marks_status_approved() {
             "Integration tests run against real SQLite, never mocks.",
             MemoryType::Preference,
         ),
+        None,
     )
     .unwrap();
 
@@ -258,6 +261,7 @@ fn approve_candidate_pending_only() {
             "Feature flags must be cleaned up within one sprint.",
             MemoryType::Preference,
         ),
+        None,
     )
     .unwrap();
 
@@ -302,6 +306,7 @@ fn approve_candidate_out_of_scope() {
             "Decision scoped to project A.",
             MemoryType::Decision,
         ),
+        None,
     )
     .unwrap();
 
@@ -336,6 +341,7 @@ fn reject_duplicate_persists_link() {
             "Use SQLite as the canonical storage backend.",
             MemoryType::Decision,
         ),
+        None,
     )
     .unwrap();
 
@@ -374,6 +380,7 @@ fn reject_with_duplicate_link_but_non_duplicate_reason_validation_error() {
             "Something worth capturing here.",
             MemoryType::Note,
         ),
+        None,
     )
     .unwrap();
 
@@ -418,6 +425,7 @@ fn propose_returns_similar_memories_when_dedup_hits() {
             "We will install skills to both targets for cross-agent support.",
             MemoryType::Decision,
         ),
+        None,
     )
     .unwrap();
 
@@ -440,6 +448,7 @@ fn propose_returns_empty_similars_on_fresh_project() {
             "Use tokio for async runtimes in future services.",
             MemoryType::Decision,
         ),
+        None,
     )
     .unwrap();
 
@@ -475,6 +484,7 @@ fn propose_filters_similar_by_type() {
             "skills targets decision for cross-agent deployment.",
             MemoryType::Decision, // different type
         ),
+        None,
     )
     .unwrap();
 
@@ -501,6 +511,7 @@ fn pending_candidate_invisible_to_recall_or_search() {
             "uniquezephyrtoken pending memory must not leak.",
             MemoryType::Note,
         ),
+        None,
     )
     .unwrap();
 
@@ -527,6 +538,7 @@ fn approved_candidate_becomes_visible_in_search() {
             "uniquequasartoken approved memory should be searchable.",
             MemoryType::Note,
         ),
+        None,
     )
     .unwrap();
 
@@ -570,6 +582,7 @@ fn rejected_candidate_invisible_to_recall_or_search() {
             "uniquepulsartoken rejected memory must stay hidden.",
             MemoryType::Note,
         ),
+        None,
     )
     .unwrap();
 

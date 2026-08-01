@@ -110,6 +110,8 @@ pub struct HybridOpts {
     pub importance_weight: f64,
     /// Weight for memory-type boost. Default 0.03.
     pub type_weight: f64,
+    /// Weight for the recall-count usage boost (#133). Default 0.05.
+    pub usage_weight: f64,
     /// Maximum results to return after merging. Default 8.
     pub limit: u32,
 }
@@ -117,10 +119,16 @@ pub struct HybridOpts {
 impl Default for HybridOpts {
     fn default() -> Self {
         Self {
-            fts_weight: 0.55,
-            vector_weight: 0.35,
+            // Usage took its 0.05 from the two retrieval legs proportionally
+            // (fts 0.55 → 0.52, vector 0.35 → 0.33) rather than from
+            // importance or type: usage is a retrieval signal, and importance
+            // is author intent, which shouldn't be diluted by how often a
+            // memory happens to be read. Still sums to 1.0.
+            fts_weight: 0.52,
+            vector_weight: 0.33,
             importance_weight: 0.07,
             type_weight: 0.03,
+            usage_weight: 0.05,
             limit: 8,
         }
     }
@@ -156,6 +164,45 @@ pub struct ListFilter {
     pub include_deleted: bool,
     pub r#type: Option<MemoryType>,
     pub limit: Option<u32>,
+    /// Result ordering. Default: `ListOrder::RecencyDesc` (matches V0–V0.4 behaviour).
+    pub order: ListOrder,
+}
+
+/// Ordering strategy for `list_memories`.
+///
+/// `RecencyDesc` is the default and preserves the original V0 behaviour
+/// (`ORDER BY datetime(updated_at) DESC`). `ImportanceUsageRecency` is used by
+/// context-pack callers that want authored importance and observed usage to
+/// outrank raw recency (#133).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ListOrder {
+    #[default]
+    RecencyDesc,
+    ImportanceUsageRecency,
+}
+
+impl ListOrder {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::RecencyDesc => "recencydesc",
+            Self::ImportanceUsageRecency => "importanceusagerecency",
+        }
+    }
+}
+
+impl FromStr for ListOrder {
+    type Err = CoreError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "recencydesc" => Ok(Self::RecencyDesc),
+            "importanceusagerecency" => Ok(Self::ImportanceUsageRecency),
+            other => Err(CoreError::Validation(format!(
+                "unknown list order \"{other}\"; expected one of: recencydesc, importanceusagerecency"
+            ))),
+        }
+    }
 }
 
 /// Sanitize a free-text query for FTS5 MATCH. Collapses to alphanumeric
@@ -251,9 +298,13 @@ mod tests {
     #[test]
     fn hybrid_opts_default_weights_sum_to_one() {
         let opts = HybridOpts::default();
-        let sum = opts.fts_weight + opts.vector_weight + opts.importance_weight + opts.type_weight;
+        let sum = opts.fts_weight
+            + opts.vector_weight
+            + opts.importance_weight
+            + opts.type_weight
+            + opts.usage_weight;
         assert!(
-            (sum - 1.0).abs() < f64::EPSILON * 4.0,
+            (sum - 1.0).abs() < f64::EPSILON * 8.0,
             "weights sum {sum} ≠ 1.0"
         );
         assert_eq!(opts.limit, 8);

@@ -25,8 +25,9 @@ pub struct ContextSections {
     pub project_name: String,
     /// The single [`MemoryType::ProjectSummary`](crate::MemoryType) memory, if any.
     pub summary: Option<MemoryCard>,
-    /// Active [`MemoryType::Decision`](crate::MemoryType) memories, ordered by
-    /// [`MemoryCard::importance`] descending.
+    /// Active [`MemoryType::Decision`](crate::MemoryType) memories. `build_pack`
+    /// does no sorting of its own — order is whatever the caller's `list_memories`
+    /// query returned, which today is most-recently-updated first.
     pub decisions: Vec<MemoryCard>,
     /// Active [`MemoryType::OpenQuestion`](crate::MemoryType) memories.
     pub open_questions: Vec<MemoryCard>,

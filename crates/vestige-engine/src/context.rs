@@ -18,7 +18,7 @@
 use vestige_config::TracesConfig;
 use vestige_core::{
     build_pack, project_detail, ContextOptions, ContextSources, FetchedMemory, ListFilter,
-    MemoryId, MemoryType, ProjectId, RepresentationDepth,
+    ListOrder, MemoryId, MemoryType, ProjectId, RepresentationDepth,
 };
 use vestige_store::Store;
 
@@ -129,6 +129,7 @@ pub fn get_project_context(
                 include_deleted: false,
                 r#type: Some(MemoryType::ProjectSummary),
                 limit: Some(1),
+                order: ListOrder::RecencyDesc,
             },
         )?
         .into_iter()
@@ -140,6 +141,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: Some(MemoryType::Decision),
             limit: Some(per_section),
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -149,6 +151,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: Some(MemoryType::OpenQuestion),
             limit: Some(per_section),
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -158,6 +161,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: None,
             limit: Some(per_section),
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 

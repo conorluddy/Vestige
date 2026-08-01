@@ -717,10 +717,23 @@ fn dedup_hint_surfaces_similar_memory() {
         );
     } else {
         // Assert the existing memory id is in the list
-        let ids: Vec<&str> = similar.iter().filter_map(|m| m["id"].as_str()).collect();
+        let hit = similar
+            .iter()
+            .find(|m| m["id"].as_str() == Some(mem_id.as_str()));
         assert!(
-            ids.contains(&mem_id.as_str()),
-            "similar_memories must contain the existing decision {mem_id}; got: {ids:?}"
+            hit.is_some(),
+            "similar_memories must contain the existing decision {mem_id}; got: {similar:?}"
+        );
+        // No `vestige embed --all` (or equivalent) was ever run in this repo,
+        // so the project has zero embedded representations and the dedup
+        // probe's semantic leg early-returns (matched_via can only come from
+        // the lexical leg here — see `run_semantic_dedup_leg` in
+        // `vestige-engine/src/candidate.rs`). Assert on that observed
+        // behaviour, not on an a-priori assumption.
+        assert_eq!(
+            hit.unwrap()["matched_via"],
+            "lexical",
+            "unembedded project: dedup hit must be matched_via lexical, got: {hit:?}"
         );
     }
 }
