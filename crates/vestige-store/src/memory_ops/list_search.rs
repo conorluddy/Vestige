@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use vestige_core::{
-    FetchedMemory, ListFilter, Memory, MemoryId, MemoryStatus, ProjectId, SearchFilter, SearchHit,
+    FetchedMemory, ListFilter, ListOrder, Memory, MemoryId, MemoryStatus, ProjectId, SearchFilter,
+    SearchHit,
 };
 
 use crate::helpers::invalid_id_to_sqlite;
@@ -16,9 +17,10 @@ impl Store {
     /// List memories for a project, optionally filtered by type or status.
     ///
     /// Excludes deleted memories by default; set `filter.include_deleted` to
-    /// include them. Results are ordered by `updated_at DESC`. Each returned
-    /// [`FetchedMemory`] includes all representations and sources via N+1
-    /// queries — appropriate for list sizes in the tens; not for bulk export.
+    /// include them. Result ordering is controlled by `filter.order` — see
+    /// [`vestige_core::ListOrder`]. Each returned [`FetchedMemory`] includes
+    /// all representations and sources via N+1 queries — appropriate for list
+    /// sizes in the tens; not for bulk export.
     pub fn list_memories(
         &self,
         project_id: &ProjectId,
@@ -37,7 +39,12 @@ impl Store {
         if filter.r#type.is_some() {
             sql.push_str(" AND type = ?2");
         }
-        sql.push_str(" ORDER BY datetime(updated_at) DESC");
+        sql.push_str(match filter.order {
+            ListOrder::RecencyDesc => " ORDER BY datetime(updated_at) DESC",
+            ListOrder::ImportanceUsageRecency => {
+                " ORDER BY importance DESC, recall_count DESC, datetime(updated_at) DESC"
+            }
+        });
         if let Some(n) = filter.limit {
             sql.push_str(&format!(" LIMIT {n}"));
         }

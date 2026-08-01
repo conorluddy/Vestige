@@ -164,6 +164,45 @@ pub struct ListFilter {
     pub include_deleted: bool,
     pub r#type: Option<MemoryType>,
     pub limit: Option<u32>,
+    /// Result ordering. Default: `ListOrder::RecencyDesc` (matches V0–V0.4 behaviour).
+    pub order: ListOrder,
+}
+
+/// Ordering strategy for `list_memories`.
+///
+/// `RecencyDesc` is the default and preserves the original V0 behaviour
+/// (`ORDER BY datetime(updated_at) DESC`). `ImportanceUsageRecency` is used by
+/// context-pack callers that want authored importance and observed usage to
+/// outrank raw recency (#133).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ListOrder {
+    #[default]
+    RecencyDesc,
+    ImportanceUsageRecency,
+}
+
+impl ListOrder {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::RecencyDesc => "recencydesc",
+            Self::ImportanceUsageRecency => "importanceusagerecency",
+        }
+    }
+}
+
+impl FromStr for ListOrder {
+    type Err = CoreError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "recencydesc" => Ok(Self::RecencyDesc),
+            "importanceusagerecency" => Ok(Self::ImportanceUsageRecency),
+            other => Err(CoreError::Validation(format!(
+                "unknown list order \"{other}\"; expected one of: recencydesc, importanceusagerecency"
+            ))),
+        }
+    }
 }
 
 /// Sanitize a free-text query for FTS5 MATCH. Collapses to alphanumeric

@@ -19,7 +19,7 @@ pub mod trace;
 use rmcp::ErrorData;
 use vestige_core::{
     build_bundle, build_pack, project_card, ContextOptions, ContextSources, FetchedMemory,
-    ListFilter, MemoryCard, MemoryType, NewMemory, NewSource, SOURCE_SNIPPET_MAX_BYTES,
+    ListFilter, ListOrder, MemoryCard, MemoryType, NewMemory, NewSource, SOURCE_SNIPPET_MAX_BYTES,
 };
 
 use crate::server::{err, Inner};
@@ -47,6 +47,7 @@ pub(crate) fn build_context_pack(
                 include_deleted: false,
                 r#type: Some(MemoryType::ProjectSummary),
                 limit: Some(1),
+                order: ListOrder::RecencyDesc,
             },
         )
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))?
@@ -81,6 +82,7 @@ pub(crate) fn list(
                 include_deleted: false,
                 r#type,
                 limit: Some(limit),
+                order: ListOrder::RecencyDesc,
             },
         )
         .map_err(|e| err("STORE_FAILED", e.to_string(), true))

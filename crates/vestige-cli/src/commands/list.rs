@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Args;
-use vestige_core::{project_card, ListFilter, MemoryType};
+use vestige_core::{project_card, ListFilter, ListOrder, MemoryType};
 
 use crate::context;
 use crate::output::{emit_json, print_card, OutputFormat};
@@ -36,6 +36,7 @@ pub fn run(args: ListArgs) -> Result<()> {
         include_deleted: args.include_deleted,
         r#type,
         limit: Some(args.limit),
+        order: ListOrder::RecencyDesc,
     };
 
     let fetched = ctx.store.list_memories(&ctx.project_id, &filter)?;

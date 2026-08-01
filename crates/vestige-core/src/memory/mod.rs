@@ -25,6 +25,6 @@ pub use scoring::{
     rank_hits_with, usage_boost, HybridScore, ScoredCard, UsageWeighting,
 };
 pub use search::{
-    resolve_default_mode, sanitize_fts_query, HybridOpts, ListFilter, SearchFilter, SearchHit,
-    SearchMode, SemanticHit,
+    resolve_default_mode, sanitize_fts_query, HybridOpts, ListFilter, ListOrder, SearchFilter,
+    SearchHit, SearchMode, SemanticHit,
 };
