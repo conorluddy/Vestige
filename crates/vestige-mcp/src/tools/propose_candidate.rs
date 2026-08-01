@@ -169,7 +169,8 @@ impl VestigeServer {
             duplicate_of_candidate_id: None,
         };
 
-        let outcome = propose_candidate(&mut inner.store, &project_id, new_candidate)
+        // TODO(#133 commit 4): wire an actual soft-fail provider here.
+        let outcome = propose_candidate(&mut inner.store, &project_id, new_candidate, None)
             .map_err(map_engine_error)?;
 
         ok_json(&ProposeCandidateResponse::from(outcome))

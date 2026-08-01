@@ -178,6 +178,7 @@ async fn expand_provenance_candidate_promoted_memory() {
                 duplicate_of_memory_id: None,
                 duplicate_of_candidate_id: None,
             },
+            None,
         )
         .expect("propose must succeed");
 

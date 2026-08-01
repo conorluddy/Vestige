@@ -123,7 +123,8 @@ fn add(args: CandidateAddArgs) -> Result<()> {
         duplicate_of_candidate_id,
     };
 
-    let outcome = propose_candidate(&mut ctx.store, &ctx.project_id, new_candidate)?;
+    // TODO(#133 commit 4): wire an actual soft-fail provider here.
+    let outcome = propose_candidate(&mut ctx.store, &ctx.project_id, new_candidate, None)?;
 
     match OutputFormat::pick(args.json) {
         OutputFormat::Json => {
