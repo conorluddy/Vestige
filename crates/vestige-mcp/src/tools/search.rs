@@ -38,8 +38,9 @@ pub struct SearchParams {
     #[serde(default)]
     pub r#type: Option<String>,
     /// When `true`, each result includes a `score_parts` object with component
-    /// scores (`fts`, `vector`, `importance`, `type_boost`, `total`). Automatically
-    /// included for `hybrid` mode. Ignored for `lexical` (always `null`).
+    /// scores (`fts`, `vector`, `importance`, `type_boost`, `usage`, `total`).
+    /// Automatically included for `hybrid` mode. Ignored for `lexical` (always
+    /// `null`). `usage` reflects how often the memory has been recalled.
     #[serde(default)]
     pub include_score_parts: Option<bool>,
 }

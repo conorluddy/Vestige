@@ -387,11 +387,17 @@ Suggested formula:
 
 ```txt
 hybrid_score =
-  fts_score_normalized * 0.55
-  + vector_score_normalized * 0.35
+  fts_score_normalized * 0.52
+  + vector_score_normalized * 0.33
   + importance_boost * 0.07
   + type_boost * 0.03
+  + usage_boost * 0.05
 ```
+
+> Updated in V0.6 (#133): `usage_boost` was added and took its weight from the
+> two retrieval legs proportionally (fts 0.55 → 0.52, vector 0.35 → 0.33), not
+> from importance or type — usage is a retrieval signal, whereas importance is
+> author intent and shouldn't be diluted by read frequency. Still sums to 1.0.
 
 Exact weights can change, but V0.1 should keep the formula simple and documented.
 

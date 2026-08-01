@@ -39,9 +39,9 @@ use std::str::FromStr;
 
 use serde::Serialize;
 use vestige_core::{
-    merge_hits, normalise_cosine, normalise_fts, project_card, rank_hits, sanitize_fts_query,
+    merge_hits, normalise_cosine, normalise_fts, project_card, rank_hits_with, sanitize_fts_query,
     HybridOpts, HybridScore, MemoryId, MemoryType, ProjectId, ScoredCard, SearchFilter, SearchHit,
-    SearchMode, SemanticHit, TraceId,
+    SearchMode, SemanticHit, TraceId, UsageWeighting,
 };
 use vestige_embed::EmbeddingProvider;
 use vestige_store::{Store, VectorFilter};
@@ -360,7 +360,11 @@ fn run_lexical(
             ..Default::default()
         },
     )?;
-    Ok(rank_hits(hits))
+    // Usage is excluded here on purpose: the original search bumped
+    // `recall_count` after recording its scores, so including the term would
+    // make every replay report a score change caused by the original search
+    // itself. Replay detects corpus drift, not read-frequency drift.
+    Ok(rank_hits_with(hits, UsageWeighting::Exclude))
 }
 
 fn run_semantic(
@@ -397,6 +401,9 @@ fn run_semantic(
                     vector: similarity,
                     importance: 0.0,
                     type_boost: 0.0,
+                    // Semantic-only ranks on cosine alone; usage is a hybrid
+                    // merge signal and doesn't participate here.
+                    usage: 0.0,
                     total: similarity,
                 }),
             });

@@ -21,8 +21,8 @@ pub use projection::{
     pick_representation, project_card, project_detail, FetchedMemory, MemoryCard, MemoryDetail,
 };
 pub use scoring::{
-    composite_score, merge_hits, normalise_cosine, normalise_fts, rank_hits, HybridScore,
-    ScoredCard,
+    composite_score, composite_score_with, merge_hits, normalise_cosine, normalise_fts, rank_hits,
+    rank_hits_with, usage_boost, HybridScore, ScoredCard, UsageWeighting,
 };
 pub use search::{
     resolve_default_mode, sanitize_fts_query, HybridOpts, ListFilter, SearchFilter, SearchHit,

@@ -26,7 +26,11 @@ pub struct HybridScore {
     pub importance: f64,
     /// Memory-type boost (private `type_boost` helper).
     pub type_boost: f64,
-    /// Weighted total: `fts_w*fts + vec_w*vector + imp_w*importance + type_w*type_boost`.
+    /// Recall-count usage boost, already scaled to [0, 1] by dividing out
+    /// [`usage_boost`]'s 0.1 ceiling so every component shares one range.
+    pub usage: f64,
+    /// Weighted total:
+    /// `fts_w*fts + vec_w*vector + imp_w*importance + type_w*type_boost + usage_w*usage`.
     pub total: f64,
 }
 
@@ -48,10 +52,33 @@ pub struct ScoredCard {
     pub score_parts: Option<HybridScore>,
 }
 
+/// Diminishing-returns boost for how often a memory has been recalled (#133).
+///
+/// ```text
+/// usage_boost(n) = 0.1 * (1 - exp(-n / 5))
+/// ```
+///
+/// Asymptotic to `0.1`, so a heavily-recalled memory can never dominate
+/// relevance — being used often is a tie-breaker, not a trump card. The knee
+/// sits around five recalls (`usage_boost(5) ≈ 0.063`), which is where a
+/// memory has plausibly proven itself rather than been hit once by chance.
+///
+/// `recall_count` is clamped at zero before use. It is `i64` to mirror
+/// SQLite's signed storage, and a negative value would make `1 - exp(+x)`
+/// negative — silently inverting the term into a penalty. Large values
+/// underflow to `0.0` cleanly, so there is no `NaN`/`Inf` path.
+///
+/// Note the boost saturates numerically: for `n >= 190`, `exp(-n/5)` falls
+/// below f64's ULP relative to `1.0` and the result is exactly `0.1`.
+pub fn usage_boost(recall_count: i64) -> f64 {
+    let n = recall_count.max(0) as f64;
+    0.1 * (1.0 - (-n / 5.0).exp())
+}
+
 /// Composite ranking from PRD §14.2:
 ///
 /// ```text
-/// score = fts_norm + 0.3 * importance + type_boost + recency_boost
+/// score = fts_norm + 0.3 * importance + type_boost + recency_boost + usage_boost
 /// ```
 ///
 /// Where:
@@ -59,7 +86,34 @@ pub struct ScoredCard {
 ///   better; flipping makes higher = better in a roughly [0, 3] range).
 /// * `type_boost`: decisions and project_summary get +0.15 each.
 /// * `recency_boost = 0.2 * exp(-days_since_updated / 30.0)`.
+/// * `usage_boost`: see [`usage_boost`] — bounded at 0.1.
 pub fn composite_score(hit: &SearchHit, now: OffsetDateTime) -> f64 {
+    composite_score_with(hit, now, UsageWeighting::Include)
+}
+
+/// Whether a scoring pass counts the recall-usage term.
+///
+/// Live search uses [`UsageWeighting::Include`]. Trace replay uses
+/// [`UsageWeighting::Exclude`], because searching *increments* the counter
+/// that scoring reads: a search records its scores, then bumps `recall_count`,
+/// so replaying that trace against a completely unchanged corpus would
+/// otherwise report a score change caused by the original search itself.
+/// Replay exists to detect drift in the corpus, not drift in how often the
+/// corpus has been read, so it scores on the stable terms only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageWeighting {
+    /// Count the usage term — live search ranking.
+    Include,
+    /// Ignore the usage term — reproducible replay comparison.
+    Exclude,
+}
+
+/// [`composite_score`] with explicit control over the usage term.
+pub fn composite_score_with(
+    hit: &SearchHit,
+    now: OffsetDateTime,
+    usage_weighting: UsageWeighting,
+) -> f64 {
     let fts_norm = (-hit.bm25) / 10.0;
     let importance_term = 0.3 * hit.fetched.memory.importance;
     let type_boost = match hit.fetched.memory.r#type {
@@ -69,18 +123,28 @@ pub fn composite_score(hit: &SearchHit, now: OffsetDateTime) -> f64 {
     let age = now - hit.fetched.memory.updated_at;
     let days = (age.whole_seconds() as f64) / 86_400.0;
     let recency_boost = 0.2 * (-(days.max(0.0)) / 30.0).exp();
-    fts_norm + importance_term + type_boost + recency_boost
+    let usage = match usage_weighting {
+        UsageWeighting::Include => usage_boost(hit.fetched.memory.recall_count),
+        UsageWeighting::Exclude => 0.0,
+    };
+    fts_norm + importance_term + type_boost + recency_boost + usage
 }
 
 /// Project a list of search hits into ScoredCards, sorted by composite score
 /// (highest first). `score_parts` is always `None` on this path — use
 /// [`merge_hits`] for the hybrid path with full diagnostics.
 pub fn rank_hits(hits: Vec<SearchHit>) -> Vec<ScoredCard> {
+    rank_hits_with(hits, UsageWeighting::Include)
+}
+
+/// [`rank_hits`] with explicit control over the usage term — see
+/// [`UsageWeighting`].
+pub fn rank_hits_with(hits: Vec<SearchHit>, usage_weighting: UsageWeighting) -> Vec<ScoredCard> {
     let now = OffsetDateTime::now_utc();
     let mut scored: Vec<ScoredCard> = hits
         .into_iter()
         .map(|hit| {
-            let score = composite_score(&hit, now);
+            let score = composite_score_with(&hit, now, usage_weighting);
             ScoredCard {
                 card: project_card(&hit.fetched),
                 score,
@@ -194,16 +258,23 @@ pub fn merge_hits(
             let vector = vector_scores.get(mid).copied().unwrap_or(0.0);
             let importance = hit.fetched.memory.importance.clamp(0.0, 1.0);
             let type_b = type_boost(hit.fetched.memory.r#type);
+            // Rescale to [0, 1] so every component in the weighted sum shares
+            // one range — `usage_boost` is capped at 0.1 for the additive
+            // `composite_score` path, which would otherwise make this leg
+            // contribute an order of magnitude less than its weight implies.
+            let usage = usage_boost(hit.fetched.memory.recall_count) * 10.0;
             let total = opts.fts_weight * fts
                 + opts.vector_weight * vector
                 + opts.importance_weight * importance
-                + opts.type_weight * type_b;
+                + opts.type_weight * type_b
+                + opts.usage_weight * usage;
 
             let parts = HybridScore {
                 fts,
                 vector,
                 importance,
                 type_boost: type_b,
+                usage,
                 total,
             };
 
@@ -273,6 +344,84 @@ mod tests {
             },
             bm25,
         }
+    }
+
+    #[test]
+    fn usage_boost_is_zero_at_zero_and_asymptotic_below_the_cap() {
+        assert_eq!(usage_boost(0), 0.0, "never-recalled memory gets no boost");
+
+        let five = usage_boost(5);
+        assert!(
+            (five - 0.063_212).abs() < 1e-6,
+            "usage_boost(5) should be ≈0.0632, got {five}"
+        );
+
+        // 50 rather than a larger value on purpose: for n >= 190, exp(-n/5)
+        // underflows below f64's ULP relative to 1.0, so the result is
+        // *exactly* 0.1 and a strict `< 0.1` assertion fails. 50 still proves
+        // the curve is bounded while staying numerically honest.
+        let fifty = usage_boost(50);
+        assert!(fifty < 0.1, "usage_boost must stay under the 0.1 cap");
+        assert!(fifty > 0.099, "usage_boost(50) should be near the cap");
+    }
+
+    #[test]
+    fn usage_boost_clamps_negative_recall_counts() {
+        // recall_count is i64 to mirror SQLite storage; a negative value would
+        // make 1 - exp(+x) negative and silently turn the boost into a
+        // penalty. Clamping means a corrupt counter costs nothing rather than
+        // inverting the ranking.
+        assert_eq!(usage_boost(-1), 0.0);
+        assert_eq!(usage_boost(i64::MIN), 0.0);
+    }
+
+    #[test]
+    fn frequently_recalled_memory_outranks_identical_unused_one() {
+        let now = OffsetDateTime::now_utc();
+
+        let mut used = make_search_hit(MemoryType::Note, 0.5, -5.0);
+        used.fetched.memory.recall_count = 10;
+        let unused = make_search_hit(MemoryType::Note, 0.5, -5.0);
+
+        assert!(
+            composite_score(&used, now) > composite_score(&unused, now),
+            "recall_count 10 must rank strictly above 0 when all else is equal"
+        );
+    }
+
+    #[test]
+    fn merge_hits_ranks_recalled_memory_above_identical_unused_one() {
+        let mut used = make_search_hit(MemoryType::Note, 0.5, -5.0);
+        used.fetched.memory.recall_count = 10;
+        let unused = make_search_hit(MemoryType::Note, 0.5, -5.0);
+        let used_id = used.fetched.memory.id.clone();
+
+        // Identical retrieval scores on both legs — usage is the only
+        // differentiator left.
+        let mut fts = HashMap::new();
+        fts.insert(used_id.clone(), 0.5);
+        fts.insert(unused.fetched.memory.id.clone(), 0.5);
+
+        let ranked = merge_hits(
+            vec![unused, used],
+            &fts,
+            &HashMap::new(),
+            &HybridOpts::default(),
+        );
+
+        assert_eq!(
+            ranked[0].card.id, used_id,
+            "the recalled memory must sort first"
+        );
+        assert!(
+            ranked[0].score_parts.as_ref().unwrap().usage > 0.0,
+            "usage component must be populated in the breakdown"
+        );
+        assert_eq!(
+            ranked[1].score_parts.as_ref().unwrap().usage,
+            0.0,
+            "unused memory's usage component must be zero"
+        );
     }
 
     #[test]
