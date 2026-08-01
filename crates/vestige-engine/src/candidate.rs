@@ -433,9 +433,12 @@ fn normalize_cosine(similarity: f64) -> f32 {
 /// deduplicated list capped at 3.
 ///
 /// Dedupes by [`MemoryId`]: a memory found by both legs is emitted once with
-/// `matched_via = MatchedVia::Both`, keeping the lexical leg's score and
-/// title (an arbitrary but consistent choice — the spec does not mandate
-/// max/avg). Remaining lexical-only and semantic-only hits are interleaved
+/// `matched_via = MatchedVia::Both`, keeping the lexical leg's title and
+/// `score.max(semantic_score)`. Max (not the lexical leg's score
+/// unconditionally) avoids a `Both` hit — sorted first — displaying a lower
+/// score than a `semantic`-only hit listed after it: `normalize_bm25`
+/// compresses BM25 into roughly `[0, 0.95]` while a semantic-only hit can
+/// show `~1.0` cosine. Remaining lexical-only and semantic-only hits are interleaved
 /// (lexical[0], semantic[0], lexical[1], semantic[1], ...) rather than
 /// concatenated, so neither leg systematically crowds out the other in a
 /// capped list. `both` hits sort first.
@@ -443,16 +446,18 @@ fn merge_similar_memories(
     lexical: Vec<SimilarMemory>,
     semantic: Vec<SimilarMemory>,
 ) -> Vec<SimilarMemory> {
-    let semantic_ids: HashSet<MemoryId> = semantic.iter().map(|m| m.id.clone()).collect();
-
     let mut both = Vec::new();
     let mut lexical_only = Vec::new();
     for mut hit in lexical {
-        if semantic_ids.contains(&hit.id) {
-            hit.matched_via = MatchedVia::Both;
-            both.push(hit);
-        } else {
-            lexical_only.push(hit);
+        // Both-leg lists are capped at 3 each, so a linear scan here is fine —
+        // no need for a HashMap just to find one matching score.
+        match semantic.iter().find(|m| m.id == hit.id) {
+            Some(semantic_hit) => {
+                hit.matched_via = MatchedVia::Both;
+                hit.score = hit.score.max(semantic_hit.score);
+                both.push(hit);
+            }
+            None => lexical_only.push(hit),
         }
     }
 
@@ -466,8 +471,18 @@ fn merge_similar_memories(
     let mut lexical_iter = lexical_only.into_iter();
     let mut semantic_iter = semantic_only.into_iter();
     loop {
-        let took_lexical = lexical_iter.next().map(|h| merged.push(h)).is_some();
-        let took_semantic = semantic_iter.next().map(|h| merged.push(h)).is_some();
+        let took_lexical = if let Some(h) = lexical_iter.next() {
+            merged.push(h);
+            true
+        } else {
+            false
+        };
+        let took_semantic = if let Some(h) = semantic_iter.next() {
+            merged.push(h);
+            true
+        } else {
+            false
+        };
         if !took_lexical && !took_semantic {
             break;
         }
@@ -703,6 +718,95 @@ mod tests {
         let id = bundle.memory.id.clone();
         store.record_memory(&bundle).unwrap();
         id
+    }
+
+    fn fake_similar_memory(
+        id: &MemoryId,
+        title: &str,
+        score: f32,
+        matched_via: MatchedVia,
+    ) -> SimilarMemory {
+        SimilarMemory {
+            id: id.clone(),
+            title: title.to_string(),
+            score,
+            matched_via,
+        }
+    }
+
+    // --- merge_similar_memories ---
+
+    #[test]
+    fn merge_interleaves_lexical_and_semantic_only_hits_capped_at_three() {
+        let lexical_ids: Vec<MemoryId> = (0..3).map(|_| MemoryId::new()).collect();
+        let semantic_ids: Vec<MemoryId> = (0..3).map(|_| MemoryId::new()).collect();
+
+        let lexical: Vec<SimilarMemory> = lexical_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                fake_similar_memory(id, &format!("lexical {i}"), 0.5, MatchedVia::Lexical)
+            })
+            .collect();
+        let semantic: Vec<SimilarMemory> = semantic_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                fake_similar_memory(id, &format!("semantic {i}"), 0.5, MatchedVia::Semantic)
+            })
+            .collect();
+
+        let merged = merge_similar_memories(lexical, semantic);
+
+        // Documented interleave order: lexical[0], semantic[0], lexical[1], ...
+        // capped at 3 total.
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id, lexical_ids[0]);
+        assert_eq!(merged[1].id, semantic_ids[0]);
+        assert_eq!(merged[2].id, lexical_ids[1]);
+    }
+
+    #[test]
+    fn merge_sorts_both_hits_first_and_caps_total_at_three() {
+        let both_ids: Vec<MemoryId> = (0..2).map(|_| MemoryId::new()).collect();
+        let lexical_only_ids: Vec<MemoryId> = (0..2).map(|_| MemoryId::new()).collect();
+        let semantic_only_ids: Vec<MemoryId> = (0..2).map(|_| MemoryId::new()).collect();
+
+        let mut lexical: Vec<SimilarMemory> = both_ids
+            .iter()
+            .map(|id| fake_similar_memory(id, "both", 0.3, MatchedVia::Lexical))
+            .collect();
+        lexical.extend(
+            lexical_only_ids
+                .iter()
+                .map(|id| fake_similar_memory(id, "lexical only", 0.5, MatchedVia::Lexical)),
+        );
+
+        let mut semantic: Vec<SimilarMemory> = both_ids
+            .iter()
+            .map(|id| fake_similar_memory(id, "both", 0.9, MatchedVia::Semantic))
+            .collect();
+        semantic.extend(
+            semantic_only_ids
+                .iter()
+                .map(|id| fake_similar_memory(id, "semantic only", 0.5, MatchedVia::Semantic)),
+        );
+
+        let merged = merge_similar_memories(lexical, semantic);
+
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id, both_ids[0]);
+        assert_eq!(merged[1].id, both_ids[1]);
+        assert_eq!(merged[0].matched_via, MatchedVia::Both);
+        assert_eq!(merged[1].matched_via, MatchedVia::Both);
+        // Both-hit score is max(lexical, semantic), not the lexical leg
+        // unconditionally — see the fix to `merge_similar_memories`.
+        assert_eq!(merged[0].score, 0.9);
+        assert_eq!(merged[1].score, 0.9);
+        // Only 1 of the remaining 4 lexical-only/semantic-only hits makes the
+        // cut once the 2 `both` hits consume 2 of the 3 slots.
+        let third_id = &merged[2].id;
+        assert!(lexical_only_ids.contains(third_id) || semantic_only_ids.contains(third_id));
     }
 
     // --- propose_candidate ---
