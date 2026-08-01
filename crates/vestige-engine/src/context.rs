@@ -141,7 +141,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: Some(MemoryType::Decision),
             limit: Some(per_section),
-            order: ListOrder::RecencyDesc,
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -151,7 +151,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: Some(MemoryType::OpenQuestion),
             limit: Some(per_section),
-            order: ListOrder::RecencyDesc,
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -161,7 +161,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: None,
             limit: Some(per_section),
-            order: ListOrder::RecencyDesc,
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
