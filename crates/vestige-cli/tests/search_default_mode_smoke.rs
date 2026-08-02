@@ -1,10 +1,12 @@
-//! Smoke tests for `[search] default_mode` config wiring.
+//! Smoke tests for `[search] default_mode` config wiring and the V0.6 #134
+//! hybrid-by-default fallback.
 //!
 //! Verifies that when `.vestige/config.toml` contains `[search] default_mode`
-//! the search and recall commands honour it without a `--mode` flag. Because
-//! no embeddings are present, a `"hybrid"` config default triggers the
-//! PRD §10.3 lexical fallback path and surfaces a warning in the JSON
-//! envelope.
+//! the search and recall commands honour it without a `--mode` flag, and that
+//! the unconditional fallback (no flag, no config) now resolves to `Hybrid`
+//! rather than `Lexical`. Because no embeddings are present in most of these
+//! fixtures, hybrid resolution triggers the PRD §10.3 lexical fallback path
+//! and surfaces a warning in the JSON envelope (and on stderr).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -162,10 +164,14 @@ fn recall_uses_config_default_mode_hybrid() {
     );
 }
 
-/// When no `[search]` section is present, `vestige search --json` defaults to
-/// `"lexical"` with no warnings.
+/// When no `[search]` section is present and the project has no embeddings,
+/// `vestige search --json` now resolves to `"hybrid"` by default (V0.6 #134),
+/// which degrades gracefully to lexical inline: the JSON `mode` field reports
+/// the effective (fallen-back) mode `"lexical"`, the `warnings` array is
+/// non-empty and points at `vestige embed --all`, and a matching `warning:`
+/// line is written to stderr.
 #[test]
-fn no_config_defaults_to_lexical() {
+fn no_config_defaults_to_hybrid_falls_back_to_lexical_with_warning() {
     let repo = fresh_repo();
     let init = vestige(&repo, &["init", "--name", "test-project"]);
     assert_ok(&init, "init");
@@ -174,10 +180,59 @@ fn no_config_defaults_to_lexical() {
     assert_ok(&out, "search without config");
 
     let json = parse_json(&out, "search no-config json");
-    assert_eq!(json["mode"].as_str(), Some("lexical"));
+    assert_eq!(
+        json["mode"].as_str(),
+        Some("lexical"),
+        "hybrid default falls back to lexical when no embeddings exist"
+    );
+    let warnings = json["warnings"].as_array().expect("warnings must be array");
+    assert!(
+        !warnings.is_empty(),
+        "hybrid-by-default with no embeddings must produce a fallback warning"
+    );
+    assert!(
+        warnings.iter().any(|w| w
+            .as_str()
+            .is_some_and(|s| s.contains("vestige embed --all"))),
+        "fallback warning must be actionable and mention `vestige embed --all`, got: {warnings:?}"
+    );
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.lines().any(|line| line.starts_with("warning:")),
+        "stderr must carry a `warning:` line, got: {stderr}"
+    );
+}
+
+/// Once the project has embeddings, the same no-flag/no-config search resolves
+/// all the way to `"hybrid"` with no fallback warnings.
+#[test]
+fn no_config_defaults_to_hybrid_after_embed_all() {
+    let repo = fresh_repo();
+    let init = vestige(&repo, &["init", "--name", "test-project"]);
+    assert_ok(&init, "init");
+
+    assert_ok(
+        &vestige(
+            &repo,
+            &["decision", "add", "Use SQLite as the canonical store."],
+        ),
+        "seed decision",
+    );
+    assert_ok(&vestige(&repo, &["embed", "--all"]), "embed --all");
+
+    let out = vestige(&repo, &["search", "SQLite", "--json"]);
+    assert_ok(&out, "search after embed --all");
+
+    let json = parse_json(&out, "search post-embed json");
+    assert_eq!(
+        json["mode"].as_str(),
+        Some("hybrid"),
+        "with embeddings present, hybrid default should not fall back"
+    );
     let warnings = json["warnings"].as_array().expect("warnings must be array");
     assert!(
         warnings.is_empty(),
-        "lexical default must produce no warnings"
+        "no warnings expected once embeddings exist, got: {warnings:?}"
     );
 }

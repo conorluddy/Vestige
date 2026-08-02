@@ -25,7 +25,8 @@
 //!
 //! - `mod.rs` — shared `row_to_memory` private helper used by every read path.
 //! - `record.rs` — `record_memory`, `record_event`, `append_status_event`.
-//! - `lifecycle.rs` — `forget_memory`, `restore_memory` (status flips only).
+//! - `lifecycle.rs` — `forget_memory`, `restore_memory` (status flips), and
+//!   `revise_memory` (in-place content revision, issue #130).
 //! - `fetch.rs` — single-memory reads + representation/source helpers + counts.
 //! - `list_search.rs` — bulk list and FTS5 search.
 
@@ -34,6 +35,8 @@ mod lifecycle;
 mod list_search;
 mod record;
 
+pub use lifecycle::RevisionOutcome;
+
 use std::str::FromStr;
 
 use vestige_core::{Memory, MemoryId, MemoryStatus, MemoryType, ProjectId};
@@ -41,10 +44,11 @@ use vestige_core::{Memory, MemoryId, MemoryStatus, MemoryType, ProjectId};
 use crate::helpers::parse_rfc3339;
 use crate::StoreError;
 
-/// Map a `memories` SELECT row (columns 0–8) into a [`Memory`].
+/// Map a `memories` SELECT row (columns 0–12) into a [`Memory`].
 ///
 /// Column order must match the SELECT list in every caller:
-/// `id, project_id, type, status, confidence, importance, created_at, updated_at, deleted_at`.
+/// `id, project_id, type, status, confidence, importance, created_at, updated_at, deleted_at,
+/// recall_count, expand_count, last_recalled_at, superseded_by`.
 pub(super) fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
     let id_str: String = row.get(0)?;
     let project_str: String = row.get(1)?;
@@ -55,6 +59,10 @@ pub(super) fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory>
     let created_str: String = row.get(6)?;
     let updated_str: String = row.get(7)?;
     let deleted_str: Option<String> = row.get(8)?;
+    let recall_count: i64 = row.get(9)?;
+    let expand_count: i64 = row.get(10)?;
+    let last_recalled_str: Option<String> = row.get(11)?;
+    let superseded_by_str: Option<String> = row.get(12)?;
 
     let id = MemoryId::from_str(&id_str).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
@@ -95,6 +103,23 @@ pub(super) fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory>
         })?),
         None => None,
     };
+    let last_recalled_at = match last_recalled_str {
+        Some(s) => Some(parse_rfc3339(&s, 11).map_err(|e| match e {
+            StoreError::Sqlite(err) => err,
+            other => rusqlite::Error::FromSqlConversionFailure(
+                11,
+                rusqlite::types::Type::Text,
+                Box::new(other),
+            ),
+        })?),
+        None => None,
+    };
+    let superseded_by = match superseded_by_str {
+        Some(s) => Some(MemoryId::from_str(&s).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(12, rusqlite::types::Type::Text, Box::new(e))
+        })?),
+        None => None,
+    };
 
     Ok(Memory {
         id,
@@ -106,5 +131,9 @@ pub(super) fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory>
         created_at,
         updated_at,
         deleted_at,
+        recall_count,
+        expand_count,
+        last_recalled_at,
+        superseded_by,
     })
 }

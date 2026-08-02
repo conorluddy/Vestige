@@ -85,8 +85,8 @@ pub fn print_scored_opts(scored: &ScoredCard, include_parts: bool) {
     if include_parts {
         if let Some(parts) = &scored.score_parts {
             println!(
-                "    [fts={:.3} vec={:.3} imp={:.3} type={:.3}]",
-                parts.fts, parts.vector, parts.importance, parts.type_boost
+                "    [fts={:.3} vec={:.3} imp={:.3} type={:.3} usage={:.3}]",
+                parts.fts, parts.vector, parts.importance, parts.type_boost, parts.usage
             );
         }
     }

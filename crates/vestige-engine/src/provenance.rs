@@ -91,6 +91,16 @@ pub struct MemoryProvenance {
     pub candidate: Option<CandidateProvenance>,
     /// Source receipts attached directly to the memory.
     pub sources: Vec<SourceReceipt>,
+    /// Forward supersession link (issue #131): set when this memory was
+    /// replaced by a newer one — `Memory.superseded_by`, read directly off
+    /// the row. `None` for an active, unreplaced memory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<String>,
+    /// Reverse supersession link: set when this memory replaced an older
+    /// one — found via [`vestige_store::Store::find_superseded_memory`].
+    /// `None` if this memory didn't supersede anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<String>,
 }
 
 /// Provenance walk for a candidate — used both standalone and nested in [`MemoryProvenance`].
@@ -266,10 +276,21 @@ fn walk_memory_provenance(
             fetch_candidate_provenance_inner(store, &cand_id).ok()
         });
 
+    let superseded_by = fetched
+        .memory
+        .superseded_by
+        .as_ref()
+        .map(|id| id.to_string());
+    let supersedes = store
+        .find_superseded_memory(mem_id)?
+        .map(|id| id.to_string());
+
     let provenance = MemoryProvenance {
         events: events.clone(),
         candidate: candidate_provenance,
         sources,
+        superseded_by,
+        supersedes,
     };
 
     let status_str = fetched.memory.status.as_str().to_string();

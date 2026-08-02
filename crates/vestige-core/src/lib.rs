@@ -42,9 +42,9 @@ pub use memory::{
 // === SEARCH & RANKING ===
 // ========================================
 pub use memory::{
-    composite_score, merge_hits, normalise_cosine, normalise_fts, rank_hits, resolve_default_mode,
-    sanitize_fts_query, HybridOpts, HybridScore, ListFilter, SearchFilter, SearchHit, SearchMode,
-    SemanticHit,
+    composite_score, composite_score_with, merge_hits, normalise_cosine, normalise_fts, rank_hits,
+    rank_hits_with, resolve_default_mode, sanitize_fts_query, usage_boost, HybridOpts, HybridScore,
+    ListFilter, ListOrder, SearchFilter, SearchHit, SearchMode, SemanticHit, UsageWeighting,
 };
 
 // ========================================

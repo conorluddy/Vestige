@@ -14,7 +14,7 @@ use vestige_config::{
     build_init_config, discover_repo_root, display_name_from_path, git_remote_url, read_config,
     resolve_project_id, storage_path_for, write_config, CONFIG_DIR, CONFIG_FILE,
 };
-use vestige_core::{build_bundle, ListFilter, MemoryType, NewMemory};
+use vestige_core::{build_bundle, ListFilter, ListOrder, MemoryType, NewMemory};
 use vestige_store::Store;
 
 use crate::commands::skills::{resolve_targets, Target as SkillsTarget};
@@ -310,6 +310,7 @@ fn summary_already_recorded(
             include_deleted: false,
             r#type: Some(MemoryType::ProjectSummary),
             limit: Some(1),
+            order: ListOrder::RecencyDesc,
         },
     )?;
     Ok(!existing.is_empty())

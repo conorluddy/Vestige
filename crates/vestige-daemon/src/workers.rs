@@ -709,7 +709,15 @@ fn build_extraction_provider(
 
     let cfg = match vestige_config::read_config(&config_path) {
         Ok(c) => vestige_config::extraction_config_for(c.extraction.as_ref()),
-        Err(_) => vestige_config::extraction_config_for(None),
+        Err(e) => {
+            warn!(
+                project = %project_id.as_str(),
+                repo_root = %repo_root.display(),
+                error = %e,
+                "could not read project config; using extraction defaults"
+            );
+            vestige_config::extraction_config_for(None)
+        }
     };
 
     match vestige_extract::build_provider(&cfg) {

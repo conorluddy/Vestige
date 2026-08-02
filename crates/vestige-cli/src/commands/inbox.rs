@@ -7,6 +7,7 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
+use vestige_core::representations::truncate_at_word;
 use vestige_core::{CandidateId, MemoryType};
 use vestige_store::CandidateFilter;
 
@@ -122,8 +123,8 @@ fn run_list(args: InboxArgs) -> Result<()> {
             for c in &candidates {
                 let id_short = &c.id.as_str()[..c.id.as_str().len().min(20)];
                 let type_padded = format!("{:<10}", c.proposed_type.as_str());
-                let one_liner = if c.one_liner.len() > 60 {
-                    format!("{}…", &c.one_liner[..59])
+                let one_liner = if c.one_liner.chars().count() > 60 {
+                    format!("{}…", truncate_at_word(&c.one_liner, 59))
                 } else {
                     c.one_liner.clone()
                 };

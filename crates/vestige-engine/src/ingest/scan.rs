@@ -193,7 +193,10 @@ pub fn scan_and_propose(
                                     duplicate_of_memory_id: None,
                                     duplicate_of_candidate_id: None,
                                 };
-                                propose_candidate(store, project_id, new_candidate)?;
+                                // Session-log ingestion predates #133's semantic dedup leg;
+                                // wiring a real embedding provider here is separate scope
+                                // (would embed every proposed candidate during a bulk scan).
+                                propose_candidate(store, project_id, new_candidate, None)?;
                                 report.candidates_proposed += 1;
                             }
                         }

@@ -10,12 +10,16 @@
 //!
 //! All three take `&ProjectId` and verify scope before any mutation.
 
+use std::collections::HashSet;
+
+use serde::Serialize;
 use tracing::debug;
 use vestige_core::{
     build_bundle, build_candidate_bundle, CandidateId, CandidateStatus, MemoryId, MemoryType,
     NewCandidate, NewMemory, ProjectId, RejectionReason,
 };
-use vestige_store::{CandidateFilter, Store};
+use vestige_embed::EmbeddingProvider;
+use vestige_store::{CandidateFilter, Store, VectorFilter};
 
 use crate::error::{EngineError, Result};
 
@@ -38,25 +42,44 @@ pub struct ProposeOutcome {
     pub similar_candidates: Vec<SimilarCandidate>,
 }
 
+/// Which dedup leg(s) matched a given [`SimilarMemory`].
+///
+/// Candidates never carry this — the candidate leg is permanently
+/// lexical-only (see [`run_dedup_probe`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchedVia {
+    /// Found only by the lexical (FTS5 BM25) leg.
+    Lexical,
+    /// Found only by the semantic (cosine similarity) leg.
+    Semantic,
+    /// Found by both legs — see [`merge_similar_memories`] for the merge rule.
+    Both,
+}
+
 /// A compact handle for a similar active memory returned from the dedup probe.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SimilarMemory {
     /// Memory identifier.
     pub id: MemoryId,
     /// Derived short title (one_liner from the fetched memory).
     pub title: String,
-    /// BM25 score (lower = closer match; FTS5 convention).
+    /// Normalized score in [0, 1]; higher = closer match. Combines BM25 and
+    /// cosine similarity onto a common scale — see [`run_dedup_probe`].
     pub score: f32,
+    /// Which leg(s) of the dedup probe surfaced this memory.
+    pub matched_via: MatchedVia,
 }
 
 /// A compact handle for a similar pending candidate returned from the dedup probe.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SimilarCandidate {
     /// Candidate identifier.
     pub id: CandidateId,
     /// Short display title from the candidate row.
     pub title: String,
-    /// BM25 score (lower = closer match; FTS5 convention).
+    /// Normalized score in [0, 1]; higher = closer match. Combines BM25 and
+    /// cosine similarity onto a common scale — see [`run_dedup_probe`].
     pub score: f32,
 }
 
@@ -71,6 +94,9 @@ pub struct ApprovalOverrides {
     pub body: Option<String>,
     /// Override importance. Falls back to the candidate's importance if `None`.
     pub importance: Option<f32>,
+    /// Soft-delete and link this memory as superseded by the one being
+    /// approved (issue #131). `None` leaves every existing memory untouched.
+    pub supersedes: Option<MemoryId>,
 }
 
 /// Return value from [`approve_candidate`].
@@ -90,10 +116,15 @@ pub struct ApprovalOutcome {
 /// # Dedup probe
 ///
 /// Before inserting, runs two lexical FTS queries using the first ~80 chars of
-/// the candidate body (sanitised to strip FTS5 special characters). If either
-/// query fails (syntax error on unusual input, empty query), the error is
-/// swallowed and an empty similar list is returned — dedup failure must never
-/// block proposal (PRD §13).
+/// the candidate body (sanitised to strip FTS5 special characters), plus an
+/// optional semantic (cosine similarity) leg against active memories of the
+/// same type when `embedding_provider` is `Some`. If any leg fails (syntax
+/// error on unusual input, empty query, cold-start with no embeddings, embed
+/// failure), the error is swallowed for that leg and it contributes no
+/// results — dedup failure must never block proposal (PRD §13).
+/// `embedding_provider = None` skips the semantic leg entirely (lexical-only,
+/// matching pre-#133 behaviour byte-for-byte); this is the expected state
+/// until provider construction is wired at the CLI/MCP call sites.
 ///
 /// # Errors
 ///
@@ -103,13 +134,16 @@ pub fn propose_candidate(
     store: &mut Store,
     project_id: &ProjectId,
     new_candidate: NewCandidate,
+    embedding_provider: Option<&dyn EmbeddingProvider>,
 ) -> Result<ProposeOutcome> {
     // Build the bundle — validates body, derives representations, generates ID.
     let bundle = build_candidate_bundle(new_candidate)?;
 
     let proposed_type = bundle.proposed_type;
 
-    // Dedup probe: only worth running when body is non-trivial.
+    // Dedup probe: only worth running when body is non-trivial. Short-circuits
+    // both legs (lexical and semantic) — a body this short can't produce a
+    // meaningful FTS query or a meaningful embedding either.
     let probe_body = &bundle.full_body;
     let (similar_memories, similar_candidates) =
         if probe_body.trim().len() < 8 || bundle.title.trim().len() < 8 {
@@ -119,7 +153,13 @@ pub fn propose_candidate(
             );
             (vec![], vec![])
         } else {
-            run_dedup_probe(store, project_id, probe_body, proposed_type)
+            run_dedup_probe(
+                store,
+                project_id,
+                probe_body,
+                proposed_type,
+                embedding_provider,
+            )
         };
 
     // Insert candidate — after probe so it can't match itself.
@@ -139,24 +179,31 @@ pub fn propose_candidate(
 /// 1. Load candidate; verify project scope and pending status.
 /// 2. Apply `overrides` (type, body, importance).
 /// 3. Build a `MemoryBundle` and call `store.record_memory` (fires FTS triggers).
-/// 4. Write additional `memory_sources` rows: one per `CandidateSource` and one
+/// 4. If `overrides.supersedes` is set, call `store.supersede_memory` to
+///    soft-delete and link the old memory (issue #131).
+/// 5. Write additional `memory_sources` rows: one per `CandidateSource` and one
 ///    reverse-provenance row with `source_type = "candidate"` (PRD §14).
-/// 5. Call `store.mark_candidate_approved` (flips status, emits audit event).
+/// 6. Call `store.mark_candidate_approved` (flips status, emits audit event).
 ///
 /// # Transactionality
 ///
-/// Steps 3 and 5 are two separate internally-transactional store calls. A
-/// failure between them leaves the memory written but the candidate still
-/// pending — re-running `approve` will attempt to write a duplicate memory row.
+/// Steps 3, 4, and 6 are separate internally-transactional store calls. A
+/// failure between them leaves earlier steps applied but later ones not —
+/// e.g. re-running `approve` after a failure between 3 and 6 will attempt to
+/// write a duplicate memory row. The same accepted window covers step 4: a
+/// failure between the memory being recorded (3) and the old memory being
+/// superseded (4) leaves the new memory active but the old one un-superseded.
 ///
-/// TODO(v0.3): wrap steps 3+5 in a single store-level transaction to eliminate
-/// the window. For V0.2 the two-step approach is acceptable.
+/// TODO(v0.3): wrap steps 3+6 (and now 4) in a single store-level transaction
+/// to eliminate the window. For V0.2 the two-step approach is acceptable.
 ///
 /// # Errors
 ///
 /// - [`EngineError::CandidateNotFound`] — no row for `candidate_id`.
 /// - [`EngineError::OutOfScope`] — candidate belongs to a different project.
 /// - [`EngineError::CandidateNotPending`] — candidate is not `Pending`.
+/// - [`EngineError::Validation`] — `overrides.supersedes` names a memory that
+///   is not found, already deleted, or already superseded.
 /// - [`EngineError::Core`] — `build_bundle` validation failure.
 /// - [`EngineError::Store`] — any SQLite failure.
 pub fn approve_candidate(
@@ -220,7 +267,19 @@ pub fn approve_candidate(
     let memory_id = bundle.memory.id.clone();
     store.record_memory(&bundle)?;
 
-    // --- Step 4: write source rows ---
+    // --- Step 4: optional supersede (issue #131) ---
+    if let Some(old_id) = &overrides.supersedes {
+        if !store.supersede_memory(old_id, &memory_id)? {
+            return Err(EngineError::Validation {
+                message: format!(
+                    "approved {memory_id} but could not supersede `{old_id}` — it may not \
+                     exist or is already deleted/superseded"
+                ),
+            });
+        }
+    }
+
+    // --- Step 5: write source rows ---
 
     // Copy each CandidateSource from the candidate to memory_sources.
     for src in &candidate.sources {
@@ -243,7 +302,7 @@ pub fn approve_candidate(
     // Mandatory reverse-provenance row (PRD §14).
     store.add_memory_source(&memory_id, "candidate", Some(candidate_id.as_str()), None)?;
 
-    // --- Step 5: flip candidate status ---
+    // --- Step 6: flip candidate status ---
     store.mark_candidate_approved(candidate_id, &memory_id)?;
 
     Ok(ApprovalOutcome {
@@ -353,77 +412,257 @@ fn dedup_fts_query(body: &str) -> Option<String> {
     }
 }
 
-/// Run lexical dedup probes against active memories and pending candidates.
+/// Normalize a raw FTS5 BM25 score to `[0, 1]`, higher = closer match.
 ///
-/// Any query or store error is swallowed and an empty list is returned — dedup
-/// failure must never block proposal (PRD §13).
+/// SQLite FTS5's `bm25()` returns negative values where lower (more negative)
+/// means a better match. `exp(bm25/10)` lands in `(0, 1)` and increases as
+/// the match improves, so `1 - that` is monotonic in the right direction. The
+/// clamp guards the theoretically-positive-bm25 edge case.
+fn normalize_bm25(bm25: f64) -> f32 {
+    (1.0 - (bm25 / 10.0).exp()).clamp(0.0, 1.0) as f32
+}
+
+/// Normalize a raw cosine similarity (`[-1, 1]`, not clamped by the store) to
+/// `[0, 1]`, higher = closer match. Mirrors `search_semantic`'s clamp
+/// (`crates/vestige-engine/src/search.rs`).
+fn normalize_cosine(similarity: f64) -> f32 {
+    similarity.clamp(0.0, 1.0) as f32
+}
+
+/// Merge the lexical-leg and semantic-leg memory hits into a single ranked,
+/// deduplicated list capped at 3.
+///
+/// Dedupes by [`MemoryId`]: a memory found by both legs is emitted once with
+/// `matched_via = MatchedVia::Both`, keeping the lexical leg's title and
+/// `score.max(semantic_score)`. Max (not the lexical leg's score
+/// unconditionally) avoids a `Both` hit — sorted first — displaying a lower
+/// score than a `semantic`-only hit listed after it: `normalize_bm25`
+/// compresses BM25 into roughly `[0, 0.95]` while a semantic-only hit can
+/// show `~1.0` cosine. Remaining lexical-only and semantic-only hits are interleaved
+/// (lexical[0], semantic[0], lexical[1], semantic[1], ...) rather than
+/// concatenated, so neither leg systematically crowds out the other in a
+/// capped list. `both` hits sort first.
+fn merge_similar_memories(
+    lexical: Vec<SimilarMemory>,
+    semantic: Vec<SimilarMemory>,
+) -> Vec<SimilarMemory> {
+    let mut both = Vec::new();
+    let mut lexical_only = Vec::new();
+    for mut hit in lexical {
+        // Both-leg lists are capped at 3 each, so a linear scan here is fine —
+        // no need for a HashMap just to find one matching score.
+        match semantic.iter().find(|m| m.id == hit.id) {
+            Some(semantic_hit) => {
+                hit.matched_via = MatchedVia::Both;
+                hit.score = hit.score.max(semantic_hit.score);
+                both.push(hit);
+            }
+            None => lexical_only.push(hit),
+        }
+    }
+
+    let both_ids: HashSet<MemoryId> = both.iter().map(|m| m.id.clone()).collect();
+    let semantic_only: Vec<SimilarMemory> = semantic
+        .into_iter()
+        .filter(|m| !both_ids.contains(&m.id))
+        .collect();
+
+    let mut merged = both;
+    let mut lexical_iter = lexical_only.into_iter();
+    let mut semantic_iter = semantic_only.into_iter();
+    loop {
+        let took_lexical = if let Some(h) = lexical_iter.next() {
+            merged.push(h);
+            true
+        } else {
+            false
+        };
+        let took_semantic = if let Some(h) = semantic_iter.next() {
+            merged.push(h);
+            true
+        } else {
+            false
+        };
+        if !took_lexical && !took_semantic {
+            break;
+        }
+    }
+
+    merged.truncate(3);
+    merged
+}
+
+/// Run lexical (and, when a provider is available, semantic) dedup probes
+/// against active memories and pending candidates.
+///
+/// Any query, embed, or store error is swallowed and the affected leg
+/// contributes no results — dedup failure must never block proposal
+/// (PRD §13).
 fn run_dedup_probe(
     store: &Store,
     project_id: &ProjectId,
     body: &str,
     proposed_type: MemoryType,
+    embedding_provider: Option<&dyn EmbeddingProvider>,
 ) -> (Vec<SimilarMemory>, Vec<SimilarCandidate>) {
-    let Some(fts_query) = dedup_fts_query(body) else {
-        debug!("dedup probe: empty FTS query after sanitise");
-        return (vec![], vec![]);
-    };
-
-    // --- Probe 1: active memories of the same type ---
     use vestige_core::{SearchFilter, SearchHit};
-    let similar_memories: Vec<SimilarMemory> = match store.search_memories(
-        project_id,
-        &fts_query,
-        &SearchFilter {
-            r#type: Some(proposed_type),
-            limit: Some(3),
-            ..Default::default()
-        },
-    ) {
-        Ok(hits) => hits
-            .into_iter()
-            .map(|h: SearchHit| SimilarMemory {
-                id: h.fetched.memory.id,
-                title: h
-                    .fetched
-                    .representations
-                    .iter()
-                    .find(|r| r.depth == vestige_core::RepresentationDepth::OneLiner)
-                    .map(|r| r.content.clone())
-                    .unwrap_or_default(),
-                score: h.bm25 as f32,
-            })
-            .collect(),
-        Err(e) => {
-            debug!(error = %e, "dedup probe: memory search failed; continuing without similars");
+
+    // --- Lexical leg: active memories of the same type ---
+    let lexical_memories: Vec<SimilarMemory> = match dedup_fts_query(body) {
+        None => {
+            debug!("dedup probe: empty FTS query after sanitise");
             vec![]
         }
+        Some(fts_query) => match store.search_memories(
+            project_id,
+            &fts_query,
+            &SearchFilter {
+                r#type: Some(proposed_type),
+                limit: Some(3),
+                ..Default::default()
+            },
+        ) {
+            Ok(hits) => hits
+                .into_iter()
+                .map(|h: SearchHit| SimilarMemory {
+                    id: h.fetched.memory.id,
+                    title: h
+                        .fetched
+                        .representations
+                        .iter()
+                        .find(|r| r.depth == vestige_core::RepresentationDepth::OneLiner)
+                        .map(|r| r.content.clone())
+                        .unwrap_or_default(),
+                    score: normalize_bm25(h.bm25),
+                    matched_via: MatchedVia::Lexical,
+                })
+                .collect(),
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    "dedup probe: memory search failed; continuing without similars"
+                );
+                vec![]
+            }
+        },
     };
 
-    // --- Probe 2: pending candidates of the same type ---
-    let filter = CandidateFilter {
-        status: Some(CandidateStatus::Pending),
-        proposed_type: Some(proposed_type),
-        limit: Some(3),
-        include_rejected: false,
+    // --- Semantic leg: active memories of the same type, by cosine similarity ---
+    // `None` means commit 4's provider wiring hasn't landed at this call site
+    // yet — that's a normal, expected state, not an error.
+    let semantic_memories: Vec<SimilarMemory> = match embedding_provider {
+        None => vec![],
+        Some(provider) => run_semantic_dedup_leg(store, project_id, body, proposed_type, provider),
     };
-    let similar_candidates: Vec<SimilarCandidate> = match store
-        .search_candidates_lexical(project_id, &fts_query, &filter)
-    {
-        Ok(hits) => hits
-            .into_iter()
-            .map(|h| SimilarCandidate {
-                id: h.id,
-                title: h.snippet,
-                score: h.score,
-            })
-            .collect(),
-        Err(e) => {
-            debug!(error = %e, "dedup probe: candidate search failed; continuing without similars");
-            vec![]
+
+    let similar_memories = merge_similar_memories(lexical_memories, semantic_memories);
+
+    // --- Candidate leg: pending candidates of the same type ---
+    // Candidates are never embedded — no vector index exists for pending
+    // candidates, so this leg is permanently lexical-only.
+    let similar_candidates: Vec<SimilarCandidate> = match dedup_fts_query(body) {
+        None => vec![],
+        Some(fts_query) => {
+            let filter = CandidateFilter {
+                status: Some(CandidateStatus::Pending),
+                proposed_type: Some(proposed_type),
+                limit: Some(3),
+                include_rejected: false,
+            };
+            match store.search_candidates_lexical(project_id, &fts_query, &filter) {
+                Ok(hits) => hits
+                    .into_iter()
+                    .map(|h| SimilarCandidate {
+                        id: h.id,
+                        title: h.snippet,
+                        score: normalize_bm25(h.score as f64),
+                    })
+                    .collect(),
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        "dedup probe: candidate search failed; continuing without similars"
+                    );
+                    vec![]
+                }
+            }
         }
     };
 
     (similar_memories, similar_candidates)
+}
+
+/// Run the semantic-leg dedup probe: embed `body` and look up nearest
+/// neighbours among active memories of `proposed_type`.
+///
+/// Mirrors `search_semantic`'s cold-start and error handling
+/// (`crates/vestige-engine/src/search.rs`), except every failure is swallowed
+/// rather than propagated with `?` — this is a best-effort dedup hint, not a
+/// user-facing search (PRD §13).
+fn run_semantic_dedup_leg(
+    store: &Store,
+    project_id: &ProjectId,
+    body: &str,
+    proposed_type: MemoryType,
+    provider: &dyn EmbeddingProvider,
+) -> Vec<SimilarMemory> {
+    let status = match store.embedding_status(project_id) {
+        Ok(status) => status,
+        Err(e) => {
+            debug!(error = %e, "dedup probe: embedding status lookup failed; continuing without semantic similars");
+            return vec![];
+        }
+    };
+    if status.embedded_representations == 0 {
+        debug!("dedup probe: no embeddings for project; skipping semantic leg");
+        return vec![];
+    }
+
+    let query_vec = match provider.embed(body) {
+        Ok(v) => v,
+        Err(e) => {
+            debug!(error = %e, "dedup probe: embed failed; continuing without semantic similars");
+            return vec![];
+        }
+    };
+
+    let filter = VectorFilter {
+        provider: provider.provider_name().to_string(),
+        model: provider.model_name().to_string(),
+        dimensions: provider.dimensions(),
+        memory_type: Some(proposed_type),
+    };
+    let raw_hits = match store.nearest_neighbours(project_id, &query_vec, 3, &filter) {
+        Ok(hits) => hits,
+        Err(e) => {
+            debug!(error = %e, "dedup probe: nearest-neighbour lookup failed; continuing without semantic similars");
+            return vec![];
+        }
+    };
+
+    let mut similar = Vec::with_capacity(raw_hits.len());
+    for hit in &raw_hits {
+        let fetched = match store.get_memory(&hit.memory_id) {
+            Ok(Some(fetched)) => fetched,
+            Ok(None) => continue,
+            Err(e) => {
+                debug!(error = %e, "dedup probe: memory fetch failed; skipping hit");
+                continue;
+            }
+        };
+        similar.push(SimilarMemory {
+            id: fetched.memory.id.clone(),
+            title: fetched
+                .representations
+                .iter()
+                .find(|r| r.depth == vestige_core::RepresentationDepth::OneLiner)
+                .map(|r| r.content.clone())
+                .unwrap_or_default(),
+            score: normalize_cosine(hit.similarity),
+            matched_via: MatchedVia::Semantic,
+        });
+    }
+    similar
 }
 
 // === TESTS ===
@@ -481,6 +720,95 @@ mod tests {
         id
     }
 
+    fn fake_similar_memory(
+        id: &MemoryId,
+        title: &str,
+        score: f32,
+        matched_via: MatchedVia,
+    ) -> SimilarMemory {
+        SimilarMemory {
+            id: id.clone(),
+            title: title.to_string(),
+            score,
+            matched_via,
+        }
+    }
+
+    // --- merge_similar_memories ---
+
+    #[test]
+    fn merge_interleaves_lexical_and_semantic_only_hits_capped_at_three() {
+        let lexical_ids: Vec<MemoryId> = (0..3).map(|_| MemoryId::new()).collect();
+        let semantic_ids: Vec<MemoryId> = (0..3).map(|_| MemoryId::new()).collect();
+
+        let lexical: Vec<SimilarMemory> = lexical_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                fake_similar_memory(id, &format!("lexical {i}"), 0.5, MatchedVia::Lexical)
+            })
+            .collect();
+        let semantic: Vec<SimilarMemory> = semantic_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                fake_similar_memory(id, &format!("semantic {i}"), 0.5, MatchedVia::Semantic)
+            })
+            .collect();
+
+        let merged = merge_similar_memories(lexical, semantic);
+
+        // Documented interleave order: lexical[0], semantic[0], lexical[1], ...
+        // capped at 3 total.
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id, lexical_ids[0]);
+        assert_eq!(merged[1].id, semantic_ids[0]);
+        assert_eq!(merged[2].id, lexical_ids[1]);
+    }
+
+    #[test]
+    fn merge_sorts_both_hits_first_and_caps_total_at_three() {
+        let both_ids: Vec<MemoryId> = (0..2).map(|_| MemoryId::new()).collect();
+        let lexical_only_ids: Vec<MemoryId> = (0..2).map(|_| MemoryId::new()).collect();
+        let semantic_only_ids: Vec<MemoryId> = (0..2).map(|_| MemoryId::new()).collect();
+
+        let mut lexical: Vec<SimilarMemory> = both_ids
+            .iter()
+            .map(|id| fake_similar_memory(id, "both", 0.3, MatchedVia::Lexical))
+            .collect();
+        lexical.extend(
+            lexical_only_ids
+                .iter()
+                .map(|id| fake_similar_memory(id, "lexical only", 0.5, MatchedVia::Lexical)),
+        );
+
+        let mut semantic: Vec<SimilarMemory> = both_ids
+            .iter()
+            .map(|id| fake_similar_memory(id, "both", 0.9, MatchedVia::Semantic))
+            .collect();
+        semantic.extend(
+            semantic_only_ids
+                .iter()
+                .map(|id| fake_similar_memory(id, "semantic only", 0.5, MatchedVia::Semantic)),
+        );
+
+        let merged = merge_similar_memories(lexical, semantic);
+
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id, both_ids[0]);
+        assert_eq!(merged[1].id, both_ids[1]);
+        assert_eq!(merged[0].matched_via, MatchedVia::Both);
+        assert_eq!(merged[1].matched_via, MatchedVia::Both);
+        // Both-hit score is max(lexical, semantic), not the lexical leg
+        // unconditionally — see the fix to `merge_similar_memories`.
+        assert_eq!(merged[0].score, 0.9);
+        assert_eq!(merged[1].score, 0.9);
+        // Only 1 of the remaining 4 lexical-only/semantic-only hits makes the
+        // cut once the 2 `both` hits consume 2 of the 3 slots.
+        let third_id = &merged[2].id;
+        assert!(lexical_only_ids.contains(third_id) || semantic_only_ids.contains(third_id));
+    }
+
     // --- propose_candidate ---
 
     #[test]
@@ -498,6 +826,7 @@ mod tests {
                 "Use Rust for all systems work.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -530,6 +859,7 @@ mod tests {
                 "SQLite canonical storage engine selected for reliability.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -555,6 +885,7 @@ mod tests {
                 "Use tokio for async runtime in all future services.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -567,6 +898,7 @@ mod tests {
                 "tokio async runtime is the preferred choice.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -593,6 +925,7 @@ mod tests {
                 "Always run cargo fmt before committing.",
                 MemoryType::Preference,
             ),
+            None,
         )
         .unwrap();
 
@@ -623,6 +956,7 @@ mod tests {
                 "Prefer newtypes over bare strings for IDs.",
                 MemoryType::Preference,
             ),
+            None,
         )
         .unwrap();
 
@@ -662,6 +996,7 @@ mod tests {
                 "Use semantic versioning for all crate releases.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -697,6 +1032,7 @@ mod tests {
                 "Feature flags must be cleaned up within one sprint.",
                 MemoryType::Preference,
             ),
+            None,
         )
         .unwrap();
 
@@ -740,6 +1076,7 @@ mod tests {
                 "Decision scoped to project A only.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -755,6 +1092,101 @@ mod tests {
         assert!(
             matches!(err, EngineError::OutOfScope),
             "expected OutOfScope, got: {err}"
+        );
+    }
+
+    // --- approve_candidate with --supersedes (issue #131) ---
+
+    #[test]
+    fn approve_with_supersedes_supersedes_old_memory_in_one_call() {
+        let tmp = TempDir::new().unwrap();
+        let mut store = open_store(&tmp);
+        let proj = ProjectId::from_slug("approve-supersedes");
+        seed_project(&mut store, &proj);
+
+        let old_id = seed_memory(
+            &mut store,
+            &proj,
+            "Use polling for the daemon status check.",
+            MemoryType::Decision,
+        );
+
+        let proposed = propose_candidate(
+            &mut store,
+            &proj,
+            new_candidate(
+                proj.clone(),
+                "Use a Unix-socket push for the daemon status check.",
+                MemoryType::Decision,
+            ),
+            None,
+        )
+        .unwrap();
+
+        let outcome = approve_candidate(
+            &mut store,
+            &proj,
+            &proposed.candidate_id,
+            ApprovalOverrides {
+                supersedes: Some(old_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // Old memory is now deleted and linked to the newly approved one.
+        let old_fetched = store.get_memory(&old_id).unwrap().unwrap();
+        assert_eq!(
+            old_fetched.memory.status,
+            vestige_core::MemoryStatus::Deleted
+        );
+        assert_eq!(
+            old_fetched.memory.superseded_by,
+            Some(outcome.memory_id.clone())
+        );
+
+        // New memory is active and unaffected otherwise.
+        let new_fetched = store.get_memory(&outcome.memory_id).unwrap().unwrap();
+        assert_eq!(
+            new_fetched.memory.status,
+            vestige_core::MemoryStatus::Active
+        );
+    }
+
+    #[test]
+    fn approve_with_supersedes_unknown_memory_returns_validation_error() {
+        let tmp = TempDir::new().unwrap();
+        let mut store = open_store(&tmp);
+        let proj = ProjectId::from_slug("approve-supersedes-missing");
+        seed_project(&mut store, &proj);
+
+        let proposed = propose_candidate(
+            &mut store,
+            &proj,
+            new_candidate(
+                proj.clone(),
+                "A candidate that claims to supersede a bogus memory.",
+                MemoryType::Note,
+            ),
+            None,
+        )
+        .unwrap();
+
+        let bogus_old_id = MemoryId::new();
+        let err = approve_candidate(
+            &mut store,
+            &proj,
+            &proposed.candidate_id,
+            ApprovalOverrides {
+                supersedes: Some(bogus_old_id),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, EngineError::Validation { .. }),
+            "expected Validation, got: {err}"
         );
     }
 
@@ -775,6 +1207,7 @@ mod tests {
                 "Rewrite everything in Haskell for fun.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -819,6 +1252,7 @@ mod tests {
                 "SQLite is the storage engine of choice.",
                 MemoryType::Decision,
             ),
+            None,
         )
         .unwrap();
 
@@ -855,6 +1289,7 @@ mod tests {
                 "Something worth capturing here.",
                 MemoryType::Note,
             ),
+            None,
         )
         .unwrap();
 

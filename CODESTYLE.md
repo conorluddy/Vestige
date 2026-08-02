@@ -388,7 +388,7 @@ fn now_rfc3339() -> String { /* ... */ }
 
 For Vestige:
 
-1. **Static analysis** (foundation) — `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --check`.
+1. **Static analysis** (foundation) — `cargo check`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`.
 2. **Unit tests** (narrow) — pure functions: representation derivation, ranking math, ID parsing.
 3. **Integration tests** (widest — most tests live here) — open a `TempDir`, run real `Store` operations, assert outcomes through the public API.
 4. **CLI/MCP smoke** (top) — spawn the built binary against a tmpdir; for MCP, drive the stdio transport in-process. Critical journeys only.
@@ -663,7 +663,7 @@ Local-first repo-pinned memory layer for coding agents. CLI + MCP over SQLite. O
 ## Workspace
 - Run: `cargo run -p vestige -- <command>` (package is `vestige`; directory is `crates/vestige-cli/`)
 - Test: `cargo test`
-- Lint: `cargo clippy --all-targets --all-features -- -D warnings`
+- Lint: `cargo clippy --all-targets -- -D warnings` (add `-p vestige-embed --all-features` only if you touched that crate)
 - Format: `cargo fmt`
 
 ## Common tasks

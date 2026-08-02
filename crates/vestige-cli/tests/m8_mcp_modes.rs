@@ -189,11 +189,14 @@ fn extract_envelope(resp: &Value) -> Value {
 // === TESTS ===
 // ========================================
 
-/// Calling vestige_search without `mode` must return mode="lexical" (backwards
-/// compat). V0 returned a flat array; PR6 wraps it in `{mode, results, warnings}`.
-/// This is a breaking change — agents must update to read `envelope.results`.
+/// Calling vestige_search without `mode` on a project with no embeddings must
+/// still resolve to mode="lexical". Since #134 the default is `hybrid`, so this
+/// now exercises `search_hybrid`'s fallback rather than a hardcoded default —
+/// the observable envelope is unchanged either way, which is the compat
+/// guarantee agents depend on. V0 returned a flat array; PR6 wraps it in
+/// `{mode, results, warnings}` — agents must read `envelope.results`.
 #[test]
-fn search_default_mode_is_lexical_backwards_compat() {
+fn search_without_mode_resolves_to_lexical_without_embeddings() {
     let repo = fresh_repo();
     run_cli(&repo, &["init", "--name", "ModeTest"]);
     run_cli(
@@ -217,7 +220,7 @@ fn search_default_mode_is_lexical_backwards_compat() {
     assert_eq!(
         envelope["mode"].as_str(),
         Some("lexical"),
-        "default mode must be lexical: {envelope}"
+        "hybrid default must fall back to lexical with no embeddings: {envelope}"
     );
     assert!(
         envelope["results"].is_array(),

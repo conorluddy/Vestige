@@ -18,7 +18,7 @@
 use vestige_config::TracesConfig;
 use vestige_core::{
     build_pack, project_detail, ContextOptions, ContextSources, FetchedMemory, ListFilter,
-    MemoryId, MemoryType, ProjectId, RepresentationDepth,
+    ListOrder, MemoryId, MemoryType, ProjectId, RepresentationDepth,
 };
 use vestige_store::Store;
 
@@ -69,6 +69,8 @@ pub fn expand_memory(
             "memory not found: {id}"
         )))
     })?;
+
+    bump_expand_stats_non_fatal(store, id);
 
     let detail = project_detail(&fetched);
     let content = detail
@@ -127,6 +129,7 @@ pub fn get_project_context(
                 include_deleted: false,
                 r#type: Some(MemoryType::ProjectSummary),
                 limit: Some(1),
+                order: ListOrder::RecencyDesc,
             },
         )?
         .into_iter()
@@ -138,6 +141,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: Some(MemoryType::Decision),
             limit: Some(per_section),
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -147,6 +151,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: Some(MemoryType::OpenQuestion),
             limit: Some(per_section),
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -156,6 +161,7 @@ pub fn get_project_context(
             include_deleted: false,
             r#type: None,
             limit: Some(per_section),
+            order: ListOrder::ImportanceUsageRecency,
         },
     )?;
 
@@ -193,4 +199,17 @@ pub fn get_project_context(
     );
 
     Ok(ContextOutcome { pack })
+}
+
+// === PRIVATE HELPERS ===
+
+/// Bump `expand_count` for `id`, logging (never propagating) a store failure.
+///
+/// Same failure posture as [`write_trace_configured`] (PRD §10.5): the
+/// counter is a side effect of a resolved expand, not a precondition, so a
+/// bump failure must never turn a successful expand into an error.
+fn bump_expand_stats_non_fatal(store: &Store, id: &MemoryId) {
+    if let Err(e) = store.bump_expand_stats(id) {
+        tracing::warn!("expand-stats bump failed (non-fatal): {e}");
+    }
 }
