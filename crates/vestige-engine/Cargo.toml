@@ -17,6 +17,7 @@ vestige-core.workspace = true
 vestige-config.workspace = true
 vestige-store.workspace = true
 vestige-embed.workspace = true
+vestige-extract.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -29,6 +30,11 @@ directories.workspace = true
 default = []
 fastembed = ["vestige-embed/fastembed"]
 ollama = ["vestige-embed/ollama"]
+# Daemon-mode session-log extraction backends (V0.5.4). Distinct from the
+# embedding `ollama` feature above — these gate the LLM extraction providers.
+extract-ollama = ["vestige-extract/ollama"]
+extract-anthropic = ["vestige-extract/anthropic"]
+extract-openai = ["vestige-extract/openai"]
 
 [dev-dependencies]
 tempfile.workspace = true

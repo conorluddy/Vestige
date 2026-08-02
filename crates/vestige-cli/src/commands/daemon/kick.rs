@@ -36,6 +36,8 @@ pub enum KickJob {
     Prune,
     /// Mark overdue assimilation candidates as rejected via TTL policy.
     Ttl,
+    /// Scan local session transcripts and propose candidates (V0.5.4).
+    Scan,
 }
 
 // === PUBLIC API ===
@@ -64,6 +66,7 @@ async fn kick_async(args: KickArgs) -> anyhow::Result<()> {
         KickJob::Embed => "embed",
         KickJob::Prune => "prune",
         KickJob::Ttl => "ttl",
+        KickJob::Scan => "scan",
     };
 
     let mut params = json!({ "job": job_str });

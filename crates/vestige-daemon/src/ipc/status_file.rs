@@ -52,6 +52,11 @@ pub struct DaemonStatus {
     pub projects: Vec<ProjectStatus>,
     /// Next-scheduled jobs across all projects, ordered by `at` ascending.
     pub next_jobs: Vec<ScheduledJob>,
+    /// RFC-3339 instant until which scheduled ticks are suppressed, or `None` when the
+    /// daemon is running normally (V0.5.2). Additive field; older readers default to `None`.
+    /// Auto-clears once the instant passes — the daemon never reports a past `paused_until`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<String>,
 }
 
 /// Per-project observability data included in every status snapshot.
@@ -113,6 +118,8 @@ pub enum JobKind {
     Prune,
     /// Mark overdue assimilation candidates as rejected via TTL policy.
     CandidateTtl,
+    /// Scan local session transcripts and propose candidates (V0.5.4).
+    SessionLogScan,
 }
 
 // === PUBLIC API ===
@@ -240,6 +247,7 @@ mod tests {
             uptime_secs: 0,
             projects: Vec::new(),
             next_jobs: Vec::new(),
+            paused_until: None,
         }
     }
 
@@ -359,6 +367,7 @@ mod tests {
                     at: "2026-05-19T11:00:00Z".to_string(),
                 },
             ],
+            paused_until: None,
         };
 
         write_atomic(&status_path, &status).unwrap();

@@ -11,6 +11,17 @@ struct DaemonStatus: Codable, Equatable, Hashable {
     let projects: [ProjectStatus]
     let nextJobs: [ScheduledJob]
 
+    // Additive (V0.5.2): RFC-3339 instant until which scheduled ticks are suppressed.
+    // Absent / null when the daemon is running normally. Synthesized Codable decodes an
+    // Optional via decodeIfPresent, so older daemons that omit the field decode to `nil`.
+    let pausedUntil: Date?
+
+    /// `true` when the daemon is paused and the pause has not yet elapsed.
+    var isPaused: Bool {
+        guard let pausedUntil else { return false }
+        return pausedUntil > Date()
+    }
+
     static let recommendedDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -64,4 +75,5 @@ enum JobKind: String, Codable, Equatable, Hashable, CaseIterable {
     case embed = "embed"
     case prune = "prune"
     case candidateTtl = "candidate_ttl"
+    case sessionLogScan = "session_log_scan"
 }

@@ -9,6 +9,7 @@ pub mod candidate;
 pub mod context;
 pub mod error;
 pub mod ids;
+pub mod ingest;
 pub mod memory;
 pub mod redaction;
 pub mod representations;
@@ -66,3 +67,8 @@ pub use context::{
 // === REDACTION ===
 // ========================================
 pub use redaction::redact_secrets;
+
+// ========================================
+// === INGESTION PRIMITIVES (V0.5.3+) ===
+// ========================================
+pub use ingest::NormalizedTurn;

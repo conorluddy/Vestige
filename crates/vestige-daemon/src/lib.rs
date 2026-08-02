@@ -87,11 +87,14 @@ struct SchedulerStatusProvider {
     started_at: String,
     config: ResolvedDaemonConfig,
     tick_state_arc: Arc<Mutex<scheduler::TickState>>,
+    /// Read side of the pause watch channel so `daemon.status` reflects `paused_until`.
+    pause_rx: watch::Receiver<Option<time::OffsetDateTime>>,
 }
 
 impl StatusProvider for SchedulerStatusProvider {
     fn current_status(&self) -> Pin<Box<dyn Future<Output = DaemonStatus> + Send + '_>> {
         Box::pin(async move {
+            let paused_until = scheduler::format_pause(scheduler::active_pause(&self.pause_rx));
             let reg = self.registry.lock().await;
             let state = self.tick_state_arc.lock().await;
             scheduler::build_status(
@@ -100,6 +103,7 @@ impl StatusProvider for SchedulerStatusProvider {
                 &self.started_at,
                 &self.config,
                 Some(&state),
+                paused_until,
             )
             .await
         })
@@ -271,6 +275,11 @@ pub async fn run_with_cancel(
     // can push new cadences to the scheduler without a restart.
     let (config_tx, config_rx) = watch::channel(config.clone());
 
+    // Pause channel (V0.5.2): `daemon.pause` / `daemon.resume` push an absolute resume
+    // instant (or `None`) here; the scheduler reads it at each job-tick boundary and the
+    // status provider surfaces it as `paused_until`.
+    let (pause_tx, pause_rx) = watch::channel::<Option<time::OffsetDateTime>>(None);
+
     // T8.3 — shared TickState allows the IPC `daemon.status` response to include
     // a populated `next_jobs[]` array, not just the scheduler's own 5-second writes.
     let initial_tick_state = scheduler::TickState::new(
@@ -279,6 +288,8 @@ pub async fn run_with_cancel(
         std::time::Duration::from_secs(config.embed_sweep_interval_secs),
         std::time::Duration::from_secs(config.trace_prune_interval_secs),
         std::time::Duration::from_secs(config.candidate_ttl_sweep_interval_secs),
+        (config.session_log_scan_interval_secs > 0)
+            .then(|| std::time::Duration::from_secs(config.session_log_scan_interval_secs)),
     );
     let shared_tick_state: Arc<Mutex<scheduler::TickState>> =
         Arc::new(Mutex::new(initial_tick_state));
@@ -290,6 +301,7 @@ pub async fn run_with_cancel(
         started_at: started_at.clone(),
         config: config.clone(),
         tick_state_arc: Arc::clone(&shared_tick_state),
+        pause_rx: pause_rx.clone(),
     });
 
     // Spawn the IPC server as a background tokio task.
@@ -305,6 +317,7 @@ pub async fn run_with_cancel(
                 status_provider,
                 ttl_days,
                 config_tx,
+                pause_tx,
                 cancel,
             )
             .await
@@ -325,6 +338,7 @@ pub async fn run_with_cancel(
             scheduler::run(
                 registry,
                 config_rx,
+                pause_rx,
                 tick_state,
                 status_path,
                 started_at,

@@ -89,6 +89,7 @@ async fn embed_sweep_fires_on_schedule_without_kick() {
         embed_sweep_interval_secs: 2,
         trace_prune_interval_secs: 86_400,
         candidate_ttl_sweep_interval_secs: 86_400,
+        session_log_scan_interval_secs: 86_400,
         candidate_ttl_days: DAEMON_DEFAULT_CANDIDATE_TTL_DAYS,
         log_level: "info".into(),
         socket_path: Some(

@@ -6,9 +6,12 @@ use clap::{Args, Subcommand};
 
 pub mod doctor;
 pub mod install;
+pub mod ipc_client;
 pub mod kick;
 pub mod log;
+pub mod pause;
 pub mod restart;
+pub mod resume;
 pub mod start;
 pub mod status;
 pub mod stop;
@@ -34,6 +37,10 @@ pub enum DaemonCommand {
     Status(status::StatusArgs),
     /// Run a job now (e.g. embed sweep across all projects).
     Kick(kick::KickArgs),
+    /// Pause scheduled ticks (`--for <dur>` or `--until <rfc3339>`).
+    Pause(pause::PauseArgs),
+    /// Resume scheduled ticks after a pause.
+    Resume(resume::ResumeArgs),
     /// Tail the daemon log file.
     Log(log::LogArgs),
     /// Install the macOS LaunchAgent so the daemon starts at login.
@@ -53,6 +60,8 @@ pub fn run(args: DaemonArgs) -> anyhow::Result<()> {
         DaemonCommand::Restart(a) => restart::run(a),
         DaemonCommand::Status(a) => status::run(a),
         DaemonCommand::Kick(a) => kick::run(a),
+        DaemonCommand::Pause(a) => pause::run(a),
+        DaemonCommand::Resume(a) => resume::run(a),
         DaemonCommand::Log(a) => log::run(a),
         DaemonCommand::Install(a) => install::run(a),
         DaemonCommand::Uninstall(a) => uninstall::run(a),

@@ -15,6 +15,7 @@
 
 pub mod claude_code;
 pub mod codex;
+pub mod scan;
 pub mod source;
 
 use thiserror::Error;
@@ -57,4 +58,5 @@ pub enum IngestError {
 
 pub use claude_code::ClaudeCodeSource;
 pub use codex::CodexSource;
+pub use scan::{build_sources, scan_and_propose, ScanOptions, ScanPreview, ScanReport};
 pub use source::{DiscoveredSession, NormalizedTurn, SessionSource};

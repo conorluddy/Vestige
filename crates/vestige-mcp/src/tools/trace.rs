@@ -213,5 +213,6 @@ fn map_engine_error(e: EngineError) -> ErrorData {
             format!("candidate is not pending (status = {status})"),
             false,
         ),
+        EngineError::Ingest(_) => err("INGEST_FAILED", e.to_string(), true),
     }
 }

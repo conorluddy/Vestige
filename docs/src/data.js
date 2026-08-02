@@ -15,7 +15,8 @@ const VESTIGE = {
     { v: 'V0.5', label: 'Daemon runtime', status: 'done', body: 'Opt-in LaunchAgent, IPC socket, scheduled embedding and lifecycle jobs.' },
     { v: 'V0.5.1', label: 'Menu-bar app', status: 'done', body: 'SwiftUI glance surface for daemon health and per-project memory state.' },
     { v: 'V0.5.3', label: 'Session ingestion', status: 'done', body: 'Agent-driven scan of Claude Code and Codex transcripts into redacted, reviewable candidates.' },
-    { v: 'V0.5.2', label: 'Menu controls', status: 'planned', body: 'Pause, kick, reload, daemon toggle, and a persistent project workspace.' },
+    { v: 'V0.5.4', label: 'Autonomous ingestion', status: 'done', body: 'vestige-extract crate + daemon session_log_scan job + one-shot `vestige scan` CLI, routed through the inbox.' },
+    { v: 'V0.5.2', label: 'Menu controls', status: 'done', body: 'Pause/resume IPC + CLI, vestige ui launcher, menu actions, persistent workspace, and the EXP-1..7 experience layer.' },
   ],
 
   operatingLoop: [
@@ -144,9 +145,9 @@ const VESTIGE = {
     { v: 'V0.4.1', title: 'Tail tab',         status: 'done',    items: 'live-monitoring 4th tab on vestige browse · merged memories + candidates ordered created_at DESC · 60s polling (`:interval N`) · cap (`:tail N`) · `d` cycles disclosure depth (one-liner/summary/compressed) · auto-scroll pauses off-row 0 · read-only · `--tab tail` opens directly · PR #95' },
     { v: 'V0.5', title: 'Daemon runtime',       status: 'done',    items: '9 daemon subcommands · IPC socket · LaunchAgent · per-project providers · daemon doctor' },
     { v: 'V0.5.1', title: 'VestigeUI menu-bar', status: 'done', items: 'macOS Vestige.app · SwiftUI MenuBarExtra · per-project memory + candidate + pending-embed counts · expandable rows (Reveal in Finder) · daemon-not-running CTA · stale-daemon badge · 30-day inactive collapse · daemon snapshot adds memory_count / candidate_count / last_memory_at · PR #90' },
-    { v: 'V0.5.2', title: 'Menu-bar controls', status: 'planned', items: 'kick + reload-config + pause controls from the menu · daemon.pause IPC method · persistent project workspace window · vestige ui launcher + SMAppService start-at-login (opt-in prompt on init) · #88' },
+    { v: 'V0.5.2', title: 'Menu-bar controls', status: 'done', items: 'daemon.pause/resume IPC + paused_until status field + scheduler tick suppression · vestige daemon pause/resume CLI · vestige ui launcher + guarded init/daemon-install boot prompt + SMAppService start-at-login · menu actions (kick/scan/pause/resume/reload/toggle) + persistent workspace window + EXP-1..7 (activity pulse · inbox badge · Liquid Glass · sparkline · recent ticker · ⌘-search · ⌥⌘N quick capture) · #88 (Swift surface needs a macOS build pass)' },
     { v: 'V0.5.3', title: 'Session-log ingestion', status: 'done', items: 'agent-driven mode shipped — vestige_scan_sessions MCP tool + vestige-scan-sessions skill · Claude Code + Codex SessionSource adapters · routes through the V0.2 inbox (no auto-promote) · secret redaction · per-source scan-cursor watermark · off by default (mcp.allow_scan_sessions) · epic #98 · PRs #109–#112, #121–#123' },
-    { v: 'V0.5.4', title: 'Session ingestion — daemon + CLI', status: 'planned', items: 'deferred from V0.5.3 (#113) · daemon session_log_scan job with a configurable ExtractionProvider (default ollama) · vestige scan CLI · vestige-extract crate' },
+    { v: 'V0.5.4', title: 'Session ingestion — daemon + CLI', status: 'done', items: 'vestige-extract crate (ExtractionProvider: fake + feature-gated ollama/anthropic/openai) · [extraction] config · shared vestige_engine::scan_and_propose core · daemon session_log_scan job + `daemon kick scan` · one-shot `vestige scan` (--dry-run) · routes through the V0.2 inbox (no auto-promote) · #113 → #103/#106/#107' },
     { v: 'V0.6', title: 'Directives',           status: 'planned', items: 'pluggable prompt blocks (.vestige/directives.md) · project-scoped allow/deny rules · injected into auto-memorise + heartbeat ingestion' },
     { v: 'V0.7', title: 'REM consolidation',    status: 'planned', items: 'Review · Evaluate · Merge — project summary refresh · clustering · review-first consolidation' },
     { v: 'V0.8', title: 'Global preferences',   status: 'planned', items: '~/.vestige/global.sqlite · explicit include · project wins' },
@@ -183,7 +184,7 @@ const VESTIGE = {
     { group: 'operate',     cmd: 'vestige daemon kick embed',             desc: 'V0.5 — trigger an embedding sweep without waiting for the next tick.' },
     { group: 'operate',     cmd: 'vestige ui',                            desc: 'V0.5.2 — launch the macOS menu-bar app from the CLI.' },
     { group: 'operate',     cmd: 'vestige daemon pause --for 1h',         desc: 'V0.5.2 — planned pause control for background scheduler ticks.' },
-    { group: 'operate',     cmd: 'vestige scan --dry-run',                desc: 'V0.5.4 — planned one-shot session-log ingestion preview (agent-driven scan ships in V0.5.3 via the vestige_scan_sessions MCP tool).' },
+    { group: 'operate',     cmd: 'vestige scan --dry-run',                desc: 'V0.5.4 — one-shot session-log ingestion preview; omit --dry-run to file candidates into the inbox via the configured [extraction] provider.' },
   ],
 };
 

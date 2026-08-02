@@ -34,6 +34,15 @@ pub struct InstallArgs {
     /// JSON output for scripts.
     #[arg(long)]
     pub json: bool,
+
+    /// Suppress the macOS menu-bar app boot prompt (V0.5.2). Always implied in
+    /// agent / CI / non-TTY contexts; this flag opts out explicitly.
+    #[arg(long)]
+    pub no_ui: bool,
+
+    /// Accept the menu-bar app boot prompt non-interactively (for scripted human setup).
+    #[arg(long)]
+    pub yes: bool,
 }
 
 // === PUBLIC API ===
@@ -94,6 +103,12 @@ pub fn run(args: InstallArgs) -> Result<()> {
         } else {
             println!("  launchctl: skipped (--no-load)");
         }
+    }
+
+    // V0.5.2: offer to boot the menu-bar app (gated to interactive macOS; see
+    // commands::ui::decide_boot). Suppressed in JSON / agent / CI runs.
+    if !args.json {
+        crate::commands::ui::maybe_offer_boot(args.no_ui, args.yes);
     }
 
     Ok(())
