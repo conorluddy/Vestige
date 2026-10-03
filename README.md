@@ -130,30 +130,35 @@ V0 ships with BM25 lexical search. V0.1 adds embeddings and hybrid recall so age
 
 ### Walkthrough
 
-Continuing from the same project you initialised above:
+For meaningful semantic recall, install a real backend first:
 
 ```bash
-vestige embed --all
-# → Embedded 4 representations across 2 memories using provider=fake model=deterministic-sha256
-# → Embedded 4; skipped 0; failed 0.
-
-vestige embeddings status
-# → Provider:  fake
-# → Model:     deterministic-sha256
-# → Memories:                    2 active
-# → Embeddable representations:  4
-# → Embedded representations:    4
-# → Stale embeddings:            0
-
-vestige search "canonical store" --mode hybrid
-# → mem_01K…WWG decision  0.360  Use SQLite as the canonical local store
-# →     [fts=0.500 vec=0.035 imp=0.700 type=0.800]
-
-vestige search "fast scans" --mode semantic --json
-# → {"mode":"semantic","results":[{"id":"mem_01K…XHJ","title":"Brute-force…",
-# →   "score":0.387,"score_parts":{"fts":0.0,"vector":0.387,
-# →   "importance":0.0,"type_boost":0.0,"total":0.387}, …}], "warnings":[]}
+cargo install --path crates/vestige-cli --locked --features fastembed
 ```
+
+Add this to the project's `.vestige/config.toml`:
+
+```toml
+[embeddings]
+provider = "fastembed"
+model = "bge-small-en-v1.5"
+```
+
+Then build the index and try a paraphrase:
+
+```bash
+vestige reindex --embeddings
+vestige embeddings status
+# Provider: fastembed · Model: bge-small-en-v1.5 · Dimensions: 384
+
+vestige recall "why did we pick our store?" --semantic
+vestige recall "canonical store" --hybrid --score-parts
+```
+
+The model downloads on first use and runs locally from its cache afterward.
+Restart an installed daemon after changing providers. The default `fake`
+provider exercises the indexing pipeline for tests; its vectors do not encode
+meaning. See [the embeddings walkthrough](docs/embeddings.md).
 
 The convenience aliases `--lexical` / `--semantic` / `--hybrid` are equivalent to `--mode <name>`. Pass `--score-parts` on lexical or semantic mode to force the per-component breakdown into the JSON output (always on for hybrid).
 
@@ -162,7 +167,7 @@ The convenience aliases `--lexical` / `--semantic` / `--hybrid` are equivalent t
 | Mode | Best for | Notes |
 |------|---------|-------|
 | `lexical` | Exact keywords, IDs, command names, error strings. | Always available. BM25 over FTS5. Opt-out default (`[search] default_mode = "lexical"`). |
-| `semantic` | Paraphrases and concept queries — *"why did we pick our store?"*. | Requires `vestige embed --all` first. Hard error in MCP if no embeddings exist. |
+| `semantic` | Paraphrases and concept queries — *"why did we pick our store?"*. | Requires a real provider and current embeddings. Hard error in MCP if no embeddings exist. |
 | `hybrid` (default) | Merges both legs with score diagnostics — the normal case for agent recall. | Falls back to lexical (with a warning) when embeddings are missing. |
 
 `vestige recall` shares the same engine; the only difference is `--limit` defaults to `[recall] max_results` from config rather than a fixed `8`.

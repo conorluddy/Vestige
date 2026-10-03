@@ -174,7 +174,7 @@ function Disclosure() {
 // ── Recall demo ──────────────────────────────────────────
 function Recall() {
   return (
-    <Section id="recall" n="03" title="Hybrid recall." lede="V0 is FTS over the project store. V0.1 layers in semantic kNN behind a replaceable provider.">
+    <Section id="recall" n="03" title="Hybrid recall." lede="Hybrid combines keyword search with semantic similarity. Enable a real embedding provider to retrieve memories by meaning.">
       <RecallPipeline />
       <div style={{ marginTop: 18 }}>
         <RecallDemo />
@@ -280,8 +280,31 @@ function SchemaSection() {
 
 function Embeddings() {
   return (
-    <Section id="embeddings" n="08" title="Embedding lifecycle." lede="Vectors are derived state. Provider, model, content drift — anything triggers a rebuild.">
+    <Section id="embeddings" n="08" title="Embedding lifecycle." lede="Vectors are rebuildable derived state. Reindex after switching providers or models; failed rebuilds preserve the previous index.">
       <EmbeddingLifecycle />
+      <div style={{ marginTop: 18 }}>
+        <p style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+          The default fake provider creates deterministic test vectors without semantic meaning.
+          FastEmbed runs BGE locally with no API key or separate service; it downloads the model on first use.
+          Ollama is also supported when built with its optional feature.
+        </p>
+        <pre className="vt-pre">{`cargo install --path crates/vestige-cli --locked --features fastembed
+
+# Add to .vestige/config.toml
+[embeddings]
+provider = "fastembed"
+model = "bge-small-en-v1.5"
+
+# Replace existing vectors, then verify the provider and coverage
+vestige reindex --embeddings
+vestige embeddings status
+vestige recall "why did we pick our store?" --semantic`}</pre>
+        <p style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--vt-ink-soft)' }}>
+          Run these commands from the source checkout. Restart an installed daemon after changing providers.
+          CLI, MCP, and daemon must use the feature-enabled binary. Semantic results return each memory once.
+          {' '}<a href="https://github.com/conorluddy/Vestige/blob/main/docs/embeddings.md">Full setup and verification guide →</a>
+        </p>
+      </div>
     </Section>
   );
 }
