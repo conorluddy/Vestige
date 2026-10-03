@@ -69,6 +69,50 @@ fn embed_memory(
 // === LEXICAL TESTS ===
 
 #[test]
+fn semantic_results_limit_distinct_memories_and_bump_usage_once() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("semantic-unique");
+    seed_project(&mut store, &project);
+    let best = record_memory(&mut store, &project, "The exact matching passage.");
+    let other = record_memory(&mut store, &project, "A different passage.");
+    let provider = FakeEmbeddingProvider::new(64);
+    vestige_engine::embed::embed_all(
+        &mut store,
+        &project,
+        &provider,
+        &[
+            RepresentationDepth::Summary,
+            RepresentationDepth::Compressed,
+        ],
+        false,
+    )
+    .unwrap();
+    let outcome = search_semantic(
+        &store,
+        &project,
+        "The exact matching passage.",
+        None,
+        2,
+        &provider,
+        Caller::Cli,
+        &TracesConfig::default(),
+    )
+    .unwrap();
+    assert_eq!(outcome.scored.len(), 2);
+    assert_eq!(outcome.scored[0].card.id, best);
+    assert_eq!(outcome.scored[1].card.id, other);
+    assert_eq!(
+        store
+            .get_memory(&best)
+            .unwrap()
+            .unwrap()
+            .memory
+            .recall_count,
+        1
+    );
+}
+
+#[test]
 fn search_lexical_happy_path_returns_ranked_hits() {
     let (_tmp, mut store) = open_store();
     let project = ProjectId::from_slug("lex-happy");

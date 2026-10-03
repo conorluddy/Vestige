@@ -38,7 +38,9 @@ mod scan_ops;
 mod trace_ops;
 
 pub use candidate_ops::{CandidateFilter, CandidateHit};
-pub use embeddings::{EmbeddingStatus, NewEmbedding, VectorFilter, VectorHit};
+pub use embeddings::{
+    EmbeddingStatus, NewEmbedding, ReplacementEmbedding, VectorFilter, VectorHit,
+};
 pub use memory_ops::RevisionOutcome;
 pub use provenance::{ProvenanceEvent, SourceReceiptRow};
 pub use scan_ops::ScanCursorRow;
@@ -298,6 +300,16 @@ impl Store {
     /// Idempotent: re-embedding the same representation replaces the old row.
     pub fn record_embedding(&mut self, new: &NewEmbedding<'_>) -> Result<EmbeddingId> {
         embeddings::record_embedding(&self.conn, new)
+    }
+
+    /// Atomically replace this project's index with vectors prepared from
+    /// unchanged, active representations. Failure preserves the old index.
+    pub fn replace_project_embeddings(
+        &mut self,
+        project_id: &ProjectId,
+        replacements: &[ReplacementEmbedding<'_>],
+    ) -> Result<()> {
+        embeddings::replace_project_embeddings(&self.conn, project_id, replacements)
     }
 
     /// Mark a single embedding stale by its ID.

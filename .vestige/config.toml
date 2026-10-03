@@ -11,6 +11,10 @@ default_depth = "one_liner"
 max_results = 8
 include_global_preferences = false
 
+[embeddings]
+provider = "fastembed"
+model = "bge-small-en-v1.5"
+
 # Dogfood policy: agents working on Vestige itself may record but not forget.
 [mcp]
 allow_record_observation = true

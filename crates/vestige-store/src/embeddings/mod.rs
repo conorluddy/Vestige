@@ -39,6 +39,7 @@ use crate::{Result, StoreError};
 pub(crate) use nearest::nearest_neighbours;
 pub(crate) use record::{
     delete_embedding, mark_embedding_stale, mark_representation_embeddings_stale, record_embedding,
+    replace_project_embeddings,
 };
 pub(crate) use status::embedding_status;
 
@@ -55,6 +56,12 @@ pub struct NewEmbedding<'a> {
     pub provider: &'a str,
     pub model: &'a str,
     pub vector: &'a [f32],
+}
+
+/// A replacement vector plus the representation version used during inference.
+pub struct ReplacementEmbedding<'a> {
+    pub embedding: NewEmbedding<'a>,
+    pub content_hash: &'a str,
 }
 
 /// Filters applied when querying for nearest neighbours.

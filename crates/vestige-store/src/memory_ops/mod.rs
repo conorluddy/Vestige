@@ -34,6 +34,7 @@ mod fetch;
 mod lifecycle;
 mod list_search;
 mod record;
+mod review;
 
 pub use lifecycle::RevisionOutcome;
 

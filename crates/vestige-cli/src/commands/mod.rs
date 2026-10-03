@@ -24,6 +24,7 @@ pub mod reindex;
 pub mod reject;
 pub mod remember;
 pub mod restore;
+pub mod review;
 pub mod revise;
 pub mod scan;
 pub mod search;

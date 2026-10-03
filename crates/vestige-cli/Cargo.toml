@@ -57,6 +57,7 @@ extract-anthropic = ["vestige-extract/anthropic", "vestige-engine/extract-anthro
 extract-openai = ["vestige-extract/openai", "vestige-engine/extract-openai", "vestige-daemon/extract-openai"]
 
 [dev-dependencies]
+rusqlite.workspace = true
 tempfile.workspace = true
 serde_json.workspace = true
 toml.workspace = true

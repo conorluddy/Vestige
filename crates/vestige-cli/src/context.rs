@@ -34,24 +34,31 @@ impl ProjectContext {
     pub fn resolve_embeddings_config(&self) -> EmbeddingsConfig {
         embeddings_config_for(self.config.embeddings.as_ref())
     }
-}
 
-/// Build an embedding provider from explicit parameters.
-///
-/// CLI flags override the config section (e.g. `vestige embed --provider ollama`).
-/// When all three params are `None` and no config section is present, defaults
-/// to the `"fake"` provider.
-pub fn embedding_provider(
-    provider: Option<&str>,
-    model: Option<&str>,
-    dimensions: Option<usize>,
-) -> Result<Box<dyn vestige_embed::EmbeddingProvider>> {
-    let cfg = EmbeddingsConfig {
-        provider: provider.unwrap_or("fake").to_string(),
-        model: model.map(|s| s.to_owned()),
-        dimensions,
-    };
-    vestige_embed::build_provider(&cfg).map_err(|e| anyhow::anyhow!("embedding provider: {e}"))
+    /// Build the configured provider, applying explicit CLI overrides.
+    /// Changing providers resets model/dimensions to the new backend's defaults
+    /// unless a model override is also supplied.
+    pub fn embedding_provider(
+        &self,
+        provider: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Box<dyn vestige_embed::EmbeddingProvider>> {
+        let mut cfg = self.resolve_embeddings_config();
+        if let Some(provider) = provider {
+            if provider != cfg.provider {
+                cfg.model = None;
+                cfg.dimensions = None;
+            }
+            cfg.provider = provider.to_owned();
+        }
+        if let Some(model) = model {
+            if cfg.model.as_deref() != Some(model) {
+                cfg.dimensions = None;
+            }
+            cfg.model = Some(model.to_owned());
+        }
+        vestige_embed::build_provider(&cfg).map_err(anyhow::Error::from)
+    }
 }
 
 /// Resolve the active project from `cwd` and open its store.

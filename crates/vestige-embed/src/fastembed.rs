@@ -1,7 +1,7 @@
 //! FastEmbed embedding provider — local ONNX models, no network after first download.
 //!
 //! Gated behind the `fastembed` cargo feature. On first `embed()` call the model
-//! is loaded (and downloaded ~60MB if not already cached) into a `OnceLock` so
+//! is loaded (and downloaded if not already cached) into a `OnceLock` so
 //! subsequent calls are cheap. The constructor is always instantaneous.
 
 use std::path::PathBuf;
@@ -91,7 +91,7 @@ impl FastembedProvider {
             tracing::info!(
                 model = %self.model_name,
                 cache_dir = %self.cache_dir.display(),
-                "Loading fastembed model; this may download ~60MB on first use"
+                "Loading fastembed model; this may download model files on first use"
             );
 
             let options = InitOptions::new(self.embedding_model.clone())
@@ -136,7 +136,7 @@ impl EmbeddingProvider for FastembedProvider {
 
     /// Embed a single string via the loaded ONNX model.
     ///
-    /// Triggers a lazy model load (and possible ~60 MB download) on first call.
+    /// Triggers a lazy model load (and possible model download) on first call.
     /// Returns [`EmbedError::EmptyInput`] for empty strings,
     /// [`EmbedError::ModelNotAvailable`] if the model cannot be loaded.
     fn embed(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
@@ -153,6 +153,17 @@ impl EmbeddingProvider for FastembedProvider {
         results
             .pop()
             .ok_or_else(|| EmbedError::Backend("fastembed returned empty result".to_string()))
+    }
+
+    fn embed_query(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
+        if input.is_empty() {
+            return Err(EmbedError::EmptyInput);
+        }
+        // BGE's model card recommends this instruction for retrieval queries
+        // only: https://huggingface.co/BAAI/bge-small-en-v1.5
+        self.embed(&format!(
+            "Represent this sentence for searching relevant passages: {input}"
+        ))
     }
 
     /// Embed a batch of strings in a single ONNX inference pass.

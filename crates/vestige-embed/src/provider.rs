@@ -53,6 +53,12 @@ pub trait EmbeddingProvider: Send + Sync {
     /// [`dimensions`]: EmbeddingProvider::dimensions
     fn embed(&self, input: &str) -> Result<Vec<f32>, EmbedError>;
 
+    /// Embed a retrieval query. Backends may add a model-specific search
+    /// instruction without changing the stored passage embeddings.
+    fn embed_query(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
+        self.embed(input)
+    }
+
     /// Embed a batch of non-empty strings.
     ///
     /// Returns a `Vec` of the same length as `inputs`, where each element is the

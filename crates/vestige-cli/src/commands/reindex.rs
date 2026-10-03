@@ -4,7 +4,7 @@
 //! from the durable `memories` + `memory_representations` journal.
 //!
 //! `--fts`:        FTS5 `rebuild` command (SQLite shadow table reconstruction).
-//! `--embeddings`: hard-delete all project embeddings, then re-embed everything.
+//! `--embeddings`: generate replacement vectors, then atomically swap the index.
 //! `--all`:        both, in order.
 
 use anyhow::{Context, Result};
@@ -34,7 +34,7 @@ pub struct ReindexArgs {
     #[arg(long)]
     pub fts: bool,
 
-    /// Delete all project embeddings and re-embed from scratch.
+    /// Re-embed from scratch, preserving the previous index if rebuilding fails.
     #[arg(long)]
     pub embeddings: bool,
 
@@ -65,6 +65,11 @@ pub fn run(args: ReindexArgs) -> Result<()> {
     let do_embeddings = args.all || args.embeddings;
 
     let mut ctx = context::load()?;
+    let provider = if do_embeddings {
+        Some(ctx.embedding_provider(args.provider.as_deref(), args.model.as_deref())?)
+    } else {
+        None
+    };
 
     let mut fts_rebuilt = false;
     let mut embed_summary: Option<EmbedSummary> = None;
@@ -76,24 +81,18 @@ pub fn run(args: ReindexArgs) -> Result<()> {
     }
 
     if do_embeddings {
-        let deleted = ctx
-            .store
-            .clear_project_embeddings(&ctx.project_id)
-            .context("clearing project embeddings")?;
-        tracing::info!(deleted, "cleared embedding rows before reindex");
-
-        let provider =
-            context::embedding_provider(args.provider.as_deref(), args.model.as_deref(), None)?;
-
         let depths = vec![
             vestige_core::RepresentationDepth::Summary,
             vestige_core::RepresentationDepth::Compressed,
         ];
 
-        let results = embed::embed_all(&mut ctx.store, &ctx.project_id, &*provider, &depths, false)
+        let provider = provider
+            .as_deref()
+            .context("embedding provider was not resolved")?;
+        let results = embed::rebuild_embeddings(&mut ctx.store, &ctx.project_id, provider, &depths)
             .context("re-embedding project memories")?;
         let targets: Vec<EmbedTarget> = results.into_iter().map(EmbedTarget::from).collect();
-        let summary = build_summary(&*provider, targets, false);
+        let summary = build_summary(provider, targets, false);
         embed_summary = Some(summary);
     }
 
