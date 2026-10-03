@@ -112,11 +112,7 @@ pub fn run(args: EmbedArgs) -> Result<()> {
 
     let mut ctx = context::load()?;
 
-    let provider = context::embedding_provider(
-        args.provider.as_deref(),
-        args.model.as_deref(),
-        None, // dimensions from provider default
-    )?;
+    let provider = ctx.embedding_provider(args.provider.as_deref(), args.model.as_deref())?;
 
     let depths = resolve_depths(&args.representations)?;
 
@@ -162,7 +158,14 @@ pub fn run(args: EmbedArgs) -> Result<()> {
             print_summary_text(&summary);
             Ok(())
         }
+    }?;
+    if !summary.failed.is_empty() {
+        anyhow::bail!(
+            "{} representation(s) failed to embed; see the failure report",
+            summary.failed.len()
+        );
     }
+    Ok(())
 }
 
 // === PRIVATE HELPERS ===

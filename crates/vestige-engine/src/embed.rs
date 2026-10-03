@@ -15,8 +15,8 @@
 use serde::Serialize;
 
 use vestige_core::{FetchedMemory, ListFilter, MemoryId, ProjectId, RepresentationDepth};
-use vestige_embed::EmbeddingProvider;
-use vestige_store::{NewEmbedding, Store};
+use vestige_embed::{EmbedError, EmbeddingProvider};
+use vestige_store::{NewEmbedding, ReplacementEmbedding, Store};
 
 #[allow(unused_imports)] // referenced by intra-doc-links
 use crate::error::EngineError;
@@ -250,4 +250,77 @@ pub fn embed_all(
     }
 
     Ok(results)
+}
+
+/// Rebuild a project's vector index without exposing a partial replacement.
+/// Inference and shape validation complete before any old vectors are removed;
+/// the store then checks for concurrent edits and swaps the index atomically.
+pub fn rebuild_embeddings(
+    store: &mut Store,
+    project_id: &ProjectId,
+    provider: &dyn EmbeddingProvider,
+    depths: &[RepresentationDepth],
+) -> Result<Vec<EmbedResult>> {
+    let memories = store.list_memories(project_id, &ListFilter::default())?;
+    let mut targets = Vec::new();
+    for fetched in &memories {
+        for depth in depths {
+            if let Some(repr) = fetched.representations.iter().find(|r| r.depth == *depth) {
+                if let Some(id) = store.repr_id_for_depth(&fetched.memory.id, *depth)? {
+                    targets.push((&fetched.memory.id, repr, id));
+                }
+            }
+        }
+    }
+    let inputs: Vec<_> = targets
+        .iter()
+        .map(|(_, repr, _)| repr.content.as_str())
+        .collect();
+    let vectors = if inputs.is_empty() {
+        Vec::new()
+    } else {
+        provider.embed_batch(&inputs)?
+    };
+    if vectors.len() != targets.len() {
+        return Err(EmbedError::Backend(
+            "embedding batch returned an unexpected vector count; previous index preserved".into(),
+        )
+        .into());
+    }
+    for vector in &vectors {
+        if vector.len() != provider.dimensions()
+            || vector.is_empty()
+            || vector.iter().any(|v| !v.is_finite())
+        {
+            return Err(EmbedError::Backend(
+                "embedding batch returned invalid vectors; previous index preserved".into(),
+            )
+            .into());
+        }
+    }
+    let replacements: Vec<_> = targets
+        .iter()
+        .zip(&vectors)
+        .map(|((memory_id, repr, id), vector)| ReplacementEmbedding {
+            embedding: NewEmbedding {
+                memory_id,
+                representation_id: id,
+                representation_type: repr.depth.as_str(),
+                provider: provider.provider_name(),
+                model: provider.model_name(),
+                vector,
+            },
+            content_hash: &repr.content_hash,
+        })
+        .collect();
+    store.replace_project_embeddings(project_id, &replacements)?;
+    Ok(targets
+        .into_iter()
+        .map(|(memory_id, repr, _)| EmbedResult {
+            memory_id: memory_id.clone(),
+            representation_type: repr.depth.as_str().to_owned(),
+            outcome: EmbedOutcome::Embedded,
+            error: None,
+        })
+        .collect())
 }

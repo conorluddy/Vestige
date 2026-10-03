@@ -380,14 +380,15 @@ fn run_semantic(
         return Ok(Vec::new());
     }
 
-    let query_vec = provider.embed(query)?;
+    let query_vec = provider.embed_query(query)?;
     let filter = VectorFilter {
         provider: provider.provider_name().to_string(),
         model: provider.model_name().to_string(),
         dimensions: provider.dimensions(),
         memory_type: type_filter,
     };
-    let raw_hits = store.nearest_neighbours(project_id, &query_vec, limit, &filter)?;
+    let raw_hits =
+        crate::search::nearest_memory_hits(store, project_id, &query_vec, limit, &filter)?;
 
     let mut scored = Vec::with_capacity(raw_hits.len());
     for hit in &raw_hits {
@@ -459,7 +460,7 @@ fn run_hybrid(
         )?
     };
 
-    let query_vec = provider.embed(query)?;
+    let query_vec = provider.embed_query(query)?;
     let vector_filter = VectorFilter {
         provider: provider.provider_name().to_string(),
         model: provider.model_name().to_string(),

@@ -29,6 +29,7 @@ pub mod error;
 pub mod ingest;
 pub mod provenance;
 pub mod replay;
+pub mod review;
 pub mod search;
 pub mod trace;
 pub mod trace_read;

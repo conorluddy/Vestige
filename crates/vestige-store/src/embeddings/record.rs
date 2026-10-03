@@ -3,11 +3,11 @@
 //! All functions take a `&rusqlite::Connection` and are crate-private; the
 //! `Store` impl in `crate::lib` forwards to them.
 
-use vestige_core::EmbeddingId;
+use vestige_core::{EmbeddingId, ProjectId};
 
 use crate::Result;
 
-use super::{compute_vector_hash, encode_vector, rfc3339_now, NewEmbedding};
+use super::{compute_vector_hash, encode_vector, rfc3339_now, NewEmbedding, ReplacementEmbedding};
 
 /// Insert or replace an embedding + its vector blob in a single transaction.
 ///
@@ -22,14 +22,63 @@ pub(crate) fn record_embedding(
     conn: &rusqlite::Connection,
     new: &NewEmbedding<'_>,
 ) -> Result<EmbeddingId> {
+    let tx = conn.unchecked_transaction()?;
+    let id = insert_embedding(&tx, new)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+/// Replace a project's index atomically after all inference succeeds.
+/// A concurrent edit/forget invalidates the prepared snapshot and rolls back.
+pub(crate) fn replace_project_embeddings(
+    conn: &rusqlite::Connection,
+    project_id: &ProjectId,
+    replacements: &[ReplacementEmbedding<'_>],
+) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for replacement in replacements {
+        let new = &replacement.embedding;
+        let valid: bool = tx.query_row(
+            "SELECT EXISTS (
+                SELECT 1 FROM memory_representations r
+                JOIN memories m ON m.id = r.memory_id
+                WHERE m.project_id = ?1 AND m.id = ?2 AND m.status = 'active'
+                  AND r.id = ?3 AND r.content_hash = ?4
+             )",
+            rusqlite::params![
+                project_id.as_str(),
+                new.memory_id.as_str(),
+                new.representation_id,
+                replacement.content_hash
+            ],
+            |row| row.get(0),
+        )?;
+        if !valid {
+            return Err(crate::StoreError::Validation(
+                "memory changed during embedding rebuild; previous index preserved, retry the rebuild".into(),
+            ));
+        }
+    }
+    tx.execute(
+        "DELETE FROM memory_embeddings WHERE memory_id IN (
+            SELECT id FROM memories WHERE project_id = ?1
+         )",
+        rusqlite::params![project_id.as_str()],
+    )?;
+    for replacement in replacements {
+        insert_embedding(&tx, &replacement.embedding)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn insert_embedding(conn: &rusqlite::Connection, new: &NewEmbedding<'_>) -> Result<EmbeddingId> {
     let embedding_id = EmbeddingId::new();
     let dimensions = new.vector.len();
     let vector_hash = compute_vector_hash(new.vector);
     let now_str = rfc3339_now()?;
 
-    let tx = conn.unchecked_transaction()?;
-
-    tx.execute(
+    conn.execute(
         "INSERT OR REPLACE INTO memory_embeddings
             (id, memory_id, representation_id, representation_type,
              provider, model, dimensions, vector_hash,
@@ -49,13 +98,12 @@ pub(crate) fn record_embedding(
     )?;
 
     let vector_blob = encode_vector(new.vector);
-    tx.execute(
+    conn.execute(
         "INSERT OR REPLACE INTO memory_vectors (embedding_id, dimensions, vector)
          VALUES (?1, ?2, ?3)",
         rusqlite::params![embedding_id.as_str(), dimensions as i64, vector_blob],
     )?;
 
-    tx.commit()?;
     Ok(embedding_id)
 }
 

@@ -23,7 +23,7 @@ use vestige_core::{
     SearchMode, SemanticHit,
 };
 use vestige_embed::EmbeddingProvider;
-use vestige_store::{EmbeddingStatus, Store, VectorFilter};
+use vestige_store::{EmbeddingStatus, Store, VectorFilter, VectorHit};
 
 #[allow(unused_imports)] // referenced by intra-doc-links
 use crate::error::EngineError;
@@ -202,14 +202,14 @@ pub fn search_semantic(
         });
     }
 
-    let query_vec = provider.embed(query)?;
+    let query_vec = provider.embed_query(query)?;
     let filter = VectorFilter {
         provider: provider.provider_name().to_string(),
         model: provider.model_name().to_string(),
         dimensions: provider.dimensions(),
         memory_type: type_filter,
     };
-    let raw_hits = store.nearest_neighbours(project_id, &query_vec, limit, &filter)?;
+    let raw_hits = nearest_memory_hits(store, project_id, &query_vec, limit, &filter)?;
 
     let mut scored = Vec::with_capacity(raw_hits.len());
     for hit in &raw_hits {
@@ -267,6 +267,24 @@ pub fn search_semantic(
         warnings: vec![],
         effective_mode: SearchMode::Semantic,
     })
+}
+
+/// Rank distinct memories by their best representation before applying a
+/// result limit. The brute-force store already scans the full vector index;
+/// truncating representations first would let duplicate depths crowd out
+/// other memories and increment recall counters twice for one result.
+pub(crate) fn nearest_memory_hits(
+    store: &Store,
+    project_id: &ProjectId,
+    query_vec: &[f32],
+    limit: u32,
+    filter: &VectorFilter,
+) -> Result<Vec<VectorHit>> {
+    let mut hits = store.nearest_neighbours(project_id, query_vec, u32::MAX, filter)?;
+    let mut seen = HashSet::new();
+    hits.retain(|hit| seen.insert(hit.memory_id.clone()));
+    hits.truncate(limit as usize);
+    Ok(hits)
 }
 
 /// Merged lexical + semantic search.
@@ -387,7 +405,7 @@ pub fn search_hybrid(
     };
 
     // --- Semantic leg ---
-    let query_vec = provider.embed(query)?;
+    let query_vec = provider.embed_query(query)?;
     let vector_filter = VectorFilter {
         provider: provider.provider_name().to_string(),
         model: provider.model_name().to_string(),

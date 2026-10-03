@@ -29,7 +29,7 @@ A human can inspect and control them.
 
 ## Install (current state)
 
-There's no Homebrew formula or crates.io release yet — install from source.
+Choose an installation route below.
 
 **Prerequisites**
 
@@ -94,6 +94,21 @@ vestige forget   mem_01HXXXXXXXXXXXXXXXXXX
 vestige restore  mem_01HXXXXXXXXXXXXXXXXXX
 ```
 
+Review old, unused memories without changing them:
+
+```bash
+vestige review --json
+vestige review --min-age-days 60 --importance-ceiling 0.4
+vestige review --forget mem_01HXXXXXXXXXXXXXXXXXX,mem_01HYYYYYYYYYYYYYYYYYY --json
+```
+
+The default queue lists active memories older than 30 days, below 0.5 importance,
+with no recalls or expansions. Decisions and project summaries are excluded.
+Only `--forget` changes memories; each selected ID gets its own outcome, and
+failures do not prevent the remaining IDs from being processed. Partial failure
+returns a nonzero exit code after printing the outcomes. Deletion is soft and
+restorable. See [the lifecycle walkthrough](docs/v0.6.md).
+
 Candidate inbox (V0.2):
 
 ```bash
@@ -154,7 +169,7 @@ The convenience aliases `--lexical` / `--semantic` / `--hybrid` are equivalent t
 
 ### Real semantic quality (recommended for production use)
 
-The default `fake` provider is deterministic and exists for tests — it does not produce semantically meaningful vectors. For real recall, build with the `fastembed` feature, which downloads BAAI/bge-small-en-v1.5 (~60 MB, cached at `~/.vestige/models/`) on first use:
+The default `fake` provider is deterministic and exists for tests — it does not produce semantically meaningful vectors. For real recall, build with the `fastembed` feature, which downloads BAAI/bge-small-en-v1.5 once and caches it at `~/.vestige/models/`:
 
 ```bash
 cargo install vestige --features fastembed
@@ -164,7 +179,14 @@ cargo install vestige --features fastembed
 # .vestige/config.toml
 [embeddings]
 provider = "fastembed"
+model = "bge-small-en-v1.5"
 ```
+
+Then run `vestige reindex --embeddings` to replace existing test vectors, or
+`vestige embed --all` to fill missing embeddings. Both commands read this
+project configuration; explicit `--provider` and `--model` flags override it.
+If using the daemon, restart it after installing the feature-enabled binary
+so maintenance uses the same backend. See [the embeddings walkthrough](docs/embeddings.md).
 
 Or use Ollama (build with `--features ollama`):
 
@@ -176,7 +198,7 @@ model = "nomic-embed-text"
 
 ### Known limitations
 
-- **Embeddings are an index, not state.** Memories are canonical in SQLite. `vestige reindex --embeddings` rebuilds the vector layer at any time; deleting it never loses memory. Hybrid mode falls back to lexical (with a warning) when embeddings are missing or were produced under a different provider/model/dimensions.
+- **Embeddings are an index, not state.** Memories are canonical in SQLite. `vestige reindex --embeddings` generates replacement vectors before swapping the index atomically; provider failures preserve the previous index. Hybrid mode falls back to lexical (with a warning) when embeddings are missing or were produced under a different provider/model/dimensions.
 - **Switching provider/model/dimensions is detected, not auto-cleaned.** When the configured provider drifts away from what the embeddings were generated under, `vestige search` prints a warning at query time and falls back. The stored rows stay until you run `vestige reindex --embeddings` (or `vestige embed --all` after a clean re-index) — automatic stale-sweep is deferred to V0.5+.
 - **Brute-force cosine scan, no `vec0` yet.** V0.1 reads all in-project, matching-provider vectors and ranks them in Rust. Comfortable to roughly 10k vectors per project; past that, semantic-mode latency starts to show. A future release will swap in a `vec0` virtual table behind the same `Store` API — the canonical store schema and the engine surface stay unchanged.
 
@@ -291,6 +313,16 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 
 ## What's shipped
 
+### V0.6 — Memory lifecycle (in progress)
+
+- `vestige revise <id> <body>` updates content while preserving its handle and journalling the prior body.
+- Capture and approval accept `--supersedes <id>`, linking the old memory to its replacement through reversible soft deletion.
+- Recall/expand usage counters feed ranking and context-pack ordering; hybrid is the default search mode.
+- Candidate proposals include semantic dedup diagnostics when embeddings are available.
+- `vestige review` lists a deterministic hygiene queue; explicit `--forget` batches report per-ID outcomes and enforce project scope.
+
+Directives and REM consolidation follow in V0.7 and V0.8.
+
 ### V0.5.3 — Session-log ingestion (agent-driven, shipped)
 
 The first *passive* path for candidates: mine local coding-agent transcripts into the V0.2 review inbox. Off by default; routes through human review, never auto-promotes.
@@ -301,7 +333,7 @@ The first *passive* path for candidates: mine local coding-agent transcripts int
 - Opt-in via `[mcp] allow_scan_sessions = true`; honoured behind `--read-only`. Project-scoped — a scan in project A never surfaces project B's sessions.
 - `vestige-scan-sessions` skill triggers the flow at session start.
 
-Daemon mode (`session_log_scan` job) and a `vestige scan` CLI are deferred to **V0.5.4** (#113). Spec: `docs/prd/vestige_v_0_5_3_session_log_ingestion_prd.md`. Epic #98; PRs #109–#112, #121–#123.
+Daemon mode (`session_log_scan` job) and the `vestige scan` CLI are implemented in **V0.5.4** (#113); see [the autonomous-ingestion walkthrough](docs/v0.5.4.md). Spec: `docs/prd/vestige_v_0_5_3_session_log_ingestion_prd.md`. Epic #98; PRs #109–#112, #121–#123.
 
 ### V0.4 — Memory browser (TUI)
 
@@ -381,7 +413,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 (Daemon Runtime, PRs #87/#89), V0.5.1 (macOS menu-bar app, PR #90), and V0.5.3 (agent-driven session-log ingestion, PRs #109–#112 / #121–#123) have shipped. Next up: **V0.5.2** menu-bar controls (issue #88), **V0.5.4** session-ingestion daemon + CLI (deferred from V0.5.3, #113), then **V0.6 Directives** (pluggable prompt blocks injected into auto-memorise), then **V0.7 REM consolidation**. The canonical, current roadmap ordering lives in `docs/src/data.js` (the landing-page timeline); `vestige_prd.md` §20 holds the original, since-reordered version sections. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) are unscheduled backlog in `docs/prd/vestige_v_0_5_daemon_prd.md` §19.
+V0.5 through V0.5.4 are implemented, including menu-bar controls and both agent-driven and autonomous session ingestion. The Swift controls still need a macOS build validation pass. **V0.6 Memory Lifecycle** is in progress: revise/supersede, usage-aware retrieval, semantic dedup, and the review hygiene queue are implemented. Next are **V0.7 Directives**, **V0.8 REM consolidation**, **V0.9 Global preferences**, **V0.10 Federation**, and **V0.11 Memory dashboard**. The canonical roadmap ordering lives in `docs/src/data.js`; the PRD's version sections preserve the original ordering. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) remain unscheduled backlog.
 
 ## Contributing
 
