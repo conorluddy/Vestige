@@ -117,12 +117,12 @@ fn semantic_hints_limit_distinct_memories_across_multiple_representations() {
             RepresentationDepth::Summary,
             RepresentationDepth::Compressed,
         ] {
-            let repr = store.repr_id_for_depth(&id, depth).unwrap().unwrap();
+            let representation_id = store.repr_id_for_depth(&id, depth).unwrap().unwrap();
             let vector = provider.embed(probe).unwrap();
             store
                 .record_embedding(&NewEmbedding {
                     memory_id: &id,
-                    representation_id: &repr,
+                    representation_id: &representation_id,
                     representation_type: depth.as_str(),
                     provider: provider.provider_name(),
                     model: provider.model_name(),

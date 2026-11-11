@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn ephemeral_check_honours_env_override() {
+    fn ephemeral_check_honours_test_override() {
         let tmp = tempfile::TempDir::new().unwrap();
         let real_looking = std::path::Path::new("/Users/x/y");
         assert!(ephemeral_repo_root_with_override(real_looking, true));
