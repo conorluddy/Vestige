@@ -44,9 +44,9 @@ final class DaemonActions {
     // MARK: - Convenience shell-outs
 
     /// Open `vestige browse` inside Terminal.app.
-    func openBrowser() {
+    func openBrowser(repoRoot: String) {
         guard let bin = Self.resolveBinary() else { reportMissingBinary(); return }
-        let script = "tell application \"Terminal\" to do script \"\(bin) browse\""
+        let script = Self.terminalScript(binary: bin, repoRoot: repoRoot, args: ["browse"])
         runAppleScript(script, success: "Opening browser…")
     }
 
@@ -68,9 +68,9 @@ final class DaemonActions {
     }
 
     /// Open `vestige browse --tab candidates` in Terminal.app (EXP-2 one-click review).
-    func reviewCandidates() {
+    func reviewCandidates(repoRoot: String) {
         guard let bin = Self.resolveBinary() else { reportMissingBinary(); return }
-        let script = "tell application \"Terminal\" to do script \"\(bin) browse --tab candidates\""
+        let script = Self.terminalScript(binary: bin, repoRoot: repoRoot, args: ["browse", "--tab", "candidates"])
         runAppleScript(script, success: "Opening inbox…")
     }
 
@@ -99,24 +99,25 @@ final class DaemonActions {
     private func shellOut(_ success: String, args: [String]) {
         guard let bin = Self.resolveBinary() else { reportMissingBinary(); return }
         isBusy = true
-        Task.detached { [weak self] in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: bin)
-            process.arguments = args + ["--no-ui"]
-            var message = success
-            do {
-                try process.run()
-                process.waitUntilExit()
-                if process.terminationStatus != 0 {
-                    message = "`vestige \(args.joined(separator: " "))` exited \(process.terminationStatus)"
+        Task {
+            let message = await Task.detached {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: bin)
+                process.arguments = args + (args.last == "install" ? ["--no-ui"] : [])
+                var message = success
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    if process.terminationStatus != 0 {
+                        message = "`vestige \(args.joined(separator: " "))` exited \(process.terminationStatus)"
+                    }
+                } catch {
+                    message = error.localizedDescription
                 }
-            } catch {
-                message = error.localizedDescription
-            }
-            await MainActor.run {
-                self?.flash(message)
-                self?.isBusy = false
-            }
+                return message
+            }.value
+            flash(message)
+            isBusy = false
         }
     }
 
@@ -142,6 +143,18 @@ final class DaemonActions {
             try? await Task.sleep(for: .seconds(2.5))
             if lastMessage == message { lastMessage = nil }
         }
+    }
+
+    /// Quote both the shell command and its AppleScript string, including repo paths
+    /// containing spaces, apostrophes, dollar signs, or backticks.
+    static func terminalScript(binary: String, repoRoot: String, args: [String]) -> String {
+        func shellQuote(_ value: String) -> String {
+            "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let command = "cd " + shellQuote(repoRoot) + " && " + ([binary] + args).map(shellQuote).joined(separator: " ")
+        let escaped = command.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "tell application \"Terminal\" to do script \"\(escaped)\""
     }
 
     /// Resolve the `vestige` binary across the common install locations.

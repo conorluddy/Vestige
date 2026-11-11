@@ -18,15 +18,15 @@ struct MemoryCardDTO: Identifiable, Hashable {
 
 enum MemoryBridge {
     /// Recent memories for the project rooted at `repoRoot` (EXP-5 ticker).
-    static func recent(repoRoot: String, limit: Int = 8) async -> [MemoryCardDTO] {
-        let out = await runJSON(repoRoot: repoRoot, args: ["list", "--json", "--limit", "\(limit)"])
+    static func recent(repoRoot: String, limit: Int = 8) async throws -> [MemoryCardDTO] {
+        let out = try await runJSON(repoRoot: repoRoot, args: ["list", "--json", "--limit", "\(limit)"])
         return parseCards(out)
     }
 
     /// Search memories in the project rooted at `repoRoot` (EXP-6 ⌘-search).
-    static func search(_ query: String, repoRoot: String, limit: Int = 15) async -> [MemoryCardDTO] {
+    static func search(_ query: String, repoRoot: String, limit: Int = 15) async throws -> [MemoryCardDTO] {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
-        let out = await runJSON(repoRoot: repoRoot, args: ["search", query, "--json", "--limit", "\(limit)"])
+        let out = try await runJSON(repoRoot: repoRoot, args: ["search", query, "--json", "--limit", "\(limit)"])
         return parseCards(out)
     }
 
@@ -34,8 +34,8 @@ enum MemoryBridge {
     /// write path — routes through `vestige note add`, never raw SQL. Returns the new id.
     @discardableResult
     static func captureNote(_ body: String, repoRoot: String) async throws -> String {
-        let out = await runJSON(repoRoot: repoRoot, args: ["note", "add", body, "--json"])
-        guard let obj = out, let id = (obj["memory_id"] as? String) ?? (obj["id"] as? String) else {
+        let out = try await runJSON(repoRoot: repoRoot, args: ["note", "add", body, "--json"])
+        guard let obj = out as? [String: Any], let id = (obj["memory_id"] as? String) ?? (obj["id"] as? String) else {
             throw BridgeError.captureFailed
         }
         return id
@@ -46,18 +46,20 @@ enum MemoryBridge {
     enum BridgeError: LocalizedError {
         case binaryNotFound
         case captureFailed
+        case commandFailed(Int32)
         var errorDescription: String? {
             switch self {
             case .binaryNotFound: return "`vestige` binary not found in PATH"
             case .captureFailed: return "capture did not return a memory id"
+            case .commandFailed(let status): return "Vestige command failed (exit \(status))"
             }
         }
     }
 
     /// Run a `vestige` subcommand with `--json` in `repoRoot` and return the parsed object.
-    private static func runJSON(repoRoot: String, args: [String]) async -> [String: Any]? {
-        guard let bin = DaemonActions.resolveBinary() else { return nil }
-        return await withCheckedContinuation { continuation in
+    private static func runJSON(repoRoot: String, args: [String]) async throws -> Any {
+        guard let bin = await DaemonActions.resolveBinary() else { throw BridgeError.binaryNotFound }
+        return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: bin)
@@ -65,23 +67,27 @@ enum MemoryBridge {
                 process.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
                 let pipe = Pipe()
                 process.standardOutput = pipe
-                process.standardError = Pipe()
+                process.standardError = FileHandle.nullDevice
                 do {
                     try process.run()
                     let data = pipe.fileHandleForReading.readDataToEndOfFile()
                     process.waitUntilExit()
-                    continuation.resume(returning: try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                    guard process.terminationStatus == 0 else {
+                        throw BridgeError.commandFailed(process.terminationStatus)
+                    }
+                    continuation.resume(returning: try JSONSerialization.jsonObject(with: data))
                 } catch {
-                    continuation.resume(returning: nil)
+                    continuation.resume(throwing: error)
                 }
             }
         }
     }
 
-    /// Parse the `{ "memories" | "results": [ { id, title, type } ] }` shapes the CLI emits.
-    private static func parseCards(_ object: [String: Any]?) -> [MemoryCardDTO] {
-        guard let object else { return [] }
-        let array = (object["memories"] as? [[String: Any]])
+    /// Parse the list array and search results envelope emitted by the CLI.
+    static func parseCards(_ response: Any) -> [MemoryCardDTO] {
+        let object = response as? [String: Any] ?? [:]
+        let array = (response as? [[String: Any]])
+            ?? (object["memories"] as? [[String: Any]])
             ?? (object["results"] as? [[String: Any]])
             ?? (object["cards"] as? [[String: Any]])
             ?? []
