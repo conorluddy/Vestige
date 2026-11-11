@@ -402,7 +402,11 @@ fn register_with_daemon_best_effort(
 /// orphan entries in the menu-bar app forever. Bail before the IPC ping when
 /// the repo root is obviously ephemeral.
 fn is_ephemeral_repo_root(repo_root: &std::path::Path) -> bool {
-    if std::env::var_os("VESTIGE_TEST").is_some() {
+    ephemeral_repo_root_with_override(repo_root, std::env::var_os("VESTIGE_TEST").is_some())
+}
+
+fn ephemeral_repo_root_with_override(repo_root: &std::path::Path, test_override: bool) -> bool {
+    if test_override {
         return true;
     }
 
@@ -514,18 +518,14 @@ mod tests {
         // A path that doesn't canonicalize and doesn't start with any temp
         // prefix should be treated as a real repo.
         let path = std::path::Path::new("/Users/someone/Development/MyProject");
-        std::env::remove_var("VESTIGE_TEST");
-        assert!(!is_ephemeral_repo_root(path));
+        assert!(!ephemeral_repo_root_with_override(path, false));
     }
 
     #[test]
     fn ephemeral_check_honours_env_override() {
         let tmp = tempfile::TempDir::new().unwrap();
-        std::env::set_var("VESTIGE_TEST", "1");
         let real_looking = std::path::Path::new("/Users/x/y");
-        assert!(is_ephemeral_repo_root(real_looking));
-        std::env::remove_var("VESTIGE_TEST");
-        // Tempdir still ephemeral after env removal.
-        assert!(is_ephemeral_repo_root(tmp.path()));
+        assert!(ephemeral_repo_root_with_override(real_looking, true));
+        assert!(ephemeral_repo_root_with_override(tmp.path(), false));
     }
 }
