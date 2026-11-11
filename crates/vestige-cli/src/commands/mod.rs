@@ -2,6 +2,7 @@
 //! logic lives in [`capture`] and [`record`].
 
 pub mod approve;
+pub mod bootstrap;
 pub mod browse;
 pub mod candidate;
 pub mod capture;

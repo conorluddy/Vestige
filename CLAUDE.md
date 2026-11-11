@@ -52,7 +52,7 @@ cargo run -p vestige -- embeddings status                 # V0.1
 cargo run -p vestige -- search "..." --mode hybrid        # V0.1
 cargo run -p vestige -- skills install                    # writes to both .claude/skills/ and .agents/skills/
 cargo run -p vestige -- skills install --target agents    # only .agents/skills/ (agentskills.io / Codex)
-cargo run -p vestige -- skills list --json                # 16 skills + version
+cargo run -p vestige -- skills list --json                # 17 skills + version
 
 # V0.3 — provenance and trace commands
 cargo run -p vestige -- why <mem_or_cand_id>              # templated provenance walk for a memory or candidate

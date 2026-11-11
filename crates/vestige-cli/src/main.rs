@@ -29,6 +29,8 @@ struct Cli {
 /// All top-level subcommands. Each variant's `///` comment becomes the clap `--help` line.
 #[derive(Subcommand)]
 enum Command {
+    /// Seed the candidate inbox from repo history through a calling-agent brief.
+    Bootstrap(commands::bootstrap::BootstrapArgs),
     /// Initialise Vestige memory in the current repo.
     Init(commands::init::InitArgs),
     /// Show current Vestige project state.
@@ -117,6 +119,7 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
+        Command::Bootstrap(args) => commands::bootstrap::run(args),
         Command::Init(args) => commands::init::run(args),
         Command::Status(args) => commands::status::run(args),
         Command::Remember(args) => commands::remember::run(args),

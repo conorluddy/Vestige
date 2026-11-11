@@ -1,6 +1,6 @@
 # Vestige skills
 
-Ten agent skill definitions that mirror Vestige's user-facing memory CLI.
+Bundled agent skill definitions that mirror Vestige's user-facing memory CLI.
 Each skill is a self-contained `SKILL.md` (compliant with the
 [agentskills.io](https://agentskills.io) open standard) describing **when**
 an agent should fire it and **how** to invoke the underlying `vestige
@@ -50,6 +50,13 @@ vestige skills list --json
 Auto-memorise is the meta-capture skill. It categorises the moment, dedups
 against existing memory via `vestige recall`, and dispatches inline to the
 right `vestige <cmd> add`. One ambient line per capture; no narration.
+
+### Bootstrap from history
+
+`vestige-bootstrap` turns commits, merged PRs, and resolved issues into
+source-linked candidates for human review. `vestige bootstrap` emits the
+retrieval brief; the calling agent uses its own git/gh tools. `--dry-run`
+emits a preview that forbids candidate writes.
 
 ### Capture (explicit-cue triggers)
 
