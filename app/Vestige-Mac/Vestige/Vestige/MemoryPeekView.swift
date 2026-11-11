@@ -13,6 +13,7 @@ struct MemoryPeekView: View {
     @State private var recent: [MemoryCardDTO] = []
     @State private var results: [MemoryCardDTO] = []
     @State private var searching = false
+    @State private var errorMessage: String?
     @FocusState private var searchFocused: Bool
 
     private var activeProject: ProjectStatus? {
@@ -37,6 +38,9 @@ struct MemoryPeekView: View {
             .padding(8)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
 
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.red)
+            }
             if !query.isEmpty {
                 cardList(results, empty: "No matches.")
             } else {
@@ -78,14 +82,20 @@ struct MemoryPeekView: View {
 
     private func loadRecent() async {
         guard let project = activeProject else { recent = []; return }
-        recent = await MemoryBridge.recent(repoRoot: project.repoRoot)
+        do {
+            recent = try await MemoryBridge.recent(repoRoot: project.repoRoot)
+            errorMessage = nil
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func runSearch() {
         guard let project = activeProject else { return }
         searching = true
         Task {
-            results = await MemoryBridge.search(query, repoRoot: project.repoRoot)
+            do {
+                results = try await MemoryBridge.search(query, repoRoot: project.repoRoot)
+                errorMessage = nil
+            } catch { errorMessage = error.localizedDescription }
             searching = false
         }
     }

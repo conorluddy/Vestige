@@ -44,7 +44,7 @@ final class QuickCaptureController {
         openRequests &+= 1
     }
 
-    deinit {
+    isolated deinit {
         if let g = globalMonitor { NSEvent.removeMonitor(g) }
         if let l = localMonitor { NSEvent.removeMonitor(l) }
     }

@@ -85,7 +85,9 @@ struct MenuView: View {
                     openWindow(id: "quick-capture")
                 }
                 menuButton("Open browser…", systemImage: "list.bullet.rectangle", id: "open-browser") {
-                    actions.openBrowser()
+                    if let project = ActiveProject.resolve(from: status) {
+                        actions.openBrowser(repoRoot: project.repoRoot)
+                    }
                 }
                 menuButton("Open daemon log…", systemImage: "doc.plaintext", id: "open-log") {
                     actions.openLog()
@@ -246,7 +248,9 @@ struct MenuView: View {
             // EXP-2: one-click review when there are unreviewed candidates.
             if watcher.candidateBadge > 0 {
                 Button {
-                    actions.reviewCandidates()
+                    if let project = ActiveProject.resolve(from: currentStatus) {
+                        actions.reviewCandidates(repoRoot: project.repoRoot)
+                    }
                 } label: {
                     Label("\(watcher.candidateBadge) candidate\(watcher.candidateBadge == 1 ? "" : "s") to review",
                           systemImage: "tray.full")

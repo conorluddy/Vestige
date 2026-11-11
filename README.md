@@ -418,7 +418,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 through V0.5.4 are implemented, including menu-bar controls and both agent-driven and autonomous session ingestion. The Swift controls still need a macOS build validation pass. **V0.6 Memory Lifecycle** is in progress: revise/supersede, usage-aware retrieval, semantic dedup, and the review hygiene queue are implemented. Next are **V0.7 Directives**, **V0.8 REM consolidation**, **V0.9 Global preferences**, **V0.10 Federation**, and **V0.11 Memory dashboard**. The canonical roadmap ordering lives in `docs/src/data.js`; the PRD's version sections preserve the original ordering. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) remain unscheduled backlog.
+V0.5 through V0.5.4 are implemented, including menu-bar controls and both agent-driven and autonomous session ingestion. The macOS app builds and its Swift tests and live CLI/socket checks pass; click-through, global-hotkey, and login-item validation remain manual. **V0.6 Memory Lifecycle** is in progress: revise/supersede, usage-aware retrieval, semantic dedup, and the review hygiene queue are implemented. Next are **V0.7 Directives**, **V0.8 REM consolidation**, **V0.9 Global preferences**, **V0.10 Federation**, and **V0.11 Memory dashboard**. The canonical roadmap ordering lives in `docs/src/data.js`; the PRD's version sections preserve the original ordering. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) remain unscheduled backlog.
 
 ## Contributing
 

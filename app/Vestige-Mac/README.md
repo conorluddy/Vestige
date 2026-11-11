@@ -1,71 +1,73 @@
 # Vestige.app — macOS menu-bar UI
 
-A tiny SwiftUI menu-bar app that surfaces Vestige daemon health at a glance. Lives outside the Cargo workspace — built with Xcode, not `cargo`.
+A SwiftUI menu-bar app for the installed Vestige daemon. Built with Xcode,
+outside the Cargo workspace. Requires macOS 14 or later and a current Xcode
+with Swift 6.2 or later.
 
-## What it shows
-
-- Daemon pid, uptime, version, next scheduled job.
-- Per-project: name, last embed run (relative), pending embed backlog.
-- "Daemon not running" CTA with a one-click copy of `vestige daemon install`.
-- Stale-daemon badge when the status file stops being refreshed.
-
-Read-only MVP. Mutations (kick / register / reload) come in a follow-up.
-
-## Data source
-
-Reads `~/.vestige/daemon.status.json` (atomically rewritten by the daemon every ~5s). No socket access in the MVP.
-
-Override the path for local testing: `VESTIGE_STATUS_FILE=/tmp/fake.json open Vestige.app`.
-
-## Xcode setup
-
-Open `Vestige/Vestige.xcodeproj` in Xcode. The Swift sources next to it on disk (`Vestige/Vestige/*.swift`) need to be added to the project target:
-
-1. In the Xcode project navigator, right-click the `Vestige` group → **Add Files to "Vestige"…**
-2. Select every `.swift` file under `Vestige/Vestige/` except `VestigeApp.swift` (already in the project), and the `Assets.xcassets/MenuBarIcon.symbolset` folder. Make sure "Copy items if needed" is **off** and "Add to targets: Vestige" is **on**.
-3. In the target's **Info** tab, set `Application is agent (UIElement)` = `YES` (menu-bar-only, no Dock icon).
-4. Deployment target: macOS 14.0+.
-5. Build & run (⌘R). The 🧠 menu-bar icon should appear.
-
-## File layout
-
-```
-app/Vestige-Mac/
-├── README.md
-├── .gitignore
-└── Vestige/
-    ├── Vestige.xcodeproj/
-    └── Vestige/
-        ├── VestigeApp.swift          # @main MenuBarExtra
-        ├── DaemonStatus.swift        # Codable mirror of daemon JSON
-        ├── StatusFileWatcher.swift   # @Observable file-watch model
-        ├── MenuView.swift            # menu content
-        ├── ProjectRow.swift          # one row per project
-        ├── RelativeTime.swift        # "3m ago" formatter
-        └── Assets.xcassets/
-```
-
-`xcuserdata/` and `*.xcuserstate` are gitignored.
-
-## Building a Release .app
+## Build and run
 
 ```sh
-./app/Vestige-Mac/scripts/build-app.sh
+app/Vestige-Mac/scripts/build-app.sh
+open app/Vestige-Mac/dist/Vestige.app
 ```
 
-Outputs an unsigned `dist/Vestige.app`. Drag it to `/Applications` to install; first launch needs right-click → Open to bypass Gatekeeper (unsigned). Signing + notarisation + auto-update are deferred until there's a v1.0.
+The script builds an unsigned Release app. For a persistent installation,
+copy `dist/Vestige.app` to `/Applications`. Signing and notarization remain
+separate distribution work. The Xcode project includes all Swift sources,
+a shared `Vestige` scheme, and the `VestigeTests` target; no manual target
+setup is needed.
 
-## Tests
+## What it does
 
-Sources live at `Vestige/VestigeTests/` with a fixture under `Fixtures/`. Wire them into Xcode once:
+- Shows daemon health, pause state, scheduled jobs, projects, and inbox counts.
+- Sends kick, scan, pause/resume, and reload requests over the daemon socket.
+- Opens the memory browser and candidate inbox in the active repository.
+- Lists recent memories and searches through the installed CLI, including real
+  hybrid recall when a real embedding provider is configured.
+- Captures notes through `vestige note add`, scoped to the active project.
+- Offers daemon enable/disable and an explicit Start at login toggle.
 
-1. **File → New → Target… → macOS → Unit Testing Bundle.** Name it `VestigeTests`, target to test = `Vestige`.
-2. Delete the template `VestigeTests.swift` Xcode generates.
-3. Right-click the `VestigeTests` group → **Add Files to "Vestige"…** → select everything under `Vestige/VestigeTests/` (the two `*Tests.swift` files + the `Fixtures` folder). For `Fixtures`, choose **"Create folder references"** (not groups) so the JSON ships in the test bundle.
-4. ⌘U to run.
+The active project is the supervised project with the most recent memory.
+The capture window shows the destination before saving. The global ⌥⌘N
+hotkey uses macOS event monitoring and needs Accessibility permission;
+the menu's Quick capture action works without global key monitoring.
 
-Covers: `RelativeTime.short` (nil / just-now / formatter branches), `DaemonStatus` decode against a v1 fixture, and additive-field tolerance (catches Rust schema drift).
+Quit closes the app without stopping the daemon. Starting the app does not
+enable its login item unless explicitly requested with `vestige ui --login`.
 
-## Status file schema
+## Data and processes
 
-Source of truth: `crates/vestige-daemon/src/ipc/status_file.rs` (`DaemonStatus`). Evolve additively only — Codable in Swift tolerates unknown fields, but removed/renamed fields break this app.
+The status watcher reads `~/.vestige/daemon.status.json`, refreshed every
+five seconds. Override it with `VESTIGE_STATUS_FILE` when launching the binary
+directly. Controls use `~/.vestige/daemon.sock` (`VESTIGE_SOCKET` overrides it).
+Memory reads and writes use the installed CLI, resolving common Homebrew and
+Cargo binary paths. CLI failures appear in the memory peek instead of looking
+like empty results.
+
+No direct SQLite writes occur in the app. For real recall, install the
+feature-enabled CLI and configure the project's provider as described in
+[the embeddings guide](../../docs/embeddings.md).
+
+## Tests and validation
+
+```sh
+xcodebuild -project app/Vestige-Mac/Vestige/Vestige.xcodeproj \
+  -scheme Vestige -configuration Debug -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO test
+```
+
+Tests cover status decoding and schema tolerance, pause state, activity diffs,
+relative dates, and the CLI's array/list and envelope/search response shapes.
+
+The Release app builds with a macOS 14 deployment target. A live validation
+on the development Mac exercised the actual Swift bridge against the installed
+CLI and daemon: recent memories, real semantic search, status decoding, and
+pause/resume/reload. Quick capture was checked against an isolated database
+copy. The app also launched successfully.
+
+Click-through UI behavior, global hotkey permission handling, light/dark
+appearance, and login across a logout/reboot still require a manual pass.
+Accessibility automation was unavailable in the validation environment.
+
+The Rust status schema lives in
+`crates/vestige-daemon/src/ipc/status_file.rs`; evolve it additively.

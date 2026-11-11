@@ -169,7 +169,7 @@ final class StatusFileWatcher {
     /// Pure diff (EXP-1): did real work happen between two snapshots? `true` when any project
     /// completed a sweep (its `lastEmbedRun` advanced or `pendingEmbeds` dropped) or gained
     /// candidates. No-op refreshes (identical counts) return `false`.
-    static func activityDetected(previous: DaemonStatus, next: DaemonStatus) -> Bool {
+    nonisolated static func activityDetected(previous: DaemonStatus, next: DaemonStatus) -> Bool {
         var prevById: [String: ProjectStatus] = [:]
         for p in previous.projects { prevById[p.projectId] = p }
         for p in next.projects {
