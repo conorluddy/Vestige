@@ -109,6 +109,17 @@ failures do not prevent the remaining IDs from being processed. Partial failure
 returns a nonzero exit code after printing the outcomes. Deletion is soft and
 restorable. See [the lifecycle walkthrough](docs/v0.6.md).
 
+Seed a new installation from repository history with a calling agent:
+
+```bash
+vestige bootstrap --limit 20 --sources pr,issue,commit --json
+vestige bootstrap --dry-run
+```
+
+This emits a history-review brief; the agent retrieves sources and proposes
+source-linked candidates for human review. It never auto-approves imported
+history. See [bootstrap setup](docs/bootstrap.md).
+
 Candidate inbox (V0.2):
 
 ```bash
@@ -245,7 +256,7 @@ questions. Use `vestige_record_decision` when you make project-level calls.
 
 ## Skills (agent skills)
 
-Vestige ships with sixteen agent skills bundled into the binary, compliant with the [agentskills.io](https://agentskills.io) open standard. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
+Vestige ships with seventeen agent skills bundled into the binary, compliant with the [agentskills.io](https://agentskills.io) open standard. They turn the CLI into an ambient capability — the agent fires the right `vestige` command at the right moment without you having to prompt for it.
 
 Currently consumed by **Claude Code** (reads `.claude/skills/`) and **Codex** (reads `.agents/skills/`). `vestige init` writes to BOTH dirs by default so any compliant agent can pick them up.
 
@@ -269,7 +280,7 @@ vestige init --no-install-skills
 
 Re-running `skills install` is idempotent — files that match the bundled bytes are skipped. If you've hand-edited a SKILL.md, install hard-fails with a verbose drift report; pass `--force` to overwrite.
 
-The sixteen skills, by role:
+The seventeen skills, by role:
 
 | Role        | Skill                       | Wraps                          |
 |-------------|-----------------------------|--------------------------------|
@@ -288,6 +299,7 @@ The sixteen skills, by role:
 | Provenance  | `vestige-trace-list`        | `vestige trace`                |
 | Provenance  | `vestige-trace-show`        | `vestige trace <id>`           |
 | Provenance  | `vestige-trace-replay`      | `vestige trace replay <id>`    |
+| Ingest      | `vestige-bootstrap`         | `vestige bootstrap`            |
 | Ingest      | `vestige-scan-sessions`     | `vestige_scan_sessions` (MCP)  |
 
 `vestige-auto-memorise` is the headline one: it watches for memorable moments (decisions, preferences, open questions, TILs, gotchas) and captures them without an explicit "remember this" prompt. The other capture skills handle explicit cues; the retrieve and lifecycle skills give the agent durable read + edit affordances.

@@ -124,6 +124,7 @@ const VESTIGE = {
     { kind: 'provenance', name: 'vestige-trace-list',        wraps: 'vestige trace',                   desc: 'V0.3 — list recent query traces; filter by kind, caller, or date.' },
     { kind: 'provenance', name: 'vestige-trace-show',        wraps: 'vestige trace <id>',              desc: 'V0.3 — full detail for one trace: mode, provider, result IDs, scores.' },
     { kind: 'provenance', name: 'vestige-trace-replay',      wraps: 'vestige trace replay <id>',       desc: 'V0.3 — re-run a stored trace; diff results against current store. Read-only.' },
+    { kind: 'ingest',     name: 'vestige-bootstrap', wraps: 'vestige bootstrap', desc: 'Seed a new inbox with source-linked decisions from repository history; agent-driven, human-reviewed.' },
     { kind: 'ingest',     name: 'vestige-scan-sessions',     wraps: 'vestige_scan_sessions (MCP)',      desc: 'V0.5.3 — mine recent Claude Code / Codex transcripts into reviewable candidates. Opt-in.' },
   ],
 
@@ -182,6 +183,7 @@ const VESTIGE = {
     { group: 'provenance',  cmd: 'vestige trace replay trace_01',         desc: 'V0.3 — re-run a stored trace; diffs results against current store. Read-only.' },
     { group: 'operate',     cmd: 'vestige browse --tab tail',             desc: 'V0.4.1 — open the live memory/candidate stream directly.' },
     { group: 'operate',     cmd: 'vestige daemon status',                 desc: 'V0.5 — inspect LaunchAgent, socket, status file, and queued jobs.' },
+    { group: 'capture',     cmd: 'vestige bootstrap --dry-run', desc: 'Preview an agent brief for importing past decisions as candidates.' },
     { group: 'operate',     cmd: 'vestige daemon kick embed',             desc: 'V0.5 — trigger an embedding sweep without waiting for the next tick.' },
     { group: 'operate',     cmd: 'vestige ui',                            desc: 'V0.5.2 — launch the macOS menu-bar app from the CLI.' },
     { group: 'operate',     cmd: 'vestige daemon pause --for 1h',         desc: 'V0.5.2 — planned pause control for background scheduler ticks.' },
