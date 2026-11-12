@@ -103,6 +103,55 @@ fn new_candidate(project_id: ProjectId, body: &str, memory_type: MemoryType) -> 
 
 // === TESTS ===
 
+#[test]
+fn semantic_hints_limit_distinct_memories_across_multiple_representations() {
+    let (_tmp, mut store) = open_store();
+    let project = ProjectId::from_slug("distinct-hints");
+    seed_project(&mut store, &project);
+    let provider = FakeEmbeddingProvider::default();
+    let probe = "Unique proposal about observability tradeoffs";
+    let mut ids = Vec::new();
+    for body in ["Zebra habitat", "Otter habitat", "Lynx habitat"] {
+        let id = seed_memory(&mut store, &project, body, MemoryType::Decision);
+        for depth in [
+            RepresentationDepth::Summary,
+            RepresentationDepth::Compressed,
+        ] {
+            let representation_id = store.repr_id_for_depth(&id, depth).unwrap().unwrap();
+            let vector = provider.embed(probe).unwrap();
+            store
+                .record_embedding(&NewEmbedding {
+                    memory_id: &id,
+                    representation_id: &representation_id,
+                    representation_type: depth.as_str(),
+                    provider: provider.provider_name(),
+                    model: provider.model_name(),
+                    vector: &vector,
+                })
+                .unwrap();
+        }
+        ids.push(id);
+    }
+    let outcome = propose_candidate(
+        &mut store,
+        &project,
+        new_candidate(project.clone(), probe, MemoryType::Decision),
+        Some(&provider),
+    )
+    .unwrap();
+    let matches: std::collections::HashSet<_> = outcome
+        .similar_memories
+        .iter()
+        .map(|m| m.id.clone())
+        .collect();
+    assert_eq!(outcome.similar_memories.len(), 3);
+    assert_eq!(matches, ids.into_iter().collect());
+    assert!(outcome
+        .similar_memories
+        .iter()
+        .all(|m| m.matched_via == MatchedVia::Semantic));
+}
+
 /// Rigged-plumbing test (see module doc): a memory's stored body ("A") shares
 /// no FTS tokens with the candidate's probe text ("B"), so the lexical leg
 /// legitimately misses it. The memory's embedding is rigged to be

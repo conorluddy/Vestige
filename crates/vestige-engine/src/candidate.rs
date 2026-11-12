@@ -632,7 +632,9 @@ fn run_semantic_dedup_leg(
         dimensions: provider.dimensions(),
         memory_type: Some(proposed_type),
     };
-    let raw_hits = match store.nearest_neighbours(project_id, &query_vec, 3, &filter) {
+    let raw_hits = match crate::search::nearest_memory_hits(
+        store, project_id, &query_vec, 3, &filter,
+    ) {
         Ok(hits) => hits,
         Err(e) => {
             debug!(error = %e, "dedup probe: nearest-neighbour lookup failed; continuing without semantic similars");
