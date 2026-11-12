@@ -71,15 +71,22 @@ jobs:
           echo "Tag v$local_version exists — checking registry for partial-publish recovery."
           # Workspace dep order — must match the topological order used by
           # release-plz. Update if a new crate is added to the workspace.
-          crates=(vestige-core vestige-embed vestige-store vestige-config vestige-engine vestige-mcp vestige-daemon vestige)
+          crates=(vestige-core vestige-embed vestige-extract vestige-store vestige-config vestige-engine vestige-mcp vestige-daemon vestige)
           for crate in "${crates[@]}"; do
             local_version=$(cargo metadata --no-deps --format-version 1 \
               | jq -r --arg c "$crate" '.packages[] | select(.name == $c) | .version')
             # crates.io rejects requests without a User-Agent (returns 403).
-            registry_version=$(curl -sSf \
+            # A never-published crate returns 404: treat that as "no registry
+            # version" rather than letting `curl -f` abort the whole step —
+            # which is what jammed every run after vestige-daemon was added.
+            http_status=$(curl -sS -o /tmp/crate.json -w '%{http_code}' \
               -A "vestige-release-backfill (https://github.com/conorluddy/Vestige)" \
-              "https://crates.io/api/v1/crates/$crate" \
-              | jq -r '.crate.max_version // ""')
+              "https://crates.io/api/v1/crates/$crate")
+            case "$http_status" in
+              200) registry_version=$(jq -r '.crate.max_version // ""' /tmp/crate.json) ;;
+              404) registry_version="" ;;
+              *) echo "::error::crates.io returned HTTP $http_status for $crate"; exit 1 ;;
+            esac
             echo "$crate: local=$local_version registry=$registry_version"
             if [[ -z "$registry_version" ]]; then
               echo "::warning::$crate not on crates.io yet — first publish must come from a release-plz run"
