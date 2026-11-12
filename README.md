@@ -224,7 +224,7 @@ Verify it's wired:
 claude mcp list                 # vestige should appear
 ```
 
-Then start a session in that repo and the eleven tools are available: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision` (V0), `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate` (V0.2), `vestige_trace` (V0.3), and `vestige_scan_sessions` (V0.5.3 — opt-in session-log ingestion, gated by `mcp.allow_scan_sessions`).
+Then start a session in that repo and the twelve tools are available: `vestige_bootstrap`, `vestige_search`, `vestige_expand`, `vestige_get_project_context`, `vestige_record_observation`, `vestige_record_decision` (V0), `vestige_propose_candidate`, `vestige_list_candidates`, `vestige_get_candidate` (V0.2), `vestige_trace` (V0.3), `vestige_scan_sessions` (V0.5.3 — opt-in session-log ingestion, gated by `mcp.allow_scan_sessions`), and `vestige_revise_memory` (V0.6 — in-place revision, gated by `mcp.allow_revise`).
 
 Recommended agent flow:
 
@@ -318,7 +318,7 @@ These are tight constraints, not aspirations — they show up in `CODESTYLE.md` 
 
 ## What's shipped
 
-### V0.6 — Memory lifecycle (in progress)
+### V0.6 — Memory lifecycle
 
 - `vestige revise <id> <body>` updates content while preserving its handle and journalling the prior body.
 - Capture and approval accept `--supersedes <id>`, linking the old memory to its replacement through reversible soft deletion.
@@ -418,7 +418,7 @@ All 12 PRD §23 Definition-of-Done items are shipped:
 
 ## Roadmap
 
-V0.5 through V0.5.4 are implemented, including menu-bar controls and both agent-driven and autonomous session ingestion. The Swift controls still need a macOS build validation pass. **V0.6 Memory Lifecycle** is in progress: revise/supersede, usage-aware retrieval, semantic dedup, and the review hygiene queue are implemented. Next are **V0.7 Directives**, **V0.8 REM consolidation**, **V0.9 Global preferences**, **V0.10 Federation**, and **V0.11 Memory dashboard**. The canonical roadmap ordering lives in `docs/src/data.js`; the PRD's version sections preserve the original ordering. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) remain unscheduled backlog.
+V0.5 through V0.5.4 are implemented, including menu-bar controls and both agent-driven and autonomous session ingestion. The Swift controls still need a macOS build validation pass. **V0.6 Memory Lifecycle** is shipped: revise/supersede, usage-aware retrieval, hybrid-default recall, semantic dedup, and the review hygiene queue. Next are **V0.7 Directives**, **V0.8 REM consolidation**, **V0.9 Global preferences**, **V0.10 Federation**, and **V0.11 Memory dashboard**. The canonical roadmap ordering lives in `docs/src/data.js`; the PRD's version sections preserve the original ordering. Daemon-integration items (MCP-talks-to-daemon RPC, Linux systemd `--user` service) remain unscheduled backlog.
 
 ## Contributing
 

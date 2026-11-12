@@ -1,6 +1,6 @@
 ---
 name: vestige-recall
-description: 'Search Vestige memory before a decision, refactor, or library choice — any time you suspect "we already discussed this". Fire when the user says "have we decided this?", "what did we say about X?", "look up our notes on Y", "is this already settled?", "search memory for Z". Lexical (BM25) by default; `--hybrid` for merged lexical + semantic recall (requires `vestige embed --all`); `--semantic` for cosine-only. Returns ranked compact cards with `mem_<ULID>` handles. Use `vestige-show <id>` to expand.'
+description: 'Search Vestige memory before a decision, refactor, or library choice — any time you suspect "we already discussed this". Fire when the user says "have we decided this?", "what did we say about X?", "look up our notes on Y", "is this already settled?", "search memory for Z". Hybrid (lexical + semantic) by default, falling back to lexical with a warning until `vestige embed --all` has run; `--lexical` for exact keywords, IDs and error strings; `--semantic` for cosine-only. Returns ranked compact cards with `mem_<ULID>` handles. Use `vestige-show <id>` to expand.'
 ---
 
 # Recall prior memory
@@ -23,10 +23,11 @@ Tie-breaker vs `vestige-context`: pack is broad, recall is narrow. If you want t
 vestige recall "<query>" --json
 ```
 
-- **`--hybrid`**: merged lexical + semantic recall. Best quality when the project has run `vestige embed --all` and a real embedding provider is configured. Falls back to lexical with a warning if embeddings are missing.
+- **Default mode is hybrid**: merged lexical + semantic recall. Best quality when the project has run `vestige embed --all` and a real embedding provider is configured. Falls back to lexical with a warning if embeddings are missing.
+- **`--lexical`**: BM25 only. Use for exact names, IDs, commands and error strings.
 - **`--limit <n>`**: default is the project's `[recall] max_results` (typically 8). Tighten for focused queries.
 - **`--type <decision|note|preference|question>`**: narrow to one memory type.
-- **`--score-parts`** (with `--hybrid`): include FTS / vector / importance / type-boost breakdown in the JSON for explainability.
+- **`--score-parts`** (automatic in hybrid mode): include FTS / vector / importance / type-boost breakdown in the JSON for explainability.
 
 Avoid `--semantic` alone — it has no fallback when embeddings aren't ready. Use `--hybrid` instead; it degrades gracefully.
 
@@ -49,4 +50,4 @@ For each relevant hit, decide whether `one_liner` is enough or you need to expan
 
 ## Idempotence & dedup
 
-Read-only — safe to re-run. Vary the query phrasing on a miss before concluding nothing matches; lexical recall is keyword-sensitive, and `--hybrid` (when embeddings exist) catches paraphrases lexical misses.
+Read-only — safe to re-run. Vary the query phrasing on a miss before concluding nothing matches; lexical recall is keyword-sensitive, and the default hybrid mode (when embeddings exist) catches paraphrases lexical misses.
