@@ -19,7 +19,15 @@ git_release_name = "v{{ version }}"
 # is a no-op; any whose local version is ahead gets published. Partial
 # publishes self-heal on the next merge instead of jamming the pipeline.
 release_always = true
-git_tag_enable = true
+# Tags are off by default and enabled only for the `vestige` binary crate
+# (see the [[package]] override at the bottom). Every crate shares the one
+# `v{{ version }}` tag name, so with tagging on for all of them the first
+# crate published created the tag and the second failed with "Reference
+# already exists", aborting the release after one or two crates (v0.5.0 and
+# v0.6.0 both jammed this way). `vestige` publishes last, so the tag — and
+# the cargo-dist + Homebrew workflows it triggers — now fires only once the
+# whole chain is on crates.io.
+git_tag_enable = false
 # cargo-dist owns the GitHub Release (it builds binaries and attaches them
 # in the same job that creates the release). release-plz just pushes the tag;
 # the release.yml workflow takes over from the tag.
@@ -51,3 +59,7 @@ commit_parsers = [
   { message = "^ci", skip = true },
   { message = "^style", skip = true },
 ]
+
+[[package]]
+name = "vestige"
+git_tag_enable = true
