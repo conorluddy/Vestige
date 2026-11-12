@@ -88,9 +88,12 @@ jobs:
               *) echo "::error::crates.io returned HTTP $http_status for $crate"; exit 1 ;;
             esac
             echo "$crate: local=$local_version registry=$registry_version"
+            # A crate that has never been published is the worst partial-
+            # publish case (everything downstream of it is blocked), so
+            # publish it here rather than skipping: `cargo publish` handles
+            # first publishes fine.
             if [[ -z "$registry_version" ]]; then
-              echo "::warning::$crate not on crates.io yet — first publish must come from a release-plz run"
-              continue
+              echo "::notice::$crate not on crates.io yet — publishing for the first time"
             fi
             if [[ "$local_version" == "$registry_version" ]]; then
               continue
