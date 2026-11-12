@@ -8,12 +8,26 @@ cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "powershell"]
-# Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+installers = ["shell"]
+# Target platforms to build apps for (Rust target-triple syntax).
+# Windows is not built: the daemon and its CLI controller use Unix sockets,
+# Unix signals and libc::getuid with no Windows implementation, so the
+# x86_64-pc-windows-msvc job failed every release since V0.5 and took the
+# whole GitHub Release down with it. Re-add it (and the powershell installer)
+# once that code is cfg-gated.
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Where to host releases
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+# Temporary: build real artifacts on this PR to prove every target compiles
+# before tagging. Reverted to the default ("plan") before merge.
+pr-run-mode = "upload"
+
+# dist 0.31 defaults aarch64-apple-darwin to `macos-14`, which GitHub no
+# longer provisions ("configuration 'macos-14-arm64-us-default' is not
+# supported"), so that job was cancelled on the v0.6.0 tag.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-latest"
