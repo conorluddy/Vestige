@@ -18,6 +18,9 @@ include = [
     "../../README.md",
     "../../CHANGELOG.md",
     "skills/**",
+    # Embedded by `include_str!` in commands/daemon/install.rs — without it
+    # the published crate does not compile.
+    "templates/**",
 ]
 
 [[bin]]
