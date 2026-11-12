@@ -22,9 +22,6 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
-# Temporary: build real artifacts on this PR to prove every target compiles
-# before tagging. Reverted to the default ("plan") before merge.
-pr-run-mode = "upload"
 
 # dist 0.31 defaults aarch64-apple-darwin to `macos-14`, which GitHub no
 # longer provisions ("configuration 'macos-14-arm64-us-default' is not
